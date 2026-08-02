@@ -21,6 +21,9 @@ Position = tuple[int, int]
 Move = Literal["N", "S", "E", "W", "STAY"]
 """The complete legal action set. Diagonal movement does not exist."""
 
+Agent = Literal["cop", "thief"]
+"""Which side is acting."""
+
 MOVES: tuple[Move, ...] = get_args(Move)
 """All moves, for iteration. Order is stable so policies stay deterministic."""
 

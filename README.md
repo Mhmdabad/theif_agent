@@ -179,9 +179,15 @@ report records **where** the contradiction was found, **what** was chosen, and
 
 ## Team
 
-<!-- TODO: members and the 8-character group identifier (issue #7). -->
+| Field | Value |
+| --- | --- |
+| Group identifier | `s82kma9e` |
 
-*To be completed.*
+<!-- TODO: member names and student IDs. The group identifier above is the
+     8-character code used in every declaration and result JSON, and is what
+     the lecturer uses to attribute automated reports to this group.       -->
+
+*Member names to be completed.*
 
 ---
 

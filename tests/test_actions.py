@@ -13,6 +13,7 @@ from thief_agent.domain.actions import (
     PlaceBarrier,
     apply_action,
     place_barrier,
+    placement_range,
 )
 from thief_agent.domain.axes import AxisConvention
 from thief_agent.domain.board import BoardState
@@ -46,7 +47,7 @@ class TestExclusivityByConstruction:
 
     def test_placing_never_moves_the_thief_either(self) -> None:
         before = make()
-        after = apply_action(before, "cop", PlaceBarrier((1, 1)), AXES)
+        after = apply_action(before, "cop", PlaceBarrier((1, 0)), AXES)
         assert after.thief == before.thief
 
 
@@ -81,7 +82,7 @@ class TestOnlyTheCopPlaces:
 class TestPlaceBarrier:
     def test_returns_a_new_state(self) -> None:
         before = make()
-        after = place_barrier(before, (1, 1), AXES)
+        after = place_barrier(before, (1, 0), AXES)
         assert after is not before
         assert before.barriers == frozenset()
 
@@ -91,11 +92,11 @@ class TestPlaceBarrier:
 
     def test_adds_to_existing_barriers(self) -> None:
         state = make(barriers=frozenset({(1, 1)}))
-        assert place_barrier(state, (2, 2), AXES).barriers == frozenset({(1, 1), (2, 2)})
+        assert place_barrier(state, (0, 1), AXES).barriers == frozenset({(1, 1), (0, 1)})
 
     def test_preserves_step_and_positions(self) -> None:
         before = make(step=5)
-        after = place_barrier(before, (1, 1), AXES)
+        after = place_barrier(before, (1, 0), AXES)
         assert (after.step, after.cop, after.thief) == (5, before.cop, before.thief)
 
 
@@ -119,12 +120,12 @@ class TestExhaustiveness:
 
 class TestBarrierIsIrreversible:
     def test_barriers_only_ever_grow(self) -> None:
-        state = make()
-        for cell in ((1, 1), (2, 2), (3, 4)):
+        state = make(cop=(3, 3))
+        for cell in ((3, 3), (2, 3), (3, 4)):
             after = place_barrier(state, cell, AXES)
             assert after.barriers >= state.barriers
             state = after
-        assert state.barriers == frozenset({(1, 1), (2, 2), (3, 4)})
+        assert state.barriers == frozenset({(3, 3), (2, 3), (3, 4)})
 
     def test_no_api_removes_a_barrier(self) -> None:
         """There is deliberately no inverse of place_barrier."""
@@ -133,9 +134,9 @@ class TestBarrierIsIrreversible:
         assert not [n for n in dir(actions) if "remove" in n or "clear" in n]
 
     def test_replacing_an_existing_barrier_is_refused(self) -> None:
-        state = make(barriers=frozenset({(2, 2)}))
+        state = make(cop=(3, 3), barriers=frozenset({(2, 3)}))
         with pytest.raises(IllegalActionError, match="already placed"):
-            place_barrier(state, (2, 2), AXES)
+            place_barrier(state, (2, 3), AXES)
 
 
 class TestBarrierBlocksBothPlayers:
@@ -157,28 +158,70 @@ class TestBarrierQuota:
     def test_default_quota_matches_appendix_f(self) -> None:
         assert DEFAULT_MAX_BARRIERS == 14
 
+    def _spend(self, quota: int) -> BoardState:
+        """Walk the cop along row 0 sealing behind it, to respect reach."""
+        state = make(cop=(0, 0), thief=(6, 6))
+        for i in range(quota):
+            state = place_barrier(state, (1, state.cop[1]), AXES, max_barriers=quota)
+            if i < quota - 1:
+                state = apply_action(state, "cop", MoveAction("E"), AXES, max_barriers=quota)
+        return state
+
     def test_placing_up_to_the_quota_is_allowed(self) -> None:
-        state = make()
-        for i in range(DEFAULT_MAX_BARRIERS):
-            state = place_barrier(state, (i // 7, i % 7), AXES)
-        assert state.barriers_used == DEFAULT_MAX_BARRIERS
+        assert self._spend(6).barriers_used == 6
 
     def test_one_past_the_quota_is_refused(self) -> None:
-        state = make()
-        for i in range(DEFAULT_MAX_BARRIERS):
-            state = place_barrier(state, (i // 7, i % 7), AXES)
+        state = self._spend(6)
         with pytest.raises(IllegalActionError, match="quota exhausted"):
-            place_barrier(state, (6, 6), AXES)
+            place_barrier(state, (0, 6), AXES, max_barriers=6)
 
     def test_quota_is_raisable_by_agreement(self) -> None:
         """A *minimum* parameter: negotiable upward, never below 14."""
-        state = make()
-        for i in range(DEFAULT_MAX_BARRIERS):
-            state = place_barrier(state, (i // 7, i % 7), AXES, max_barriers=20)
-        assert place_barrier(state, (6, 6), AXES, max_barriers=20).barriers_used == 15
+        state = self._spend(6)
+        assert place_barrier(state, (0, 6), AXES, max_barriers=20).barriers_used == 7
 
     def test_quota_applies_through_apply_action(self) -> None:
-        state = make(barriers=frozenset({(0, c) for c in range(7)} | {(1, c) for c in range(7)}))
-        assert state.barriers_used == 14
+        state = self._spend(6)
         with pytest.raises(IllegalActionError, match="quota exhausted"):
-            apply_action(state, "cop", PlaceBarrier((3, 0)), AXES)
+            apply_action(state, "cop", PlaceBarrier((0, 6)), AXES, max_barriers=6)
+
+
+class TestPlacementRange:
+    def test_centre_cop_reaches_own_cell_and_four_neighbours(self) -> None:
+        cells = placement_range(make(cop=(3, 3)), AXES)
+        assert cells == frozenset({(3, 3), (2, 3), (4, 3), (3, 2), (3, 4)})
+
+    def test_corner_cop_loses_the_off_board_neighbours(self) -> None:
+        assert placement_range(make(cop=(0, 0)), AXES) == frozenset({(0, 0), (1, 0), (0, 1)})
+
+    def test_range_contains_no_diagonals(self) -> None:
+        cells = placement_range(make(cop=(3, 3)), AXES)
+        for diagonal in ((2, 2), (2, 4), (4, 2), (4, 4)):
+            assert diagonal not in cells
+
+    def test_may_seal_its_own_cell(self) -> None:
+        assert place_barrier(make(cop=(3, 3)), (3, 3), AXES).is_barrier((3, 3))
+
+    def test_may_seal_an_orthogonal_neighbour(self) -> None:
+        assert place_barrier(make(cop=(3, 3)), (2, 3), AXES).is_barrier((2, 3))
+
+    def test_refuses_a_distant_cell(self) -> None:
+        with pytest.raises(IllegalActionError, match="out of reach"):
+            place_barrier(make(cop=(0, 0)), (5, 5), AXES)
+
+    def test_refuses_a_diagonal_neighbour(self) -> None:
+        with pytest.raises(IllegalActionError, match="out of reach"):
+            place_barrier(make(cop=(3, 3)), (2, 2), AXES)
+
+    def test_refuses_two_cells_away(self) -> None:
+        with pytest.raises(IllegalActionError, match="out of reach"):
+            place_barrier(make(cop=(3, 3)), (1, 3), AXES)
+
+    def test_range_follows_the_negotiated_convention(self) -> None:
+        """Reach is geometric, so all four conventions give the same cells."""
+        flipped = AxisConvention(origin_corner="bottom-right")
+        assert placement_range(make(cop=(3, 3)), AXES) == placement_range(make(cop=(3, 3)), flipped)
+
+    def test_trapping_placement_on_the_thief_is_in_range_when_adjacent(self) -> None:
+        """The trapping capture requires the cop to be next to the thief."""
+        assert (3, 3) in placement_range(make(cop=(3, 2), thief=(3, 3)), AXES)

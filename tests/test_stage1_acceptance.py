@@ -121,13 +121,13 @@ class TestRulesAreEnforced:
         """
         spent = frozenset({(0, c) for c in range(7)} | {(2, c) for c in range(6)})
         assert len(spent) == DEFAULT_MAX_BARRIERS - 1
-        state = start(cop=(1, 5), thief=(6, 6), barriers=spent)
+        state = start(cop=(1, 6), thief=(6, 6), barriers=spent)
 
         state = apply_action(state, "cop", PlaceBarrier((2, 6)), AXES)
         assert state.barriers_used == DEFAULT_MAX_BARRIERS
 
         with pytest.raises(IllegalActionError, match="quota exhausted"):
-            apply_action(state, "cop", PlaceBarrier((1, 6)), AXES)
+            apply_action(state, "cop", PlaceBarrier((1, 5)), AXES)
 
     def test_legal_moves_never_offers_an_inapplicable_move(self) -> None:
         """Every move offered must actually apply, from many positions."""

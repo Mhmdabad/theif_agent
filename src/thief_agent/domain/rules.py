@@ -20,6 +20,8 @@ On ``STAY`` and enclosure
     neighbours, not the emptiness of this list.
 """
 
+from dataclasses import replace
+
 from .axes import AxisConvention
 from .board import MOVES, Agent, BoardState, Move, Position
 
@@ -67,3 +69,39 @@ def blocked_neighbours(state: BoardState, pos: Position, axes: AxisConvention) -
     condition the enclosure capture is defined on.
     """
     return sum(not state.is_free(target_of(pos, move, axes)) for move in MOVES if move != "STAY")
+
+
+class IllegalMoveError(ValueError):
+    """Raised when a move violates the physics both peers enforce."""
+
+
+def apply_move(state: BoardState, agent: Agent, move: Move, axes: AxisConvention) -> BoardState:
+    """Apply ``move`` and return a **new** state.
+
+    Never mutates: the Commit hash is taken over a state snapshot, so a state
+    that changed in place would break integrity verification.
+
+    The step counter is deliberately untouched. A step is a *full* turn — both
+    sides having moved — so advancing it belongs to turn management rather than
+    to a single agent's action.
+
+    Raises:
+        IllegalMoveError: if the move is not legal from this state.
+    """
+    if not is_legal_move(state, agent, move, axes):
+        origin = position_of(state, agent)
+        target = target_of(origin, move, axes)
+        raise IllegalMoveError(f"{agent} cannot play {move}: {origin} -> {target}")
+    destination = target_of(position_of(state, agent), move, axes)
+    if agent == "cop":
+        return replace(state, cop=destination)
+    return replace(state, thief=destination)
+
+
+def advance_turn(state: BoardState) -> BoardState:
+    """Return a new state with the turn counter incremented.
+
+    Called once both sides have moved. Scent decay and the survival count are
+    both defined on full turns, so this is the boundary they key off.
+    """
+    return replace(state, step=state.step + 1)

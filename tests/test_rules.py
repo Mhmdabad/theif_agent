@@ -5,6 +5,9 @@ import pytest
 from thief_agent.domain.axes import ORIGIN_CORNERS, AxisConvention, OriginCorner
 from thief_agent.domain.board import MOVES, Agent, BoardState, Move
 from thief_agent.domain.rules import (
+    IllegalMoveError,
+    advance_turn,
+    apply_move,
     blocked_neighbours,
     is_legal_move,
     legal_moves,
@@ -116,3 +119,68 @@ class TestIsLegalMove:
             assert is_legal_move(state, "cop", move, AXES) == (
                 move in legal_moves(state, "cop", AXES)
             )
+
+
+class TestApplyMove:
+    def test_returns_a_new_state_and_leaves_the_original(self) -> None:
+        before = make()
+        after = apply_move(before, "thief", "N", AXES)
+        assert after is not before
+        assert before.thief == (3, 3)
+        assert after.thief == (2, 3)
+
+    def test_moves_the_named_agent_only(self) -> None:
+        after = apply_move(make(), "cop", "S", AXES)
+        assert after.cop == (1, 0)
+        assert after.thief == (3, 3)
+
+    def test_stay_yields_an_equal_state(self) -> None:
+        assert apply_move(make(), "thief", "STAY", AXES) == make()
+
+    def test_preserves_barriers_and_step(self) -> None:
+        state = make(barriers=frozenset({(5, 5)}), step=4)
+        after = apply_move(state, "thief", "E", AXES)
+        assert after.barriers == state.barriers
+        assert after.step == 4
+
+    def test_does_not_advance_the_step_counter(self) -> None:
+        """A step is a full turn, so a single agent's move must not count one."""
+        assert apply_move(make(), "cop", "S", AXES).step == 0
+
+    def test_rejects_moving_off_the_board(self) -> None:
+        with pytest.raises(IllegalMoveError, match="cop cannot play N"):
+            apply_move(make(cop=(0, 0)), "cop", "N", AXES)
+
+    def test_rejects_moving_into_a_barrier(self) -> None:
+        state = make(thief=(3, 3), barriers=frozenset({(2, 3)}))
+        with pytest.raises(IllegalMoveError, match="thief cannot play N"):
+            apply_move(state, "thief", "N", AXES)
+
+    def test_cop_may_move_onto_the_thief(self) -> None:
+        after = apply_move(make(cop=(3, 2), thief=(3, 3)), "cop", "E", AXES)
+        assert after.cop == after.thief == (3, 3)
+
+    def test_honours_the_negotiated_convention(self) -> None:
+        flipped = AxisConvention(origin_corner="bottom-left")
+        assert apply_move(make(), "thief", "N", AXES).thief == (2, 3)
+        assert apply_move(make(), "thief", "N", flipped).thief == (4, 3)
+
+    def test_every_legal_move_applies_without_raising(self) -> None:
+        state = make(barriers=frozenset({(2, 3)}))
+        for move in legal_moves(state, "thief", AXES):
+            apply_move(state, "thief", move, AXES)
+
+
+class TestAdvanceTurn:
+    def test_increments_the_step(self) -> None:
+        assert advance_turn(make(step=7)).step == 8
+
+    def test_returns_a_new_state_and_changes_nothing_else(self) -> None:
+        before = make(barriers=frozenset({(1, 1)}))
+        after = advance_turn(before)
+        assert after is not before
+        assert (after.cop, after.thief, after.barriers) == (
+            before.cop,
+            before.thief,
+            before.barriers,
+        )

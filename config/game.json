@@ -1,6 +1,6 @@
 {
   "schema_version": "1.2",
-  "agreed_between": ["TBD-our-group-id", "TBD-opponent-group-id"],
+  "agreed_between": ["s82kma9e", "TBD-opponent-group-id"],
   "board_and_agents": {
     "grid_size": 7,
     "num_agents": 2,

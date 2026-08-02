@@ -16,8 +16,8 @@
 version = "1.10"
 
 [game]
-group_name = "TBD"                 # issue #7
-group_id   = "TBD"                 # issue #7 — 8 characters, no spaces
+group_name = "s82kma9e"
+group_id   = "s82kma9e"                # 8 characters, no spaces
 sub_game_number = 1
 members = []                       # issue #7
 repos = { cop = "https://github.com/Mhmdabad/police_agent", thief = "https://github.com/Mhmdabad/theif_agent" }

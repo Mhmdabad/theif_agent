@@ -5,10 +5,12 @@ from thief_agent.domain.axes import ORIGIN_CORNERS, AxisConvention
 from thief_agent.domain.board import BoardState
 from thief_agent.domain.outcome import (
     DEFAULT_SURVIVAL_THRESHOLD,
+    TechnicalLoss,
     is_capture_by_overlap,
     is_enclosure_capture,
     is_survival,
     is_trapping_capture,
+    technical_loss_scores,
 )
 from thief_agent.domain.rules import advance_turn, apply_move, legal_moves
 
@@ -161,3 +163,36 @@ class TestSurvival:
         state = apply_move(state, "thief", "N", AXES)
         assert not is_survival(state, AXES)
         assert is_survival(advance_turn(state), AXES)
+
+
+class TestTechnicalLoss:
+    def test_scores_zero_for_both_sides(self) -> None:
+        assert technical_loss_scores() == (0, 0)
+
+    def test_symmetry_removes_the_incentive_to_stall(self) -> None:
+        """Neither side can profit from the other's failure."""
+        cop, thief = technical_loss_scores()
+        assert cop == thief == 0
+
+    def test_covers_the_four_causes_the_rulebook_names(self) -> None:
+        assert {c.value for c in TechnicalLoss} == {
+            "crash",
+            "timeout",
+            "forgery",
+            "illegal_action",
+        }
+
+    def test_causes_are_distinct(self) -> None:
+        assert len(set(TechnicalLoss)) == 4
+
+    def test_is_not_derived_from_the_board(self) -> None:
+        """A technical loss is a protocol event, so no state predicate exists."""
+        import thief_agent.domain.outcome as outcome
+
+        assert not hasattr(outcome, "is_technical_loss")
+
+    def test_a_winning_board_still_scores_zero(self) -> None:
+        """A dropped tunnel destroys a won position as surely as a lost one."""
+        won = make(step=40)
+        assert is_survival(won, AXES)
+        assert technical_loss_scores() == (0, 0)

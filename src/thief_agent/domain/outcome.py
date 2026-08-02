@@ -8,6 +8,8 @@ team outright. The honest answer is therefore computed here, directly from the
 state, so that no code path exists which could produce a different one.
 """
 
+from enum import Enum
+
 from .axes import AxisConvention
 from .board import BoardState
 from .rules import blocked_neighbours
@@ -79,3 +81,35 @@ def is_survival(
     if is_enclosure_capture(state, axes):
         return False
     return state.step >= survival_threshold
+
+
+class TechnicalLoss(Enum):
+    """Why a sub-game was voided.
+
+    A technical loss scores **zero for both sides**, regardless of the board.
+    That symmetry is deliberate: it removes any incentive to win by stalling,
+    and it means a dropped tunnel destroys a winning position just as surely as
+    a losing one. Protocol hygiene is therefore worth more than any single
+    board advantage.
+    """
+
+    CRASH = "crash"
+    """A peer stopped responding or exited unexpectedly."""
+
+    TIMEOUT = "timeout"
+    """A deadline expired. A missed deadline is a failure, not a reason to wait."""
+
+    FORGERY = "forgery"
+    """A commitment did not match its reveal. Proven tampering, no appeal."""
+
+    ILLEGAL_ACTION = "illegal_action"
+    """An action violated the physics both peers enforce."""
+
+
+def technical_loss_scores() -> tuple[int, int]:
+    """Points awarded on a technical loss, as ``(cop, thief)``.
+
+    Zero for both. Not a parameter: Appendix F marks it **fixed**, and
+    deviating from a fixed value disqualifies the team.
+    """
+    return (0, 0)

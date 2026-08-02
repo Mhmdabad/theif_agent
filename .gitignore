@@ -1,0 +1,50 @@
+# ---------------------------------------------------------------------------
+# SECRETS — never commit. Rulebook Appendix A + Appendix E rules 39-40.
+# A secret pushed even once is permanently compromised: removing it from the
+# current tree is NOT enough, it stays in git history and the credentials must
+# be rotated in the Google Cloud console. This applies even to a private repo
+# shared only with the lecturer.
+# ---------------------------------------------------------------------------
+credentials.json
+token.json
+token*.json
+client_secret*.json
+.env
+*.env
+config/**/secrets*
+*.pem
+*.key
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# ---------------------------------------------------------------------------
+# Tooling caches and coverage
+# ---------------------------------------------------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# ---------------------------------------------------------------------------
+# Editors / OS
+# ---------------------------------------------------------------------------
+.idea/
+.vscode/
+.DS_Store
+
+# NOTE: match artefacts are deliberately NOT ignored. Per-match config files
+# must be committed (Appendix F, mandatory rule 4), and match logs are the
+# evidence the Replay App verifies.

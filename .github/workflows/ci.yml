@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  quality-gates:
+    name: Quality gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Official uv installer; matches the .python-version pin (3.12).
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install workspace (uv sync)
+        run: uv sync
+
+      - name: Lint (ruff check)
+        run: uv run ruff check .
+
+      - name: Format check (ruff format)
+        run: uv run ruff format --check .
+
+      - name: Type check (mypy)
+        run: uv run mypy
+
+      # Coverage threshold is config-driven: the ≥85% gate lives in
+      # [tool.coverage.report].fail_under in pyproject.toml (task 0.9), so this
+      # step carries no hard-coded number that could diverge from config.
+      - name: Tests + coverage (pytest, fail under 85%)
+        run: uv run pytest --cov --cov-report=term-missing
+
+      # Task 0.10 drops in scripts/check_line_limit.py; until then this skips.
+      - name: 150-line file check
+        run: |
+          if [ -f scripts/check_line_limit.py ]; then
+            uv run python scripts/check_line_limit.py
+          else
+            echo "line-limit check pending task 0.10 (scripts/check_line_limit.py absent)"
+          fi
+
+      # Task 0.11 wires the real secret scan; until then this skips.
+      - name: Secret scan
+        run: |
+          if [ -f scripts/secret_scan.py ]; then
+            uv run python scripts/secret_scan.py
+          else
+            echo "secret scan pending task 0.11 (scanner absent)"
+          fi

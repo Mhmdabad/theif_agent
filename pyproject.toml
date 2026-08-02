@@ -1,0 +1,53 @@
+[project]
+name = "thief-agent"
+version = "0.1.0"
+description = "THIEF agent - Distributed Cops-and-Robbers over a peer-to-peer network"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "pytest>=8",
+    "pytest-cov>=5",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/thief_agent"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+# Ruff formats Python blocks embedded in Markdown. Documentation must not be
+# rewritten by the formatter: `project-book/` is a faithful transcription of the
+# course rulebook (hash-verified against the source PDF) and the PRD snippets are
+# deliberately illustrative rather than runnable.
+extend-exclude = ["*.md", "project-book", "docs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ANN"]
+
+[tool.mypy]
+files = ["src", "tests"]
+python_version = "3.12"
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+
+[tool.coverage.report]
+# Single source of truth for the coverage gate (CI carries no hard-coded number).
+fail_under = 85
+show_missing = true

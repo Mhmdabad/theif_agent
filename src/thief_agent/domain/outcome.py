@@ -52,3 +52,30 @@ def is_enclosure_capture(state: BoardState, axes: AxisConvention) -> bool:
     only two barriers rather than four.
     """
     return blocked_neighbours(state, state.thief, axes) == 4
+
+
+DEFAULT_SURVIVAL_THRESHOLD = 35
+"""Appendix F survival threshold. A *minimum*: raisable by agreement only."""
+
+
+def is_survival(
+    state: BoardState,
+    axes: AxisConvention,
+    survival_threshold: int = DEFAULT_SURVIVAL_THRESHOLD,
+) -> bool:
+    """Whether the thief has outlasted the clock.
+
+    This agent's win condition: surviving ``survival_threshold`` valid steps
+    without being captured. A *step* is a full turn — both sides having moved —
+    which is why :func:`~.rules.advance_turn` is separate from applying a move.
+    Counting half-moves would reach the threshold in half the required turns and
+    claim a win the thief had not earned.
+
+    Survival is only reached if no capture has fired, so the capture conditions
+    are checked here rather than left to the caller to remember.
+    """
+    if is_capture_by_overlap(state) or is_trapping_capture(state):
+        return False
+    if is_enclosure_capture(state, axes):
+        return False
+    return state.step >= survival_threshold

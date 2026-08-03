@@ -1,0 +1,103 @@
+"""The peer's mailboxes and the four tools that fill them.
+
+The reference model is fire-and-forget: the opponent pushes a message into our
+server, the tool enqueues it and returns ``{"ok": True}`` immediately, and our
+runtime drains the queue on its own schedule. Replies travel as separate pushes
+into *their* server, not as return values.
+
+That decoupling is why a peer can be slow without being stalled — accepting a
+message costs nothing, so a busy runtime never makes the opponent's send time
+out. It also means an inbound message can never block on our decision-making,
+which is where the language-model deadline lives.
+
+Validation happens **at the door**, before anything reaches a queue. A malformed
+message is refused and recorded rather than enqueued for a consumer that would
+have to handle it mid-turn.
+"""
+
+import queue
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any, Protocol
+
+from .protocol import AuditPayload, ControlMessage, TurnMessage
+from .validation import InvalidPayloadError, require_mapping
+
+ACK: dict[str, Any] = {"ok": True}
+"""What every tool returns on acceptance. The reference expects exactly this."""
+
+TOOL_NAMES: tuple[str, ...] = ("negotiate", "receive_turn", "submit_audit", "receive_control")
+"""The complete inbound surface, exactly as the reference names it."""
+
+
+@dataclass
+class PeerInboxes:
+    """Thread-safe mailboxes filled by the MCP tools, drained by the runtime."""
+
+    agreements: "queue.Queue[dict[str, Any]]" = field(default_factory=queue.Queue)
+    turns: "queue.Queue[TurnMessage]" = field(default_factory=queue.Queue)
+    audits: "queue.Queue[AuditPayload]" = field(default_factory=queue.Queue)
+    controls: "queue.Queue[ControlMessage]" = field(default_factory=queue.Queue)
+    rejected: list[str] = field(default_factory=list)
+
+    def _refuse(self, what: str, exc: InvalidPayloadError) -> dict[str, Any]:
+        """Record a refusal without raising across the wire.
+
+        Kept rather than discarded: a match that ends in a dispute needs to
+        show what arrived and why it was not acted on.
+        """
+        self.rejected.append(f"{what}: {exc}")
+        return {"ok": False, "detail": str(exc)}
+
+    def negotiate(self, message: object) -> dict[str, Any]:
+        """Receive the opponent's signed game agreement."""
+        try:
+            self.agreements.put(require_mapping(message, "agreement"))
+        except InvalidPayloadError as exc:
+            return self._refuse("negotiate", exc)
+        return ACK
+
+    def receive_turn(self, message: object) -> dict[str, Any]:
+        """Receive the opponent's turn. Receiving one makes it our turn."""
+        try:
+            self.turns.put(TurnMessage.from_dict(message))
+        except InvalidPayloadError as exc:
+            return self._refuse("receive_turn", exc)
+        return ACK
+
+    def submit_audit(self, payload: object) -> dict[str, Any]:
+        """Receive the opponent's end-of-game reveal: records and nonces."""
+        try:
+            self.audits.put(AuditPayload.from_dict(payload))
+        except InvalidPayloadError as exc:
+            return self._refuse("submit_audit", exc)
+        return ACK
+
+    def receive_control(self, message: object) -> dict[str, Any]:
+        """Receive a control signal: enable, status, restart or quit."""
+        try:
+            self.controls.put(ControlMessage.from_dict(message))
+        except InvalidPayloadError as exc:
+            return self._refuse("receive_control", exc)
+        return ACK
+
+
+class ToolHost(Protocol):
+    """The one method of ``FastMCP`` this module needs."""
+
+    def tool(self, fn: Callable[..., dict[str, Any]]) -> object: ...
+
+
+def register(host: ToolHost, inboxes: PeerInboxes) -> tuple[str, ...]:
+    """Expose the four tools on a FastMCP host.
+
+    The parameter names matter as much as the tool names: the reference sends
+    ``{"message": ...}`` for three of them and ``{"payload": ...}`` for
+    ``submit_audit``. A mismatch there fails at first contact with a real
+    opponent, which is the worst moment to discover it.
+    """
+    host.tool(inboxes.negotiate)
+    host.tool(inboxes.receive_turn)
+    host.tool(inboxes.submit_audit)
+    host.tool(inboxes.receive_control)
+    return TOOL_NAMES

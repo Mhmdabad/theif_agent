@@ -1,23 +1,36 @@
 """The thief's decision-making.
 
-Evade the pursuer, breaking ties by **escape space** rather than position.
+Evade the pursuer, breaking ties by **local openness** rather than position.
 
 Distance alone is a trap. A thief maximising distance walks happily into a
 corner, because a corner is often the furthest cell from the cop *and* the
 place where enclosure costs two barriers instead of four. Running away and
 running out of room look identical to a distance metric.
 
-So candidates that tie on distance are ranked by the number of free cells still
-reachable afterwards. That is the quantity the thief actually needs: survival
-requires somewhere to go for thirty-five turns, not merely being far away now.
+What the thief actually needs is somewhere to go for thirty-five turns, not
+merely to be far away now. The obvious way to measure that is reachable area
+after the step — and it does not work, for a reason worth stating plainly
+because the code carried it as a live tie-break for two issues.
 
-Reachable area is not enough on its own, because on an open board every
-candidate reaches the same cells and the metric goes quiet exactly when the
-corner problem is worst. **Local degree** — how many orthogonal neighbours are
-still open — is the missing signal. Appendix D prices enclosure by degree: two
-barriers to seal a corner, three on an edge, four in the open. Stepping onto a
-degree-2 cell hands the cop a capture at half price, and it does so before any
-barrier exists, so nothing else in the ranking has noticed yet.
+**Reachable area cannot rank moves.** A move changes nothing but the thief's
+own cell, so every legal destination is one step from the thief and therefore
+in the thief's own connected component; reachable area is a property of that
+component, so it returns the same number for every candidate. Always. Not
+usually — a sweep of four thousand random positions found zero where it
+differed. As a per-candidate term it was noise with a plausible name.
+
+**Local degree** is the signal that does discriminate. Appendix D prices
+enclosure by it: two barriers to seal a corner, three on an edge, four in the
+open. Stepping onto a degree-2 cell hands the cop a capture at half price, and
+it does so before any barrier exists, so nothing else has noticed yet.
+
+**Reachable area still matters — over time rather than across candidates.**
+Barriers are permanent, so the region can only shrink, and the rate at which
+it shrinks is the cop's containment plan becoming visible. That is a signal
+about the *state*, not about any one move, and :mod:`.containment` tracks it.
+When the region is closing, degree is promoted above distance: the goal stops
+being to get far away and becomes to get somewhere open, because distance
+bought inside a pocket the cop is sealing buys nothing at all.
 
 Degree enters the ranking twice. As a **veto** it outranks distance, which is
 the module's one deliberately counter-intuitive ordering; it is held honest by
@@ -28,13 +41,16 @@ leaves undecided — and where corner drift would otherwise walk straight back i
 through the rule written to stop it.
 """
 
-from dataclasses import dataclass, replace
+import logging
+from dataclasses import dataclass, field, replace
 
 from ..domain.axes import AxisConvention
 from ..domain.board import MOVES, Agent, BoardState, Move, Position
 from ..domain.rules import target_of
-from ..domain.search import reachable_area
 from .base import BrainBase, NoLegalActionError
+from .containment import ContainmentTracker
+
+logger = logging.getLogger(__name__)
 
 MIN_OPEN_NEIGHBOURS = 3
 """Below this many open exits, a cell counts as cramped.
@@ -66,6 +82,7 @@ class ThiefBrain(BrainBase):
     """Evades the pursuer, refusing cramped cells that gain nothing."""
 
     min_open_neighbours: int = MIN_OPEN_NEIGHBOURS
+    reach: ContainmentTracker = field(default_factory=ContainmentTracker)
 
     @property
     def role(self) -> Agent:
@@ -97,6 +114,8 @@ class ThiefBrain(BrainBase):
         available = self.options(state)
         if not available:
             raise NoLegalActionError("thief has no legal move")
+        self.reach.observe(state, self.axes)
+        logger.info("step %d %s", state.step, self.reach)
         threat = self.threat(state, **context)
         return max(available, key=lambda move: self._rank(state, move, threat))
 
@@ -116,9 +135,7 @@ class ThiefBrain(BrainBase):
         after = replace(state, thief=destination)
         return open_neighbours(after, destination, self.axes) < self.min_open_neighbours
 
-    def _rank(
-        self, state: BoardState, move: Move, threat: Position
-    ) -> tuple[int, int, int, int, int]:
+    def _rank(self, state: BoardState, move: Move, threat: Position) -> tuple[int, int, int, int]:
         """Order candidates. Degree appears twice, and both times earn it.
 
         ``roomy`` is the **veto**, and it sits above distance — the one
@@ -129,14 +146,23 @@ class ThiefBrain(BrainBase):
         step that is one cell nearer. :meth:`is_cramped` exempts a cramped cell
         that strictly gains ground, so a real escape is never refused.
 
-        ``degree`` is the **preference**, and it sits below distance because
-        the exemption alone leaves a hole. From (1, 0) with the threat at
+        ``degree`` is the **preference**. Normally it sits below distance,
+        breaking ties the exemption leaves open: from (1, 0) with the threat at
         (1, 4), N to the corner and S to open board both gain a cell, so both
-        are exempt, both reach all 49 cells, and the tie fell through to
-        ``MOVES`` order — which picked the corner. That is the drift this issue
-        is about, arrived at through the rule meant to prevent it. Ranking
-        equal-distance candidates by raw degree is #37's stated acceptance
-        criterion and closes the hole without weakening the exemption.
+        are exempt, and the tie used to fall through to ``MOVES`` order — which
+        picked the corner. That is corner drift arrived at through the rule
+        written to prevent it.
+
+        When the tracker reports the region **closing**, degree and distance
+        swap. Inside a pocket the cop is sealing, distance is worthless: the
+        cop does not need to enter the pocket, only to finish the wall, so a
+        thief maximising distance retreats into the closing end of its own
+        trap. Heading for open ground instead — even a step toward the pursuer
+        — is what leaving early looks like, and leaving early is the only kind
+        of leaving a closing region permits.
+
+        The veto stays on top through both orderings. A trap is exactly the
+        situation in which a cramped cell is most tempting and most fatal.
 
         Returned as a tuple so ``max`` applies the criteria in priority order,
         ending in the negated :data:`~..domain.board.MOVES` index. That keeps
@@ -148,5 +174,6 @@ class ThiefBrain(BrainBase):
         distance = manhattan(destination, threat)
         after = replace(state, thief=destination)
         degree = open_neighbours(after, destination, self.axes)
-        room = reachable_area(after, destination, self.axes)
-        return (roomy, distance, degree, room, -MOVES.index(move))
+        if self.reach.closing:
+            return (roomy, degree, distance, -MOVES.index(move))
+        return (roomy, distance, degree, -MOVES.index(move))

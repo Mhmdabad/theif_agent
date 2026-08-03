@@ -13,7 +13,12 @@ from thief_agent.domain.rules import target_of
 from thief_agent.domain.search import reachable_area
 from thief_agent.strategy.base import BrainBase, Decision, NoLegalActionError
 from thief_agent.strategy.loader import DEFAULT_BRAIN, StrategyError, load_brain
-from thief_agent.strategy.thief_brain import ThiefBrain, manhattan
+from thief_agent.strategy.thief_brain import (
+    MIN_OPEN_NEIGHBOURS,
+    ThiefBrain,
+    manhattan,
+    open_neighbours,
+)
 
 AXES = AxisConvention()
 
@@ -47,7 +52,15 @@ class TestEvasion:
         assert isinstance(action, MoveAction)
         assert action.move in {"S", "E"}
 
-    def test_never_decreases_the_distance(self) -> None:
+    def test_it_only_gives_up_distance_to_leave_cramped_ground(self) -> None:
+        """The invariant #37 replaced "never decreases the distance" with.
+
+        The old rule held everywhere on an open board except the far corner,
+        where standing still was the furthest cell *and* the cheapest one for
+        the cop to seal. Losing a cell of distance to gain a side of degree is
+        the trade this policy exists to make, so the invariant now permits it
+        exactly when the cell being left is below the threshold.
+        """
         brain = ThiefBrain(axes=AXES)
         for row in range(7):
             for col in range(7):
@@ -56,7 +69,10 @@ class TestEvasion:
                 action = brain.decide(state).action
                 assert isinstance(action, MoveAction)
                 after = manhattan(target_of(state.thief, action.move, AXES), state.cop)
-                assert after >= before
+                if after < before:
+                    assert open_neighbours(state, state.thief, AXES) < MIN_OPEN_NEIGHBOURS
+                    moved_to = target_of(state.thief, action.move, AXES)
+                    assert open_neighbours(state, moved_to, AXES) >= MIN_OPEN_NEIGHBOURS
 
     def test_an_explicit_threat_overrides_the_cop_position(self) -> None:
         """Once a belief map exists it supplies the threat instead."""
@@ -269,7 +285,7 @@ class TestEscapeSpaceTieBreak:
         brain = ThiefBrain(axes=AXES)
         state = make(cop=(0, 0), thief=(3, 3))
         ranks = {move: brain._rank(state, move, state.cop) for move in brain.options(state)}
-        assert all(room > 0 for _, room, _ in ranks.values())
+        assert all(room > 0 for _, _, _, room, _ in ranks.values())
 
     def test_the_ranking_is_total(self) -> None:
         """Two candidates never tie completely, so the choice is deterministic."""
@@ -295,3 +311,94 @@ class TestEscapeSpaceTieBreak:
                 action = brain.decide(state).action
                 assert isinstance(action, MoveAction)
                 assert action.move in brain.options(state)
+
+
+class TestCornerAversion:
+    """#37: refuse low-degree cells that gain nothing, and only those."""
+
+    def test_degree_counts_open_exits(self) -> None:
+        state = make(cop=(0, 0), thief=(3, 3))
+        assert open_neighbours(state, (3, 3), AXES) == 4
+        assert open_neighbours(state, (0, 3), AXES) == 3
+        assert open_neighbours(state, (0, 0), AXES) == 2
+
+    def test_a_barrier_closes_a_side_like_the_edge_does(self) -> None:
+        """Appendix D's pricing is one rule, not three."""
+        state = make(cop=(0, 0), thief=(3, 3), barriers=frozenset({(2, 3)}))
+        assert open_neighbours(state, (3, 3), AXES) == 3
+
+    def test_the_threshold_makes_a_corner_cramped_before_any_barrier(self) -> None:
+        assert open_neighbours(make(), (0, 0), AXES) < MIN_OPEN_NEIGHBOURS
+        assert open_neighbours(make(), (0, 3), AXES) >= MIN_OPEN_NEIGHBOURS
+
+    def test_it_leaves_the_far_corner_rather_than_sit_at_maximum_distance(self) -> None:
+        """The case the old distance-only invariant could not express.
+
+        From (6, 6) with the cop at (0, 0), STAY is the furthest option at 12
+        and also the cheapest cell for the cop to seal — two barriers instead
+        of four. The thief gives up one cell of distance for a side of degree.
+        """
+        brain = ThiefBrain(axes=AXES)
+        state = make(cop=(0, 0), thief=(6, 6))
+        assert brain.is_cramped(state, "STAY", state.cop)
+        action = brain.decide(state).action
+        assert isinstance(action, MoveAction)
+        assert action.move in {"N", "W"}
+
+    def test_a_cramped_cell_that_gains_ground_is_still_taken(self) -> None:
+        """The exemption. A thief that will not corner to escape gets caught
+        in open board instead, which is a worse way to lose."""
+        brain = ThiefBrain(axes=AXES)
+        state = make(cop=(1, 1), thief=(1, 0))
+        assert manhattan((0, 0), state.cop) > manhattan(state.thief, state.cop)
+        assert not brain.is_cramped(state, "N", state.cop)
+
+    def test_equal_distance_prefers_the_roomier_cell(self) -> None:
+        """#37's acceptance criterion, and the hole the exemption left.
+
+        From (1, 0) with the cop at (1, 4), N reaches the corner (0, 0) and S
+        reaches (2, 0). Both gain a cell of distance, so the exemption clears
+        both; both still reach all 49 free cells, so escape space cannot
+        separate them either. Before raw degree entered the ranking this fell
+        through to ``MOVES`` order and chose the corner — corner drift arrived
+        at through the rule written to prevent it.
+        """
+        brain = ThiefBrain(axes=AXES)
+        state = make(cop=(1, 4), thief=(1, 0))
+        assert manhattan((0, 0), state.cop) == manhattan((2, 0), state.cop)
+        assert not brain.is_cramped(state, "N", state.cop)
+        assert open_neighbours(state, (0, 0), AXES) < open_neighbours(state, (2, 0), AXES)
+        action = brain.decide(state).action
+        assert isinstance(action, MoveAction)
+        assert action.move == "S"
+
+    def test_the_veto_still_outranks_a_degree_preference(self) -> None:
+        """Both terms are present; the veto is the one above distance."""
+        brain = ThiefBrain(axes=AXES)
+        state = make(cop=(0, 0), thief=(6, 6))
+        stay, north = brain._rank(state, "STAY", state.cop), brain._rank(state, "N", state.cop)
+        assert stay[0] == 0 and north[0] == 1
+        assert stay[1] > north[1]
+        assert north > stay
+
+    def test_degree_outranks_distance_in_the_tuple(self) -> None:
+        brain = ThiefBrain(axes=AXES)
+        state = make(cop=(0, 0), thief=(6, 6))
+        assert brain._rank(state, "N", state.cop) > brain._rank(state, "STAY", state.cop)
+
+    def test_the_threshold_is_configurable(self) -> None:
+        """Set it to zero and the policy reverts to pure distance."""
+        state = make(cop=(0, 0), thief=(6, 6))
+        blind = ThiefBrain(axes=AXES, min_open_neighbours=0)
+        assert not blind.is_cramped(state, "STAY", state.cop)
+        action = blind.decide(state).action
+        assert isinstance(action, MoveAction)
+        assert action.move == "STAY"
+
+    def test_a_walled_in_thief_still_stays_rather_than_erroring(self) -> None:
+        """Every option is cramped, so the penalty cannot break the choice."""
+        walls = frozenset({(2, 3), (4, 3), (3, 4)})
+        state = make(cop=(0, 0), thief=(3, 3), barriers=walls)
+        action = ThiefBrain(axes=AXES).decide(state).action
+        assert isinstance(action, MoveAction)
+        assert action.move == "W"

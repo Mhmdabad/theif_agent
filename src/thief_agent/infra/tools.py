@@ -14,6 +14,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from .validation import (
+    InvalidPayloadError,
+    reject_unknown_fields,
+    require_choice,
+    require_mapping,
+    require_str,
+)
+
 PROTOCOL_VERSION = "1.0"
 """Bumped when the wire contract changes. Exchanged during the handshake."""
 
@@ -73,6 +81,40 @@ class ToolSurface:
     def ping(self) -> ToolResult:
         """Liveness probe. Carries no game state deliberately."""
         return ToolResult.accept(protocol_version=self._identity.protocol_version)
+
+    def dispatch(self, tool: str, payload: object) -> ToolResult:
+        """Validate an inbound call and route it, refusing rather than raising.
+
+        The single entry point for anything arriving from the opponent. A
+        malformed payload must never become an unhandled exception: a crash
+        mid-turn is a technical loss scoring zero for both sides, so a peer
+        that can be crashed by hostile input hands its opponent a way to void
+        any match it is losing.
+        """
+        try:
+            body = require_mapping(payload)
+            match tool:
+                case "ping":
+                    reject_unknown_fields(body, frozenset())
+                    return self.ping()
+                case "handshake":
+                    fields = frozenset({"group_id", "role", "protocol_version"})
+                    reject_unknown_fields(body, fields)
+                    return self.handshake(
+                        require_str(body, "group_id"),
+                        require_choice(body, "role", frozenset({"cop", "thief"})),
+                        require_str(body, "protocol_version"),
+                    )
+                case "negotiate_config":
+                    reject_unknown_fields(body, frozenset({"config_sha256"}))
+                    return self.negotiate_config(require_str(body, "config_sha256"))
+                case "get_state_digest":
+                    reject_unknown_fields(body, frozenset())
+                    return self.get_state_digest()
+                case _:
+                    return ToolResult.refuse(f"unknown tool {tool!r}")
+        except InvalidPayloadError as exc:
+            return ToolResult.refuse(str(exc))
 
     def handshake(self, group_id: str, role: str, protocol_version: str) -> ToolResult:
         """Exchange identity and refuse a protocol mismatch.

@@ -20,10 +20,10 @@ class FakeClock:
         self.now += seconds
 
 
-def watchdog(clock: FakeClock, **kw: object) -> tuple[Watchdog, list[str]]:
+def watchdog(clock: FakeClock, timeout_sec: float = 60.0) -> tuple[Watchdog, list[str]]:
     events: list[str] = []
     dog = Watchdog(
-        timeout_sec=float(kw.get("timeout_sec", 60.0)),
+        timeout_sec=timeout_sec,
         clock=clock,
         persist_state=lambda: events.append("persist"),
         shutdown=lambda: events.append("shutdown"),

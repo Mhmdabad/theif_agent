@@ -14,6 +14,7 @@ up disagreeing about a match they both played correctly.
 from enum import Enum
 from typing import Any
 
+from ..shared.appendix_f import book_int
 from .axes import AxisConvention
 from .board import BoardState
 from .outcome import (
@@ -35,14 +36,17 @@ class Outcome(Enum):
 
 
 BOOK_SCORES: dict[Outcome, tuple[int, int]] = {
-    Outcome.CAPTURE: (20, 5),
-    Outcome.SURVIVAL: (5, 10),
-    Outcome.TECHNICAL_LOSS: (0, 0),
+    Outcome.CAPTURE: (book_int("scoring", "capture_cop"), book_int("scoring", "capture_thief")),
+    Outcome.SURVIVAL: (
+        book_int("scoring", "survival_cop"),
+        book_int("scoring", "survival_thief"),
+    ),
+    Outcome.TECHNICAL_LOSS: (book_int("scoring", "technical_loss"),) * 2,
     Outcome.ONGOING: (0, 0),
 }
 """Appendix F scoring, as ``(cop, thief)``. All entries are *fixed*."""
 
-BOOK_TIE_SCORE = 2
+BOOK_TIE_SCORE: int = book_int("scoring", "tie_score")
 """Awarded to each side when a whole series ends level. *Fixed*."""
 
 

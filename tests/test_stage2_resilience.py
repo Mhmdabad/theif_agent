@@ -14,8 +14,8 @@ can be closed out.
 import pytest
 
 from thief_agent.domain.outcome import TechnicalLoss
+from thief_agent.infra.inboxes import PeerInboxes
 from thief_agent.infra.mcp_client import ClientSettings, OpponentClient
-from thief_agent.infra.tools import PeerIdentity, ToolSurface
 from thief_agent.runtime.deadline import DeadlineExpiredError, DeadlineTracker
 from thief_agent.runtime.orchestrator import MatchAborted, Orchestrator
 from thief_agent.runtime.scheduler import OutOfTurnError, TurnScheduler
@@ -58,8 +58,7 @@ class DeadTransport:
 
 
 def orchestrator(transport: DeadTransport) -> Orchestrator:
-    tools = ToolSurface(PeerIdentity("s82kma9e", "thief"), "a" * 64, lambda: "digest")
-    return Orchestrator(tools, OpponentClient(transport, SETTINGS))
+    return Orchestrator(PeerInboxes(), OpponentClient(transport, SETTINGS))
 
 
 class TestIllegalTransition:
@@ -103,7 +102,7 @@ class TestOpponentKilledMidTurn:
     def test_dying_partway_through_still_terminates(self) -> None:
         transport = DeadTransport(alive_calls=1)
         orch = orchestrator(transport)
-        assert orch.call_opponent("ping", {}).ok
+        assert orch.call_opponent("ping", {})["ok"]
         with pytest.raises(MatchAborted):
             orch.call_opponent("ping", {})
 
@@ -180,8 +179,57 @@ class TestHostileInputDoesNotCrash:
     def test_a_malformed_payload_is_refused_not_raised(self) -> None:
         """A crash mid-turn would void a match we might be winning."""
         orch = orchestrator(DeadTransport(alive_calls=1))
-        assert not orch.handle_inbound("handshake", None).ok
+        assert orch.handle_inbound("receive_turn", None)["ok"] is False
 
     def test_an_unknown_tool_is_refused(self) -> None:
         orch = orchestrator(DeadTransport(alive_calls=1))
-        assert not orch.handle_inbound("drop_tables", {}).ok
+        assert orch.handle_inbound("drop_tables", {})["ok"] is False
+
+    def test_a_refusal_is_recorded_for_the_dispute(self) -> None:
+        orch = orchestrator(DeadTransport(alive_calls=1))
+        orch.handle_inbound("receive_turn", None)
+        assert orch.inboxes.rejected
+
+
+class TestBarrierDeclarationCannotBeBypassed:
+    """A placement must be announced with its exact cell.
+
+    Hidden barriers and false locations are disqualification offences, so the
+    guard should be structural rather than a habit. Since the wire protocol
+    bundles the declaration into the turn message, the way to prove it is to
+    show a placement has nowhere else to go.
+    """
+
+    def test_the_turn_message_is_the_only_declaration_channel(self) -> None:
+        import thief_agent.infra.inboxes as inboxes
+        import thief_agent.infra.protocol as protocol
+
+        assert "barrier_placed" in protocol.TurnMessage.__dataclass_fields__
+        assert inboxes.TOOL_NAMES == (
+            "negotiate",
+            "receive_turn",
+            "submit_audit",
+            "receive_control",
+        )
+
+    def test_no_separate_barrier_tool_survives(self) -> None:
+        """The cop declares; this agent must have no channel of its own."""
+        import thief_agent.infra.inboxes as inboxes
+
+        assert not [n for n in dir(inboxes.PeerInboxes) if "barrier" in n]
+
+    def test_a_declared_placement_arrives_with_its_turn(self) -> None:
+        from thief_agent.infra.protocol import TurnMessage
+
+        parsed = TurnMessage.from_dict(
+            {
+                "step": 9,
+                "sender": "police",
+                "smell_grid": {},
+                "commit": "c",
+                "timestamp": "t",
+                "barrier_placed": [2, 3],
+            }
+        )
+        assert parsed.barrier_placed == [2, 3]
+        assert parsed.step == 9

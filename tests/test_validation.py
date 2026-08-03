@@ -2,7 +2,7 @@
 
 import pytest
 
-from thief_agent.infra.tools import PROTOCOL_VERSION, PeerIdentity, ToolSurface
+from thief_agent.infra.inboxes import PeerInboxes
 from thief_agent.infra.validation import (
     InvalidPayloadError,
     reject_unknown_fields,
@@ -11,13 +11,6 @@ from thief_agent.infra.validation import (
     require_mapping,
     require_str,
 )
-
-OURS = PeerIdentity(group_id="s82kma9e", role="thief")
-DIGEST = "a" * 64
-
-
-def surface() -> ToolSurface:
-    return ToolSurface(OURS, DIGEST, lambda: "deadbeef")
 
 
 class TestRequireMapping:
@@ -88,7 +81,7 @@ class TestRequireChoice:
             require_choice({"role": "referee"}, "role", frozenset({"cop", "thief"}))
 
     def test_known_value_passes(self) -> None:
-        assert require_choice({"role": "cop"}, "role", frozenset({"cop", "thief"})) == "cop"
+        assert require_choice({"role": "thief"}, "role", frozenset({"cop", "thief"})) == "thief"
 
 
 class TestRejectUnknownFields:
@@ -101,41 +94,42 @@ class TestRejectUnknownFields:
         reject_unknown_fields({"a": 1}, frozenset({"a"}))
 
 
-class TestDispatchNeverRaises:
+class TestTheLiveInboundSurface:
+    """The mailboxes are what an opponent reaches, so hostile input ends here.
+
+    These moved off the retired ToolSurface. Keeping them matters: a crash
+    mid-turn is a technical loss scoring zero for both sides, so a peer that
+    can be crashed by a malformed payload hands its opponent a way to void any
+    match it is losing.
+    """
+
     @pytest.mark.parametrize(
         "payload",
-        [None, [], "x", 1, {"role": 1}, {"role": True}, {1: "x"}, {"unexpected": "y"}],
+        [None, [], "x", 1, {"sender": 1}, {"sender": True}, {1: "x"}, {"sender": "referee"}],
     )
     def test_hostile_payloads_become_refusals(self, payload: object) -> None:
-        """A crash mid-turn is a technical loss scoring zero for both sides."""
-        result = surface().dispatch("handshake", payload)
-        assert not result.ok
-        assert result.detail
+        assert PeerInboxes().receive_turn(payload)["ok"] is False
 
-    def test_unknown_tool_is_refused_not_raised(self) -> None:
-        result = surface().dispatch("drop_tables", {})
-        assert not result.ok
-        assert "unknown tool" in result.detail
+    def test_a_boolean_coordinate_is_refused(self) -> None:
+        """{"barrier_placed": [true, 3]} would otherwise index row 1."""
+        boxes = PeerInboxes()
+        turn = {
+            "step": 1,
+            "sender": "police",
+            "smell_grid": {},
+            "commit": "c",
+            "timestamp": "t",
+            "barrier_placed": [True, 3],
+        }
+        assert boxes.receive_turn(turn)["ok"] is False
 
-    def test_a_valid_handshake_still_works(self) -> None:
-        result = surface().dispatch(
-            "handshake",
-            {"group_id": "them", "role": "cop", "protocol_version": PROTOCOL_VERSION},
-        )
-        assert result.ok
-
-    def test_a_valid_negotiate_still_works(self) -> None:
-        assert surface().dispatch("negotiate_config", {"config_sha256": DIGEST}).ok
-
-    def test_ping_and_state_digest_take_no_fields(self) -> None:
-        assert surface().dispatch("ping", {}).ok
-        assert surface().dispatch("get_state_digest", {}).ok
-        assert not surface().dispatch("ping", {"extra": 1}).ok
-
-    def test_a_bogus_role_is_refused(self) -> None:
-        result = surface().dispatch(
-            "handshake",
-            {"group_id": "them", "role": "referee", "protocol_version": PROTOCOL_VERSION},
-        )
-        assert not result.ok
-        assert "must be one of" in result.detail
+    def test_a_valid_turn_is_accepted(self) -> None:
+        boxes = PeerInboxes()
+        turn = {
+            "step": 1,
+            "sender": "police",
+            "smell_grid": {},
+            "commit": "c",
+            "timestamp": "t",
+        }
+        assert boxes.receive_turn(turn)["ok"] is True

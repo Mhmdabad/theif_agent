@@ -1,6 +1,8 @@
 """Tests for the thief's brain and its selection from config."""
 
+import random
 import tomllib
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -281,11 +283,30 @@ class TestEscapeSpaceTieBreak:
         action = brain.decide(state).action
         assert isinstance(action, MoveAction)
 
-    def test_room_is_measured_after_the_step(self) -> None:
-        brain = ThiefBrain(axes=AXES)
-        state = make(cop=(0, 0), thief=(3, 3))
-        ranks = {move: brain._rank(state, move, state.cop) for move in brain.options(state)}
-        assert all(room > 0 for _, _, _, room, _ in ranks.values())
+    def test_reachable_area_cannot_separate_candidates_at_all(self) -> None:
+        """Why #38 removed it from the tuple.
+
+        A move changes only the thief's own cell, so every legal destination is
+        one step away and therefore in the thief's own component. Reachable
+        area is a property of that component, so it returns the same number for
+        every candidate — not usually, always. It read as a tie-break and
+        never once broke a tie.
+        """
+        rng = random.Random(7)
+        cells = [(row, col) for row in range(7) for col in range(7)]
+        for _ in range(400):
+            walls = frozenset(rng.sample(cells, rng.randint(0, 14)))
+            free = [cell for cell in cells if cell not in walls]
+            state = make(cop=rng.choice(free), thief=rng.choice(free), barriers=walls)
+            rooms = {
+                reachable_area(
+                    replace(state, thief=target_of(state.thief, move, AXES)),
+                    target_of(state.thief, move, AXES),
+                    AXES,
+                )
+                for move in ThiefBrain(axes=AXES).options(state)
+            }
+            assert len(rooms) <= 1
 
     def test_the_ranking_is_total(self) -> None:
         """Two candidates never tie completely, so the choice is deterministic."""

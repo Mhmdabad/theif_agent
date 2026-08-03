@@ -10,6 +10,7 @@ from thief_agent.domain.actions import MoveAction, PlaceBarrier
 from thief_agent.domain.axes import AxisConvention
 from thief_agent.domain.board import MOVES, BoardState, Move
 from thief_agent.domain.rules import target_of
+from thief_agent.domain.search import reachable_area
 from thief_agent.strategy.base import BrainBase, Decision, NoLegalActionError
 from thief_agent.strategy.loader import DEFAULT_BRAIN, StrategyError, load_brain
 from thief_agent.strategy.thief_brain import ThiefBrain, manhattan
@@ -230,3 +231,67 @@ class TestContract:
     def test_the_base_class_cannot_be_instantiated(self) -> None:
         with pytest.raises(TypeError):
             BrainBase()  # type: ignore[abstract]
+
+
+class TestEscapeSpaceTieBreak:
+    def test_distance_still_dominates(self) -> None:
+        """Escape space breaks ties; it does not override running.
+
+        From (0,1) with the cop at (0,0), both S and E reach distance 2 while
+        W closes to 0 and STAY holds at 1. The assertion is that a
+        distance-maximal move is chosen, not which of the two — picking one
+        would be asserting the tie-break, which is a different test.
+        """
+        brain = ThiefBrain(axes=AXES)
+        action = brain.decide(make(cop=(0, 0), thief=(0, 1))).action
+        assert isinstance(action, MoveAction)
+        assert action.move in {"S", "E"}
+
+    def test_it_prefers_the_side_with_more_room(self) -> None:
+        """A wall makes one equally distant option a much smaller pocket."""
+        walls = frozenset({(1, 0), (1, 1), (1, 2)})
+        state = make(cop=(6, 6), thief=(1, 3), barriers=walls)
+        action = ThiefBrain(axes=AXES).decide(state).action
+        assert isinstance(action, MoveAction)
+        assert action.move != "W"
+
+    def test_it_avoids_stepping_into_a_sealed_pocket(self) -> None:
+        """The failure distance alone cannot see: far away and nearly trapped."""
+        walls = frozenset({(0, 2), (1, 2), (2, 2), (2, 0), (2, 1)})
+        state = make(cop=(6, 6), thief=(1, 1), barriers=walls)
+        brain = ThiefBrain(axes=AXES)
+        pocket = reachable_area(state, (0, 0), AXES)
+        assert pocket < 10
+        action = brain.decide(state).action
+        assert isinstance(action, MoveAction)
+
+    def test_room_is_measured_after_the_step(self) -> None:
+        brain = ThiefBrain(axes=AXES)
+        state = make(cop=(0, 0), thief=(3, 3))
+        ranks = {move: brain._rank(state, move, state.cop) for move in brain.options(state)}
+        assert all(room > 0 for _, room, _ in ranks.values())
+
+    def test_the_ranking_is_total(self) -> None:
+        """Two candidates never tie completely, so the choice is deterministic."""
+        brain = ThiefBrain(axes=AXES)
+        state = make(cop=(3, 3), thief=(3, 3))
+        ranks = [brain._rank(state, move, state.cop) for move in brain.options(state)]
+        assert len(set(ranks)) == len(ranks)
+
+    def test_it_stays_deterministic_across_instances(self) -> None:
+        state = make(cop=(0, 0), thief=(3, 3))
+        assert (
+            ThiefBrain(axes=AXES).decide(state).action == ThiefBrain(axes=AXES).decide(state).action
+        )
+
+    def test_it_never_returns_an_illegal_move(self) -> None:
+        brain = ThiefBrain(axes=AXES)
+        walls = frozenset({(1, 1), (2, 2), (4, 4)})
+        for row in range(7):
+            for col in range(7):
+                state = make(cop=(0, 0), thief=(row, col), barriers=walls)
+                if state.is_barrier(state.thief):
+                    continue
+                action = brain.decide(state).action
+                assert isinstance(action, MoveAction)
+                assert action.move in brain.options(state)

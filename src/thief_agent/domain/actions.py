@@ -10,6 +10,7 @@ that could be forgotten is a validator that will be.
 from dataclasses import dataclass, replace
 from typing import assert_never
 
+from ..shared.appendix_f import book_int
 from .axes import AxisConvention
 from .board import MOVES, Agent, BoardState, Move, Position
 from .rules import apply_move, target_of
@@ -53,7 +54,7 @@ def placement_range(state: BoardState, axes: AxisConvention) -> frozenset[Positi
     return frozenset(cell for cell in reachable if state.in_bounds(cell))
 
 
-DEFAULT_MAX_BARRIERS = 14
+DEFAULT_MAX_BARRIERS: int = book_int("movement_and_barriers", "max_barriers")
 """Appendix F barrier quota. A *minimum*: raisable by agreement, never lower."""
 
 

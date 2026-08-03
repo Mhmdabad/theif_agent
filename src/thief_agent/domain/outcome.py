@@ -10,6 +10,7 @@ state, so that no code path exists which could produce a different one.
 
 from enum import Enum
 
+from ..shared.appendix_f import book_int
 from .axes import AxisConvention
 from .board import BoardState
 from .rules import blocked_neighbours
@@ -56,7 +57,7 @@ def is_enclosure_capture(state: BoardState, axes: AxisConvention) -> bool:
     return blocked_neighbours(state, state.thief, axes) == 4
 
 
-DEFAULT_SURVIVAL_THRESHOLD = 35
+DEFAULT_SURVIVAL_THRESHOLD: int = book_int("movement_and_barriers", "survival_threshold")
 """Appendix F survival threshold. A *minimum*: raisable by agreement only."""
 
 

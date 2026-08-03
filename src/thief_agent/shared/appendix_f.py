@@ -17,7 +17,7 @@ move one.
 """
 
 from enum import Enum
-from typing import Any, NamedTuple
+from typing import Any, Final, NamedTuple
 
 
 class Status(Enum):
@@ -76,3 +76,28 @@ TABLE: tuple[Param, ...] = (
     Param("rate_limiter_gatekeeper", "max_retries", 3, Status.MINIMUM),
     Param("rate_limiter_gatekeeper", "queue_depth", 100, Status.MINIMUM),
 )
+
+
+_BY_KEY: Final = {(p.section, p.key): p for p in TABLE}
+
+
+def book_value(section: str, key: str) -> object:
+    """The Appendix F value for one parameter.
+
+    Modules read their defaults through here rather than restating a number,
+    so the table is authoritative for behaviour as well as for validation. A
+    constant that merely agrees with the table today is a constant that can
+    silently disagree tomorrow.
+    """
+    try:
+        return _BY_KEY[(section, key)].book_value
+    except KeyError:
+        raise KeyError(f"{section}.{key} is not an Appendix F parameter") from None
+
+
+def book_int(section: str, key: str) -> int:
+    """The Appendix F value for a parameter that must be a whole number."""
+    value = book_value(section, key)
+    if not isinstance(value, int):
+        raise TypeError(f"{section}.{key} is {type(value).__name__}, not int")
+    return value

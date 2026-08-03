@@ -98,3 +98,14 @@ Shared logic is therefore **duplicated deliberately** in both repos rather than
 extracted into a package both import. When changing shared behaviour — the rules
 engine, scent model, crypto, protocol — apply the same change to both, in the
 same shape, and say so in the PR.
+
+`scripts/check_shared_drift.py` enforces that in CI: it clones the sibling,
+normalises the package name, and fails if any module in its `SHARED` manifest
+differs. Two consequences worth knowing before you start:
+
+- **A shared change lands in the sibling first.** This repo stays red from the
+  moment you push until the sibling's copy is on `main`. That is the gate
+  working, not a flake — merge the sibling PR, then re-run.
+- **A new module must be added to `SHARED` or to `DIVERGENT`,** with a reason
+  in the latter case. A module in neither is unchecked, and unchecked is how
+  every drift so far got in.

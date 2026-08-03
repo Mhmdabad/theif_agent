@@ -1,20 +1,22 @@
 """The thief's decision-making.
 
-A first, deliberately transparent policy: maximise Manhattan distance from the
-pursuer, and never relocate somewhere illegal. Escape-space scoring,
-corner aversion and barrier-trend tracking arrive as separate changes on top.
+Evade the pursuer, breaking ties by **escape space** rather than position.
 
-Distance alone is a weak proxy and the tests say so. A thief that maximises
-distance will happily run into a corner, because a corner can be far from the
-cop and still be where enclosure costs two barriers instead of four. That is
-the flaw the later refinements exist to fix, and it is worth seeing plainly
-before it is fixed.
+Distance alone is a trap. A thief maximising distance walks happily into a
+corner, because a corner is often the furthest cell from the cop *and* the
+place where enclosure costs two barriers instead of four. Running away and
+running out of room look identical to a distance metric.
+
+So candidates that tie on distance are ranked by the number of free cells still
+reachable afterwards. That is the quantity the thief actually needs: survival
+requires somewhere to go for thirty-five turns, not merely being far away now.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from ..domain.board import Agent, BoardState, Move, Position
+from ..domain.board import MOVES, Agent, BoardState, Move, Position
 from ..domain.rules import target_of
+from ..domain.search import reachable_area
 from .base import BrainBase, NoLegalActionError
 
 
@@ -58,6 +60,18 @@ class ThiefBrain(BrainBase):
         if not available:
             raise NoLegalActionError("thief has no legal move")
         threat = self.threat(state, **context)
-        return max(
-            available, key=lambda move: manhattan(target_of(state.thief, move, self.axes), threat)
-        )
+        return max(available, key=lambda move: self._rank(state, move, threat))
+
+    def _rank(self, state: BoardState, move: Move, threat: Position) -> tuple[int, int, int]:
+        """Order candidates: distance first, then room to keep running.
+
+        Returned as a tuple so ``max`` applies the criteria in priority order,
+        ending in the negated :data:`~..domain.board.MOVES` index. That keeps
+        the ordering total — two candidates never tie completely, so the choice
+        stays deterministic and a match remains replayable.
+        """
+        destination = target_of(state.thief, move, self.axes)
+        distance = manhattan(destination, threat)
+        after = replace(state, thief=destination)
+        room = reachable_area(after, destination, self.axes)
+        return (distance, room, -MOVES.index(move))

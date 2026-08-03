@@ -103,9 +103,19 @@ class TestStateDigest:
 
 class TestSurfaceIsSmall:
     def test_only_the_agreed_tools_are_exposed(self) -> None:
-        """Every endpoint is another thing an opponent can probe."""
+        """Every endpoint is another thing an opponent can probe.
+
+        ``dispatch`` is the single validated entry point rather than a fifth
+        tool: the opponent reaches the four tools only through it.
+        """
         public = {n for n in dir(ToolSurface) if not n.startswith("_")}
-        assert public == {"ping", "handshake", "negotiate_config", "get_state_digest"}
+        assert public == {
+            "dispatch",
+            "ping",
+            "handshake",
+            "negotiate_config",
+            "get_state_digest",
+        }
 
     def test_no_tool_mutates_state_directly(self) -> None:
         tools = surface()

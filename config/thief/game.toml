@@ -27,6 +27,18 @@ my_port      = 8802                          # THIS agent's MCP server port
 opponent_url = "http://127.0.0.1:8801/mcp"   # the only thing we know about the opponent
 turn_timeout_seconds = 180
 
+# LEAGUE PLAY: leave the loopback address above alone and export the opponent's
+# tunnel URL instead. OPPONENT_URL overrides this file (see ClientSettings.
+# from_config), so checking out this repo and running the two agents against
+# each other keeps working with no setup, and a real match is one variable:
+#
+#     export OPPONENT_URL=https://their-subdomain.ngrok-free.app
+#
+# It is not committed for two reasons. It is ephemeral - a free-tier tunnel
+# issues a new URL on every restart - and it is not ours; a repository full of
+# other teams' expired addresses is a record of nothing. Our own public address
+# is exported the same way, as PUBLIC_URL; see docs/TUNNELING.md.
+
 # [strategy] -- optional: point at OUR brain subclass. Leaving this section
 # absent runs the shipped heuristic brain. The move policy is the core of the
 # grade; see docs/prd/PRD-3-blind-strategy.md.

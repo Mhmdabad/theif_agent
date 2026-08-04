@@ -42,6 +42,7 @@ SHARED: tuple[str, ...] = (
     "domain/search.py",
     "domain/actions.py",
     "domain/scoring.py",
+    "domain/scent.py",
     "infra/inboxes.py",
     "infra/mcp_client.py",
     "infra/mcp_server.py",
@@ -65,11 +66,6 @@ DIVERGENT: dict[str, str] = {
     "strategy/base.py": "notes which hooks this role overrides",
     "strategy/loader.py": "reads police_class vs thief_class",
     "strategy/barriers.py": "cop-only; the thief places no barriers",
-    "domain/scent.py": (
-        "landing: shared, but promoted to SHARED only once the cop copy is on main "
-        "(Mhmdabad/police_agent#51). A new shared module cannot exist in the sibling "
-        "yet, so listing it as SHARED immediately would make both repos red at once."
-    ),
     "strategy/containment.py": "thief-only; the cop builds the trap rather than reading it",
     "strategy/police_brain.py": "the cop's policy; no counterpart here",
     "strategy/thief_brain.py": "the thief's policy; no counterpart there",

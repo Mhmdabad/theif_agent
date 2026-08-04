@@ -12,7 +12,7 @@ from enum import Enum
 
 from ..shared.appendix_f import book_int
 from .axes import AxisConvention
-from .board import BoardState
+from .board import BoardState, Position
 from .rules import blocked_neighbours
 
 
@@ -114,3 +114,35 @@ def technical_loss_scores() -> tuple[int, int]:
     deviating from a fixed value disqualifies the team.
     """
     return (0, 0)
+
+
+def capture_answer(state: BoardState, axes: AxisConvention) -> bool:
+    """Whether the cop's claim is true. **Computed, never chosen.**
+
+    The thief is asked to confirm a Capture Claim and has every incentive to
+    deny one. This function is the answer, it takes the board and nothing else,
+    and there is no branch in it that consults preference — no ``if losing``,
+    no override, no argument a policy could set.
+
+    That is the design and not merely the implementation. A dishonest answer is
+    caught at the log audit, where both sides re-derive the same board from the
+    same committed records; denying a capture the board shows is not a chance
+    to survive, it is a disqualification with no appeal. An honest answer to a
+    lost position costs a sub-game. A dishonest one costs the project.
+    """
+    return (
+        is_capture_by_overlap(state)
+        or is_trapping_capture(state)
+        or is_enclosure_capture(state, axes)
+    )
+
+
+def answer_is_supported(state: BoardState, axes: AxisConvention, at: Position) -> bool:
+    """Whether a claim at ``at`` is one this board actually shows.
+
+    The cop must say *where*, not merely that it happened: a claim naming a
+    cell can be checked against our own board, and one that does not cannot.
+    A claim that is right about the capture and wrong about the cell is still
+    refused, because agreeing to it would agree to a board we do not hold.
+    """
+    return capture_answer(state, axes) and state.thief == at

@@ -42,6 +42,7 @@ SHARED: tuple[str, ...] = (
     "domain/search.py",
     "domain/actions.py",
     "domain/scoring.py",
+    "domain/scent.py",
     "infra/inboxes.py",
     "infra/mcp_client.py",
     "infra/mcp_server.py",
@@ -64,10 +65,6 @@ DIVERGENT: dict[str, str] = {
     "runtime/orchestrator.py": "role default, and the duplicate-role failure differs by side",
     "strategy/base.py": "notes which hooks this role overrides",
     "strategy/loader.py": "reads police_class vs thief_class",
-    "domain/scent.py": (
-        "migrating: shared, temporarily unchecked while the Gaussian falloff lands "
-        "in both repos. Restored to SHARED immediately after this."
-    ),
     "strategy/barriers.py": "cop-only; the thief places no barriers",
     "strategy/containment.py": "thief-only; the cop builds the trap rather than reading it",
     "strategy/police_brain.py": "the cop's policy; no counterpart here",

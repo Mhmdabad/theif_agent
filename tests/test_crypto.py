@@ -11,17 +11,21 @@ import json
 import re
 import secrets
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from thief_agent.domain.board import BoardState
 from thief_agent.domain.crypto import (
     NONCE_BYTES,
     CryptoError,
     audit,
+    board_terms,
     canonical,
     commit_of,
     nonce,
     seal,
+    step_record,
     verify,
 )
 from thief_agent.shared.config import canonical_bytes
@@ -132,17 +136,36 @@ class TestCanonicalForm:
 
 
 class TestCommitFormula:
-    def test_matches_the_reference_construction(self) -> None:
-        """SHA256(canonical | "|" | nonce) — nonce appended, not embedded."""
-        nonce = "abc123"
-        expected = hashlib.sha256(f"{canonical(SAMPLE)}|{nonce}".encode()).hexdigest()
-        assert commit_of(SAMPLE, nonce) == expected
+    def test_it_matches_the_rulebooks_own_commit(self) -> None:
+        """The book serialises the nonce *inside* the record and hashes once.
 
-    def test_embedding_the_nonce_would_give_a_different_digest(self) -> None:
-        """Pins the placement, since either construction looks reasonable."""
-        nonce = "abc123"
-        embedded = hashlib.sha256(canonical({**SAMPLE, "nonce": nonce}).encode()).hexdigest()
-        assert commit_of(SAMPLE, nonce) != embedded
+        This module used to append ``"|" + nonce`` to the serialised string —
+        a perfectly good commitment scheme, and the wrong one. It yields a
+        different digest from the same inputs, so two honest peers disagree
+        and the audit calls the match tampered.
+        """
+        secret = "abc123"
+        book = hashlib.sha256(
+            json.dumps({**SAMPLE, "nonce": secret}, sort_keys=True, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+        assert commit_of(SAMPLE, secret) == book
+
+    def test_appending_the_nonce_would_give_a_different_digest(self) -> None:
+        """The construction we used to have, pinned as *not* ours."""
+        secret = "abc123"
+        appended = hashlib.sha256(f"{canonical(SAMPLE)}|{secret}".encode()).hexdigest()
+        assert commit_of(SAMPLE, secret) != appended
+
+    def test_a_payload_carrying_its_own_nonce_is_refused(self) -> None:
+        """Merging would drop one of the two silently.
+
+        Which one is dropped decides whether the commitment can ever be
+        reopened, so it is not a choice to make by dictionary ordering.
+        """
+        with pytest.raises(CryptoError, match="pass it once"):
+            commit_of({**SAMPLE, "nonce": "already"}, "abc123")
 
     def test_is_stable_across_calls(self) -> None:
         assert commit_of(SAMPLE, "n") == commit_of(SAMPLE, "n")
@@ -160,7 +183,8 @@ class TestCommitFormula:
     def test_a_known_fixture_pins_the_digest(self) -> None:
         """Exchange this with an opponent before the first counted match."""
         digest = commit_of({"move": "N", "step": 1}, "0" * 32)
-        assert digest == hashlib.sha256(b'{"move":"N","step":1}|' + b"0" * 32).hexdigest()
+        expected = hashlib.sha256(b'{"move":"N","nonce":"' + b"0" * 32 + b'","step":1}').hexdigest()
+        assert digest == expected
         assert len(digest) == 64
 
 
@@ -228,3 +252,108 @@ class TestAudit:
 
     def test_an_empty_audit_passes(self) -> None:
         audit([])
+
+
+BOARD = BoardState(
+    grid_size=8, cop=(1, 2), thief=(6, 5), barriers=frozenset({(3, 3), (0, 1)}), step=4
+)
+
+
+class TestWhatABoardStateSeals:
+    def test_it_seals_our_own_cell(self) -> None:
+        assert board_terms(BOARD, "police")["self"] == [1, 2]
+        assert board_terms(BOARD, "thief")["self"] == [6, 5]
+
+    def test_it_never_seals_our_belief_about_the_opponent(self) -> None:
+        """A sealed belief is a number we could have written afterwards.
+
+        Neither peer can check the other's belief, so sealing it buys nothing
+        while looking like it buys something — and the audit is then unable to
+        say anything about the field at all.
+        """
+        terms = board_terms(BOARD, "police")
+        assert "thief" not in terms
+        assert [6, 5] not in terms.values()
+
+    def test_every_sealed_field_is_checkable_by_the_opponent(self) -> None:
+        """Grid size, step, our revealed cell and the declared barriers."""
+        assert set(board_terms(BOARD, "police")) == {"grid_size", "step", "self", "barriers"}
+
+    def test_barriers_are_sorted_so_set_order_cannot_reach_the_digest(self) -> None:
+        shuffled = BoardState(
+            grid_size=8, cop=(1, 2), thief=(6, 5), barriers=frozenset({(0, 1), (3, 3)}), step=4
+        )
+        assert board_terms(BOARD, "police") == board_terms(shuffled, "police")
+        assert board_terms(BOARD, "police")["barriers"] == [[0, 1], [3, 3]]
+
+    def test_positions_are_lists_because_that_is_what_survives_json(self) -> None:
+        """A tuple goes out as a list and comes back as one.
+
+        A peer re-hashing a parsed record would otherwise get a different
+        digest from one hashing its own, which is tampering as far as the
+        audit can tell.
+        """
+        terms = board_terms(BOARD, "police")
+        assert json.loads(canonical(terms)) == terms
+
+    def test_the_step_binds_the_commitment_to_one_turn(self) -> None:
+        """Anti-replay: an old commitment cannot be reused in a new context."""
+        later = BoardState(grid_size=8, cop=(1, 2), thief=(6, 5), barriers=BOARD.barriers, step=5)
+        assert board_terms(BOARD, "police") != board_terms(later, "police")
+
+    def test_a_role_the_wire_does_not_name_is_refused(self) -> None:
+        with pytest.raises(CryptoError, match="role must be one of"):
+            board_terms(BOARD, "cop")
+
+
+class TestTheFullStepRecord:
+    def record(self, **overrides: object) -> dict[str, object]:
+        fields: dict[str, Any] = {
+            "state": BOARD,
+            "role": "police",
+            "move": "N",
+            "intent": "lie",
+            "hint": "heading uptown",
+        }
+        return step_record(**{**fields, **overrides})
+
+    def test_it_carries_the_four_named_fields_and_the_four_implied_ones(self) -> None:
+        """The rulebook names State, Move, Intent, Nonce and then says the real
+        record also holds the hint, the intent classification, the step and the
+        role. The nonce joins at commit time."""
+        assert set(self.record()) == {"state", "role", "move", "intent", "hint", "barrier_placed"}
+        assert self.record()["state"]["step"] == 4  # type: ignore[index]
+
+    def test_a_barrier_placement_is_sealed(self) -> None:
+        """The one move that changes the board permanently.
+
+        A cop able to re-describe where it built afterwards would hold the most
+        valuable rewrite available to either side.
+        """
+        assert self.record(barrier_placed=(2, 2))["barrier_placed"] == [2, 2]
+
+    def test_a_turn_without_a_barrier_seals_null_rather_than_omitting_the_key(self) -> None:
+        """Both sides serialise the same shape, so a thief's null is a fact
+        about the turn rather than a difference in format."""
+        assert self.record()["barrier_placed"] is None
+        assert self.record(role="thief")["barrier_placed"] is None
+
+    def test_changing_any_field_changes_the_commitment(self) -> None:
+        base = commit_of(self.record(), "n")
+        for changed in (
+            self.record(move="S"),
+            self.record(intent="truth"),
+            self.record(hint="downtown"),
+            self.record(barrier_placed=(2, 2)),
+        ):
+            assert commit_of(changed, "n") != base
+
+    def test_it_round_trips_through_json_unchanged(self) -> None:
+        """The audit re-hashes a record that has crossed the wire."""
+        sealed = self.record(barrier_placed=(2, 2))
+        assert commit_of(json.loads(canonical(sealed)), "n") == commit_of(sealed, "n")
+
+    def test_a_sealed_record_verifies(self) -> None:
+        sealed = self.record(barrier_placed=(2, 2))
+        opened = seal(sealed)
+        verify(sealed, opened["nonce"], opened["commit"])

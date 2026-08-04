@@ -54,6 +54,16 @@ def placement_range(state: BoardState, axes: AxisConvention) -> frozenset[Positi
     return frozenset(cell for cell in reachable if state.in_bounds(cell))
 
 
+ROLES = frozenset({"police", "thief"})
+"""The two sides. The wire says ``police``; ``cop`` is only our package name.
+
+Here rather than in :mod:`..infra.protocol` because a role is a fact about the
+game, not about the wire — the commitment record seals one, and ``domain`` must
+not import ``infra`` to find out what its own vocabulary is. The protocol
+module re-exports it, so the wire contract is unchanged.
+"""
+
+
 DEFAULT_MAX_BARRIERS: int = book_int("movement_and_barriers", "max_barriers")
 """Appendix F barrier quota. A *minimum*: raisable by agreement, never lower."""
 

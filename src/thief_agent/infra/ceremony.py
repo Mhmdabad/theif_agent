@@ -31,7 +31,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..domain.actions import ROLES
-from .validation import InvalidPayloadError, require_int, require_mapping, require_str
+from ..domain.bluff import INTENTS
+from .validation import (
+    InvalidPayloadError,
+    optional_cell,
+    require_int,
+    require_mapping,
+    require_str,
+)
 
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
 """A SHA-256 digest as ``hexdigest`` renders it: 64 lowercase hex characters.
@@ -170,6 +177,91 @@ class Acknowledgement:
             raise CeremonyError(str(exc)) from exc
 
 
+REVEAL_FIELDS = ("step", "sender", "move", "intent", "hint", "barrier_placed", "timestamp")
+"""Everything phase 3 may carry. Conspicuously not the nonce."""
+
+
+@dataclass(frozen=True, slots=True)
+class Reveal:
+    """Phase 3. The action and the sentence — and still not the nonce.
+
+    The rulebook is explicit about the omission: *"the Nonce stays hidden at
+    this stage, to prevent reverse-engineering the signatures prematurely"*.
+    That is not caution about this step. Every commitment in the match uses
+    the same construction, so one exposed nonce turns the commitment for
+    *every* other step into a hash whose only unknown is a five-way move — and
+    the opponent still has steps left to play against it.
+
+    **Nothing here can be verified when it is acted upon.** The digest cannot
+    be recomputed without the nonce, so a reveal is believed on the strength of
+    the lock and checked only at the final audit. That gap is the design, not
+    a weakness in it: it is what lets both peers act inside a turn, and it is
+    exactly why an audit failure is unappealable rather than negotiable — the
+    cheat has already had its effect and the only remedy left is the result.
+    """
+
+    step: int
+    sender: str
+    move: str
+    intent: str
+    hint: str
+    timestamp: str
+    barrier_placed: list[int] | None = None
+
+    def __post_init__(self) -> None:
+        if self.sender not in ROLES:
+            raise CeremonyError(f"sender must be one of {sorted(ROLES)}, got {self.sender!r}")
+        if self.step < 0:
+            raise CeremonyError(f"step must be >= 0, got {self.step}")
+        if self.intent not in INTENTS:
+            raise CeremonyError(f"intent must be one of {sorted(INTENTS)}, got {self.intent!r}")
+
+    def to_dict(self) -> dict[str, Any]:
+        """The wire form. :data:`REVEAL_FIELDS`, and no nonce in it."""
+        return {
+            "step": self.step,
+            "sender": self.sender,
+            "move": self.move,
+            "intent": self.intent,
+            "hint": self.hint,
+            "barrier_placed": self.barrier_placed,
+            "timestamp": self.timestamp,
+        }
+
+    @classmethod
+    def from_dict(cls, data: object) -> "Reveal":
+        """Parse an inbound reveal.
+
+        A nonce arriving here is **refused**, not ignored. Every other stray
+        field in this module is dropped quietly, because reading less is always
+        safe — but a nonce is the one value whose early arrival means the
+        opponent has misunderstood the ceremony, and continuing would let us
+        hold a secret we are not supposed to have until the audit. Better to
+        stop than to be in possession of it.
+
+        Raises:
+            CeremonyError: on anything malformed, or on a nonce.
+        """
+        try:
+            body = require_mapping(data, "reveal")
+            if "nonce" in body:
+                raise CeremonyError(
+                    f"reveal for step {body.get('step')} carries a nonce; it is withheld until "
+                    "the final audit, and one early nonce weakens every other commitment"
+                )
+            return cls(
+                step=require_int(body, "step", minimum=0, maximum=10_000),
+                sender=require_str(body, "sender"),
+                move=require_str(body, "move"),
+                intent=require_str(body, "intent"),
+                hint=body.get("hint", "") if isinstance(body.get("hint", ""), str) else "",
+                timestamp=require_str(body, "timestamp"),
+                barrier_placed=optional_cell(body, "barrier_placed"),
+            )
+        except InvalidPayloadError as exc:
+            raise CeremonyError(str(exc)) from exc
+
+
 @dataclass
 class StepCeremony:
     """The four phases of one step, and what is permitted at each point.
@@ -189,6 +281,8 @@ class StepCeremony:
     theirs: Commitment | None = None
     ack_sent: Acknowledgement | None = None
     ack_received: Acknowledgement | None = None
+    revealed_ours: Reveal | None = None
+    revealed_theirs: Reveal | None = None
 
     def __post_init__(self) -> None:
         if self.role not in ROLES:
@@ -289,6 +383,67 @@ class StepCeremony:
         return all(
             part is not None for part in (self.ours, self.theirs, self.ack_sent, self.ack_received)
         )
+
+    def reveal(self, opened: Reveal) -> Reveal:
+        """Disclose our action and hint, once and only once both sides are locked.
+
+        Raises:
+            CeremonyError: if the lock is incomplete, or on a second reveal.
+                Revealing early is not an efficiency — it hands the opponent
+                our move while theirs is still free to change, which is the one
+                thing the acknowledgement was for.
+        """
+        if not self.locked:
+            raise CeremonyError(
+                f"cannot reveal step {self.step} before both sides are locked ({self.pending()}); "
+                "revealing early hands over our move while theirs can still change"
+            )
+        if self.revealed_ours is not None:
+            raise CeremonyError(f"step {self.step} is already revealed; a reveal is not revisable")
+        self._check_belongs(opened.step, opened.sender, expected_role=self.role, what="reveal")
+        self.revealed_ours = opened
+        return opened
+
+    def receive_reveal(self, opened: Reveal) -> Reveal:
+        """File the opponent's disclosure. **It cannot be checked yet.**
+
+        The digest cannot be recomputed without their nonce, so this is
+        believed on the strength of the lock and verified only at the final
+        audit. Storing it is therefore the whole job: a reveal we did not keep
+        is a step the audit cannot re-derive, and an audit that cannot
+        re-derive a step proves nothing about it either way.
+
+        Raises:
+            CeremonyError: if they have not committed, if we are not locked, or
+                on a second reveal for the step.
+        """
+        if not self.locked:
+            raise CeremonyError(
+                f"the opponent revealed step {self.step} before both sides were locked "
+                f"({self.pending()}); accepting it would reward revealing early"
+            )
+        if self.revealed_theirs is not None:
+            raise CeremonyError(
+                f"the opponent already revealed step {self.step}; "
+                "a second disclosure would replace an action we have acted on"
+            )
+        self._check_belongs(opened.step, opened.sender, expected_role=self.opponent, what="reveal")
+        self.revealed_theirs = opened
+        return opened
+
+    def pending(self) -> str:
+        """Which parts of the lock are still missing. For the error, and the log."""
+        missing = [
+            name
+            for name, part in (
+                ("our commitment", self.ours),
+                ("their commitment", self.theirs),
+                ("our acknowledgement", self.ack_sent),
+                ("their acknowledgement", self.ack_received),
+            )
+            if part is None
+        ]
+        return "missing " + ", ".join(missing) if missing else "locked"
 
     def _check_belongs(self, step: int, sender: str, expected_role: str, what: str) -> None:
         if step != self.step:

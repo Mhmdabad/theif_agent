@@ -25,6 +25,7 @@ from typing import Any
 from ..domain.actions import ROLES as ROLES
 from .validation import (
     InvalidPayloadError,
+    optional_cell,
     require_int,
     require_mapping,
     require_str,
@@ -38,23 +39,6 @@ def _require_role(payload: dict[str, Any], key: str = "sender") -> str:
     if value not in ROLES:
         raise InvalidPayloadError(f"{key!r} must be one of {sorted(ROLES)}, got {value!r}")
     return value
-
-
-def _optional_cell(payload: dict[str, Any], key: str) -> list[int] | None:
-    """A ``[row, col]`` pair, or absent.
-
-    Accepts a list because that is what JSON carries; rejects anything that is
-    not exactly two integers, since a malformed cell would otherwise be indexed.
-    """
-    value = payload.get(key)
-    if value is None:
-        return None
-    if not isinstance(value, list) or len(value) != 2:
-        raise InvalidPayloadError(f"{key!r} must be a [row, col] pair, got {value!r}")
-    for element in value:
-        if isinstance(element, bool) or not isinstance(element, int):
-            raise InvalidPayloadError(f"{key!r} coordinates must be integers, got {value!r}")
-    return [int(value[0]), int(value[1])]
 
 
 @dataclass
@@ -99,8 +83,8 @@ class TurnMessage:
             smell_grid={str(k): float(v) for k, v in smell.items()},
             commit=require_str(body, "commit"),
             timestamp=require_str(body, "timestamp"),
-            barrier_placed=_optional_cell(body, "barrier_placed"),
-            capture_claim=_optional_cell(body, "capture_claim"),
+            barrier_placed=optional_cell(body, "barrier_placed"),
+            capture_claim=optional_cell(body, "capture_claim"),
             claim_response=body.get("claim_response"),
             win_claim=body.get("win_claim"),
         )

@@ -86,3 +86,24 @@ def reject_unknown_fields(payload: dict[str, Any], allowed: frozenset[str]) -> N
     unknown = sorted(set(payload) - allowed)
     if unknown:
         raise InvalidPayloadError(f"unexpected fields: {unknown}")
+
+
+def optional_cell(payload: dict[str, Any], key: str) -> list[int] | None:
+    """A ``[row, col]`` pair, or absent.
+
+    Here rather than in :mod:`.protocol` because two message families now parse
+    cells — turns and reveals — and a parser private to one of them would have
+    been copied into the other.
+
+    Accepts a list because that is what JSON carries; rejects anything that is
+    not exactly two integers, since a malformed cell would otherwise be indexed.
+    """
+    value = payload.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, list) or len(value) != 2:
+        raise InvalidPayloadError(f"{key!r} must be a [row, col] pair, got {value!r}")
+    for element in value:
+        if isinstance(element, bool) or not isinstance(element, int):
+            raise InvalidPayloadError(f"{key!r} coordinates must be integers, got {value!r}")
+    return [int(value[0]), int(value[1])]

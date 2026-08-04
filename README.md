@@ -126,10 +126,86 @@ and PRD-5 (tunnelling, latency, failure handling).*
      What is graded is the quality of the justification. Source: ch. 6.
      Produced by: PRD-3, PRD-4.                                                -->
 
-*To be written — see PRD-3. Current documented plan: Bayesian belief plus
-Manhattan evasion, upgraded with flood-fill escape-space scoring so the agent
-does not flee into a pocket the cop is sealing. Reinforcement learning is not
-planned.*
+**Route chosen: our own heuristic algorithm.** Not pure Manhattan-plus-belief,
+and not reinforcement learning. The reasoning below is what the implementation
+actually taught us, in the order it taught us.
+
+### Why not the pure-heuristic route
+
+The obvious policy is *maximise Manhattan distance from the cop, break ties by
+remaining escape space*. We built exactly that first, and both halves failed
+for reasons that are visible in the git history rather than argued from
+theory.
+
+**Distance is actively wrong in a corner.** From `(6, 6)` with the cop at
+`(0, 0)`, standing still is the furthest cell on the board — and by Appendix D
+the cheapest one for the cop to seal, because a corner supplies two of the four
+sides it needs for free. A distance-maximising thief walks into the one place
+where capture costs two barriers instead of four, and reports the whole way
+that it is doing well.
+
+**Escape space could not fix it, because it never discriminates.** A move
+changes only the thief's own cell, so every legal destination is one step away
+and therefore in the thief's own connected component; reachable area is a
+property of that component, so it returns the same number for every candidate.
+A sweep of four thousand random positions found **zero** where it differed
+([`test_reachable_area_cannot_separate_candidates_at_all`](tests/test_strategy.py)).
+It had been the stated tie-break for two issues and had never once broken a
+tie.
+
+So the pure route is not merely weaker here. Its tie-break is a constant.
+
+### What we built instead
+
+**Local degree as the primary safety signal.** How many of a cell's four sides
+are still open. This is the quantity Appendix D actually prices capture by —
+two barriers in a corner, three on an edge, four in the open — so refusing
+low-degree ground is refusing to make ourselves cheap to catch. It enters the
+ranking twice: as a veto above distance, exempted when a cramped cell strictly
+gains ground (a real escape is never refused), and as a preference below
+distance, which closes the gap the exemption leaves.
+
+**Reachable area over time rather than across candidates.** Barriers are
+permanent, so the region can only shrink, and the *rate* it shrinks at is the
+cop's containment plan becoming visible. When it is closing, degree is promoted
+above distance: the cop does not need to enter a pocket it is sealing, only to
+finish the wall, so distance bought inside one buys nothing. The timing matters
+more than the magnitude — a region that is closing has a last moment at which
+leaving is possible, and by the time the area is alarming that moment has
+passed.
+
+**`STAY` priced rather than free.** Survival, not distance, is the win
+condition, so waiting is sometimes optimal. But emission puts τ at the occupied
+cell every turn while decay removes only ρ, so a cell sat on becomes a beacon —
+and a beacon is negative distance, since it is what converts the cop's search
+into a heading. Consecutive turns held are charged against the distance term.
+
+Every one of those is a heuristic. None is learned. What makes it *our own
+algorithm* rather than the pure route is that the ranking is derived from
+Appendix D's cost structure instead of from proximity.
+
+### Why not reinforcement learning
+
+Four reasons, in descending order of how much they actually decided it.
+
+1. **The sample budget does not exist.** RL needs episodes in the thousands.
+   We have a league of at most ten games per team against opponents whose
+   policies differ, and a token budget of 200 000 per series. Self-play against
+   our own cop would train against one specific opponent — the one we control,
+   and the one we will never face.
+2. **Determinism is a requirement, not a preference.** A match must replay
+   exactly and a reported bug must reproduce; a learned policy makes the
+   weights part of the reproduction, and the weights are not in the transcript.
+3. **The rulebook makes it costlier.** RL was never taught in the course and is
+   explicitly optional, and choosing it makes learning curves a *mandatory*
+   README section — real work whose absence is a deduction.
+4. **What is graded is the justification.** A heuristic we can defend cell by
+   cell against Appendix D is worth more than a policy whose behaviour we can
+   only describe statistically.
+
+The seeded RNG is wired up and the seed is logged on every turn regardless, so
+if an ε-greedy element is ever added it is reproducible from day one. Nothing
+currently draws from that stream, and a test asserts so.
 
 ## 4. Learning curves
 
@@ -137,9 +213,16 @@ planned.*
      policy convergence. If no RL was used, say so explicitly — RL is an
      optional tool that the course never taught. Source: ch. 6.                -->
 
-Reinforcement learning is **not** currently planned for this agent; the movement
-policy is deterministic and algorithmic. If that changes, convergence curves
-belong here.
+**Not applicable.** Reinforcement learning is not used by this agent, for the
+four reasons set out in section 3. The movement policy is deterministic and
+algorithmic: identical state plus identical config yields an identical action,
+verified across processes under four different `PYTHONHASHSEED` values as well
+as across runs.
+
+This section is mandatory only where RL was used. It is left in place, and
+answered explicitly, rather than deleted — a missing section and a section
+that says "we did not do this, here is why" read very differently to a
+grader.
 
 ## 5. Screenshots
 

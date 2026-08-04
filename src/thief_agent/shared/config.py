@@ -56,9 +56,36 @@ def validate(config: dict[str, Any]) -> None:
         raise ConfigError("; ".join(problems))
 
 
-def canonical_bytes(config: dict[str, Any]) -> bytes:
-    """Serialise canonically, so both peers hash identical bytes."""
-    return json.dumps(config, sort_keys=True, separators=(",", ":")).encode("utf-8")
+def canonical_bytes(payload: dict[str, Any]) -> bytes:
+    """The one canonical form. Every digest in this system is taken over it.
+
+    The config digest, the scent lock, the step commitments and the transport
+    payload freeze all hash through here. One implementation rather than
+    several, because two canonical forms that disagree is the same defect as
+    none: both sides serialise "canonically", both get different bytes, and the
+    audit calls an honest match tampered.
+
+    Three settings, and the third is the one that bites:
+
+    ``sort_keys=True``
+        Key order is an accident of construction and must not reach the digest.
+
+    ``separators=(",", ":")``
+        No incidental whitespace.
+
+    ``ensure_ascii`` left at its default of **True**
+        Non-ASCII is escaped to ``\\uXXXX``, so the output is pure ASCII
+        whatever went in. This looks like the setting to turn off — raw UTF-8
+        reads better and is just as deterministic *on its own*. It is the wrong
+        call here, because determinism alone is not the requirement:
+        interoperability is. The rulebook's own ``commit()`` leaves the default
+        (p. 37), so an opponent running that code escapes where we would not,
+        and the first hint carrying a non-ASCII character produces two
+        different digests from two honest peers — a ``TAMPERED`` verdict, no
+        appeal, zero for both sides. Hints are free natural language, so that
+        character will arrive eventually.
+    """
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
 def config_sha256(config: dict[str, Any]) -> str:

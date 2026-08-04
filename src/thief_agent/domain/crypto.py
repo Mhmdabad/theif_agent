@@ -27,9 +27,10 @@ The nonce is **appended after a pipe**, not folded into the payload
 """
 
 import hashlib
-import json
 import secrets
 from typing import Any
+
+from ..shared.config import canonical_bytes
 
 NONCE_BYTES = 16
 """Matches the reference. ``secrets.token_hex(16)`` gives a 32-char nonce."""
@@ -66,8 +67,15 @@ def nonce() -> str:
 
 
 def canonical(payload: dict[str, Any]) -> str:
-    """Stable JSON, so the digest depends on content and not on key order."""
-    return json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    """The canonical JSON text a commitment is taken over.
+
+    Delegates rather than re-deriving. This module used to serialise with
+    ``ensure_ascii=False`` while :func:`~..shared.config.canonical_bytes` left
+    the default — two canonical forms in one codebase, agreeing on every
+    English payload and disagreeing on the first hint with a non-ASCII
+    character in it.
+    """
+    return canonical_bytes(payload).decode("utf-8")
 
 
 def commit_of(payload: dict[str, Any], nonce: str) -> str:

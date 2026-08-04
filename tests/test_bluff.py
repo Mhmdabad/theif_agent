@@ -2,16 +2,26 @@
 
 import random
 
+import pytest
+
 from thief_agent.domain.bluff import (
     COMPASS,
     TEMPLATES,
+    Bluff,
+    SelfContradictionError,
     bearing,
     compose,
+    contradicts_our_field,
     decoy,
     nearest_landmark,
+    plausible_decoy,
+    speak,
+    vet,
 )
 from thief_agent.domain.board import BoardState
 from thief_agent.domain.hints import DIRECTIONS, LANDMARKS, MAX_WORDS, NUMERIC, parse
+from thief_agent.domain.scent import emission
+from thief_agent.domain.trail import Trail
 
 BOARD = BoardState(cop=(0, 0), thief=(5, 1), grid_size=7)
 
@@ -126,3 +136,98 @@ class TestLandmarks:
         for hint in every_hint():
             named = [word for word in hint.lower().split() if word in LANDMARKS]
             assert named, hint
+
+
+class TestIntentIsChosenFirst:
+    """#66: the flag is decided before the sentence, not after."""
+
+    def test_intent_is_an_argument_not_a_result(self) -> None:
+        """Deciding afterwards would let the label be picked to suit whatever
+        came out, and the committed flag is meant to be a promise."""
+        assert speak((5, 1), BOARD, (3, 3), "truth").intent == "truth"
+        assert speak((5, 1), BOARD, (3, 3), "lie").intent == "lie"
+
+    def test_a_truthful_hint_points_at_where_we_are(self) -> None:
+        assert speak((5, 1), BOARD, (3, 3), "truth").about == (5, 1)
+
+    def test_a_lie_points_elsewhere(self) -> None:
+        assert speak((5, 1), BOARD, (3, 3), "lie").about != (5, 1)
+
+    @pytest.mark.parametrize("bad", ["maybe", "TRUTH", "", "bluff"])
+    def test_an_unknown_intent_is_refused(self, bad: str) -> None:
+        with pytest.raises(ValueError, match="intent must be one of"):
+            speak((5, 1), BOARD, (3, 3), bad)
+
+    def test_the_flag_travels_with_the_text(self) -> None:
+        spoken = speak((5, 1), BOARD, (3, 3), "lie")
+        assert spoken.text and spoken.intent == "lie" and spoken.about
+
+
+class TestSelfConsistency:
+    """#67: never send a claim our own field refutes."""
+
+    @staticmethod
+    def trail_through(*cells: tuple[int, int]) -> dict[tuple[int, int], float]:
+        laid = Trail()
+        for cell in cells:
+            laid.deposit(emission(cell, BOARD.grid_size))
+            laid.decay()
+        return laid.values
+
+    def test_a_claim_our_own_scent_refutes_is_refused(self) -> None:
+        """Our trail is public and unforgeable. A claim the opponent can
+        disprove by reading it is a free credibility donation."""
+        here = self.trail_through((5, 1))
+        far = Bluff(intent="lie", text="north", about=(0, 6))
+        with pytest.raises(SelfContradictionError, match="convict on arrival"):
+            vet(far, here)
+
+    def test_a_claim_our_own_scent_supports_is_allowed(self) -> None:
+        """A credible lie points at somewhere we genuinely have been."""
+        walked = self.trail_through((0, 5), (5, 1))
+        assert vet(Bluff(intent="lie", text="north", about=(0, 5)), walked)
+
+    def test_truthful_hints_are_never_vetted(self) -> None:
+        """Running the check on them would refuse honest hints in the opening
+        turns, before our trail has accumulated."""
+        honest = Bluff(intent="truth", text="south", about=(5, 1))
+        assert vet(honest, {}) is honest
+
+    def test_it_is_the_opponents_own_detector_pointed_at_us(self) -> None:
+        assert contradicts_our_field(
+            Bluff(intent="lie", text="x", about=(0, 6)), self.trail_through((5, 1)), 0.81
+        )
+
+    def test_a_plausible_decoy_aims_at_our_own_history(self) -> None:
+        """The flaw the guard exposed: a corner lie is refuted by our own
+        emission the moment the opponent reads it."""
+        walked = self.trail_through((0, 5), (5, 1))
+        assert plausible_decoy((5, 1), BOARD, walked) == (0, 5)
+
+    def test_with_no_trail_it_falls_back_and_the_guard_refuses(self) -> None:
+        """Correct for the opening turns: nothing to be credible with, so we
+        should be telling the truth."""
+        assert plausible_decoy((5, 1), BOARD, {}) == decoy((5, 1), BOARD)
+
+    def test_speak_uses_the_credible_decoy_when_given_a_field(self) -> None:
+        walked = self.trail_through((0, 5), (5, 1))
+        assert speak((5, 1), BOARD, (3, 3), "lie", own_field=walked).about == (0, 5)
+
+    def test_it_is_stable_across_calls(self) -> None:
+        walked = self.trail_through((0, 5), (5, 1))
+        assert plausible_decoy((5, 1), BOARD, walked) == plausible_decoy((5, 1), BOARD, walked)
+
+
+class TestTheFlagIsValidatedOnTheObjectToo:
+    def test_a_bluff_cannot_be_built_with_a_bad_intent(self) -> None:
+        """speak() guards the entry point; the dataclass guards anything that
+        constructs one directly — including a payload rebuilt off the wire."""
+        with pytest.raises(ValueError, match="intent must be one of"):
+            Bluff(intent="perhaps", text="north", about=(0, 0))
+
+    def test_a_valid_one_is_immutable(self) -> None:
+        """The flag is committed alongside the move; revising it after the
+        hash is sent is exactly what the commitment forbids."""
+        spoken = Bluff(intent="lie", text="north", about=(0, 0))
+        with pytest.raises(AttributeError):
+            spoken.intent = "truth"  # type: ignore[misc]

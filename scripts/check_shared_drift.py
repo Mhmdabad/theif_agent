@@ -23,6 +23,7 @@ about the design rather than a suppression.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -80,15 +81,63 @@ def normalise(text: str) -> str:
     return _PACKAGE_RE.sub("AGENT", text)
 
 
-def clone_sibling(destination: Path, ref: str) -> Path:
-    """Shallow-clone the sibling repository."""
+def current_branch() -> str | None:
+    """The branch this check is running on, if it is not the default one.
+
+    CI does not check out a branch name for a pull request, so the environment
+    is consulted first: ``GITHUB_HEAD_REF`` is the PR's source branch and is
+    empty for a push, where ``GITHUB_REF_NAME`` carries it instead.
+    """
+    for variable in ("GITHUB_HEAD_REF", "GITHUB_REF_NAME"):
+        name = os.environ.get(variable, "").strip()
+        if name and name != "main":
+            return name
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+    name = result.stdout.strip()
+    return name if name and name not in ("main", "HEAD") else None
+
+
+def _try_clone(destination: Path, ref: str) -> bool:
+    result = subprocess.run(
+        ["git", "clone", "--depth", "1", "--branch", ref, SIBLING_URL, str(destination)],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def clone_sibling(destination: Path, ref: str, prefer: str | None = None) -> tuple[Path, str]:
+    """Shallow-clone the sibling, preferring a branch of the same name.
+
+    A change to a shared module has to land in both repositories, and until it
+    has, each side's branch disagrees with the other's ``main``. Comparing
+    against ``main`` therefore turns every paired change red on both sides at
+    once, with no merge order that resolves it — which used to be worked
+    around by parking the module as an exemption for the duration.
+
+    Preferring a sibling branch of the same name removes the need for that.
+    Paired PRs share a branch name, so they are compared against each other;
+    once both merge, ``main`` and ``main`` agree and nothing changes. The
+    fallback is exact rather than fuzzy: a branch either exists over there or
+    the comparison is against ``main``.
+    """
+    if prefer and _try_clone(destination, prefer):
+        return destination / "src" / SIBLING_PACKAGE, prefer
     subprocess.run(
         ["git", "clone", "--depth", "1", "--branch", ref, SIBLING_URL, str(destination)],
         check=True,
         capture_output=True,
         text=True,
     )
-    return destination / "src" / SIBLING_PACKAGE
+    return destination / "src" / SIBLING_PACKAGE, ref
 
 
 def compare(ours: Path, theirs: Path) -> list[str]:
@@ -122,12 +171,20 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ref", default="main", help="sibling branch to compare against")
     parser.add_argument("--src", default=f"src/{OUR_PACKAGE}", help="our package root")
+    parser.add_argument(
+        "--no-pair",
+        action="store_true",
+        help="always compare against --ref, never a sibling branch of the same name",
+    )
     args = parser.parse_args()
 
     ours = Path(args.src)
     workspace = Path(tempfile.mkdtemp(prefix="drift-"))
+    compared_against = args.ref
     try:
-        theirs = clone_sibling(workspace / "sibling", args.ref)
+        theirs, compared_against = clone_sibling(
+            workspace / "sibling", args.ref, prefer=None if args.no_pair else current_branch()
+        )
         problems = compare(ours, theirs)
         stray = unlisted(ours)
     except subprocess.CalledProcessError as exc:
@@ -141,7 +198,7 @@ def main() -> int:
         for name in stray:
             print(f"  {name}")
     if problems:
-        print(f"\nshared modules out of lockstep with {SIBLING_URL}:")
+        print(f"\nshared modules out of lockstep with {SIBLING_URL}@{compared_against}:")
         for problem in problems:
             print(f"  {problem}")
         print(
@@ -150,7 +207,7 @@ def main() -> int:
         )
     if problems or stray:
         return 1
-    print(f"{len(SHARED)} shared modules in lockstep with {SIBLING_URL}")
+    print(f"{len(SHARED)} shared modules in lockstep with {SIBLING_URL}@{compared_against}")
     return 0
 
 

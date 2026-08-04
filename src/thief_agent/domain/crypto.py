@@ -39,6 +39,32 @@ class CryptoError(ValueError):
     """Raised when a revealed record does not match its commitment."""
 
 
+def nonce() -> str:
+    """A fresh 128-bit nonce, from the CSPRNG and never from :mod:`random`.
+
+    The rulebook names the module: ``secrets``, *not* ``random``, which it
+    calls too predictable. That is not stylistic advice.
+
+    A nonce does two jobs. It makes repeating an action produce a different
+    digest, and it defeats a dictionary attack — the move space is tiny, five
+    moves and a handful of barrier cells, so without a nonce an opponent hashes
+    every possibility and cracks each commitment in microseconds.
+
+    Both jobs need the value to be **unguessable**, and :mod:`random` is
+    reproducible by construction: it is a Mersenne Twister whose entire future
+    follows from its state, and the state follows from enough observed output.
+    A series hands the opponent hundreds of nonces at the final reveal. Anything
+    that lets them predict the next one lets them pre-image our commitments and
+    read our move before we make it — which is the whole thing this mechanism
+    exists to prevent.
+
+    Sixteen bytes because the reference uses sixteen. Collision resistance is
+    not the point at this size — unpredictability is — but a shared length is
+    one less thing for two implementations to disagree about.
+    """
+    return secrets.token_hex(NONCE_BYTES)
+
+
 def canonical(payload: dict[str, Any]) -> str:
     """Stable JSON, so the digest depends on content and not on key order."""
     return json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
@@ -56,8 +82,8 @@ def seal(payload: dict[str, Any]) -> dict[str, str]:
     commit time; the nonce is withheld until the final audit, so an opponent
     cannot reverse-engineer the record while the match is still running.
     """
-    nonce = secrets.token_hex(NONCE_BYTES)
-    return {"nonce": nonce, "commit": commit_of(payload, nonce)}
+    fresh = nonce()
+    return {"nonce": fresh, "commit": commit_of(payload, fresh)}
 
 
 def verify(payload: dict[str, Any], nonce: str, commit: str) -> None:

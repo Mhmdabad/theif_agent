@@ -8,6 +8,9 @@ honestly, and the failure looks exactly like cheating.
 
 import hashlib
 import json
+import re
+import secrets
+from pathlib import Path
 
 import pytest
 
@@ -17,11 +20,76 @@ from thief_agent.domain.crypto import (
     audit,
     canonical,
     commit_of,
+    nonce,
     seal,
     verify,
 )
 
 SAMPLE = {"step": 3, "move": "N", "intent": "lie", "hint": "heading uptown"}
+SRC = Path(__file__).parents[1] / "src" / "thief_agent"
+
+
+class TestTheNonceGenerator:
+    def test_it_is_the_agreed_length(self) -> None:
+        assert len(nonce()) == NONCE_BYTES * 2
+
+    def test_it_is_hexadecimal(self) -> None:
+        """A shared alphabet, so neither side has to guess at an encoding."""
+        assert set(nonce()) <= set("0123456789abcdef")
+
+    def test_every_draw_is_different(self) -> None:
+        """A repeated nonce repeats the digest, which is the one thing it exists
+        to prevent — an opponent seeing the same commit twice learns the action
+        repeated without ever opening it."""
+        assert len({nonce() for _ in range(2000)}) == 2000
+
+    def test_it_comes_from_the_csprng(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Named module, not merely random-looking output.
+
+        Any test of *randomness* passes for a Mersenne Twister too, so the
+        assertion is on the source rather than on the statistics.
+        """
+        called: list[int] = []
+
+        def spy(size: int) -> str:
+            called.append(size)
+            return "ab" * size
+
+        monkeypatch.setattr(secrets, "token_hex", spy)
+        assert nonce() == "ab" * NONCE_BYTES
+        assert called == [NONCE_BYTES]
+
+    def test_the_crypto_module_never_imports_random(self) -> None:
+        """The rulebook names ``secrets`` and calls ``random`` too predictable.
+
+        ``random`` is a Mersenne Twister: its whole future follows from its
+        state, and the state follows from enough observed output. A series
+        hands the opponent hundreds of our nonces at the final reveal. This is
+        an absence, and an absence is invisible until someone adds an import —
+        by which point our commitments are pre-imageable.
+        """
+        source = (SRC / "domain" / "crypto.py").read_text()
+        assert not re.search(r"^\s*(import random|from random import)", source, re.M)
+
+    def test_randomness_elsewhere_is_seeded_rather_than_ambient(self) -> None:
+        """Strategy randomness has the *opposite* requirement, and both are right.
+
+        ``domain/bluff.py`` and ``strategy/base.py`` do import ``random``, and
+        should: a decoy choice must be **reproducible**, or a replay of an
+        honest match fails its own audit. What must never appear is a
+        module-level call like ``random.choice(...)``, which is neither
+        reproducible nor unpredictable — the worst of both.
+
+        A nonce needs unpredictability; a tie-break needs reproducibility. The
+        line between them is that a nonce comes from :mod:`secrets` and
+        everything else comes from a seeded ``random.Random``.
+        """
+        ambient = [
+            f"{path.relative_to(SRC)}: {hit}"
+            for path in sorted(SRC.rglob("*.py"))
+            for hit in re.findall(r"\brandom\.(?!Random\b)\w+\(", path.read_text())
+        ]
+        assert ambient == []
 
 
 class TestCanonicalForm:

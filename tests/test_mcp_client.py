@@ -80,26 +80,6 @@ class TestRetryBudget:
             OpponentClient(transport, settings, sleep=slept.append).call("ping", {})
         assert slept == [5.0]
 
-    @pytest.mark.parametrize("failure", [TimeoutError(), ConnectionError(), OSError()])
-    def test_transport_failures_are_retried(self, failure: Exception) -> None:
-        transport = FakeTransport(failure, {"ok": True})
-        assert OpponentClient(transport, SETTINGS).call("ping", {}) == {"ok": True}
-
-    def test_a_logic_error_is_not_retried(self) -> None:
-        """Only transport faults are transient; a bad payload is not."""
-        transport = FakeTransport(ValueError("malformed"))
-        with pytest.raises(ValueError, match="malformed"):
-            OpponentClient(transport, SETTINGS).call("ping", {})
-
-
-class TestRetryResendsTheSamePayload:
-    def test_every_attempt_carries_identical_bytes(self) -> None:
-        """A retry is never a chance to send a different move."""
-        transport = FakeTransport(TimeoutError(), TimeoutError(), {"ok": True})
-        payload = {"move": "N", "commit": "abc123"}
-        OpponentClient(transport, SETTINGS).call("receive_move", payload)
-        assert [c["payload"] for c in transport.calls] == [payload] * 3
-
 
 class TestSettings:
     def test_is_frozen(self) -> None:
@@ -194,3 +174,102 @@ class TestPointingAtTheOpponentsTunnel:
         path = Path(__file__).parents[1] / "config/thief/game.toml"
         private = tomllib.loads(path.read_text())
         assert private["network"]["opponent_url"].startswith("http://127.0.0.1:")
+
+
+class MutatingTransport:
+    """An opponent whose transport annotates the payload it was handed.
+
+    Not adversarial fiction: a middleware that stamps a trace id, or a caller
+    reusing one dict across calls, produces exactly this.
+    """
+
+    def __init__(self, failures: int) -> None:
+        self.failures = failures
+        self.seen: list[dict[str, Any]] = []
+
+    def call(self, url: str, tool: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+        self.seen.append(dict(payload))
+        payload["move"] = "TAMPERED"
+        payload.setdefault("trace", []).append(len(self.seen))
+        if self.failures > 0:
+            self.failures -= 1
+            raise TimeoutError("no answer")
+        return {"ok": True}
+
+
+class TestARetryReSendsBytesNotAnIntention:
+    def test_every_attempt_carries_the_original_payload(self) -> None:
+        transport = MutatingTransport(failures=2)
+        OpponentClient(transport, SETTINGS).call("receive_turn", {"move": "N", "step": 4})
+        assert transport.seen == [{"move": "N", "step": 4}] * 3
+
+    def test_a_caller_mutating_between_attempts_cannot_change_the_action(self) -> None:
+        """The guarantee has to hold for call sites not yet written.
+
+        Passing the caller's dict down the loop would look identical and be
+        weaker — attempt two would become a *different action*, which is the
+        fraud Commit-Reveal exists to expose.
+        """
+        payload = {"move": "N", "commit": "a" * 64}
+        transport = FakeTransport(TimeoutError(), {"ok": True})
+        client = OpponentClient(transport, SETTINGS)
+
+        original = dict(payload)
+        payload["move"] = "S"  # the caller changes its mind mid-flight
+        client.call("receive_turn", original)
+        assert [c["payload"] for c in transport.calls] == [original] * 2
+
+    def test_the_transport_is_handed_a_fresh_object_each_attempt(self) -> None:
+        """Two attempts sharing one object is one mutation away from divergence."""
+        transport = MutatingTransport(failures=1)
+        OpponentClient(transport, SETTINGS).call("receive_turn", {"move": "E"})
+        assert transport.seen[0] == transport.seen[1] == {"move": "E"}
+
+    def test_it_records_a_digest_of_what_was_sent(self) -> None:
+        """Evidence at audit that the retry changed nothing."""
+        client = OpponentClient(FakeTransport(TimeoutError(), {"ok": True}), SETTINGS)
+        client.call("receive_turn", {"move": "N"})
+        client.call("receive_turn", {"move": "N"})
+        tools = [tool for tool, _ in client.sent]
+        digests = [digest for _, digest in client.sent]
+        assert tools == ["receive_turn", "receive_turn"]
+        assert digests[0] == digests[1]
+        assert len(client.sent) == 2  # two calls, four attempts
+
+    def test_key_order_does_not_change_the_digest(self) -> None:
+        """Canonical bytes, the same rule that makes config_sha256 agree."""
+        client = OpponentClient(FakeTransport(), SETTINGS)
+        client.call("receive_turn", {"move": "N", "step": 1})
+        client.call("receive_turn", {"step": 1, "move": "N"})
+        assert client.sent[0][1] == client.sent[1][1]
+
+    def test_an_unserialisable_payload_fails_before_the_first_attempt(self) -> None:
+        """A message we cannot reproduce is one we cannot prove we sent once."""
+        transport = FakeTransport()
+        with pytest.raises(TypeError):
+            OpponentClient(transport, SETTINGS).call("receive_turn", {"move": {1, 2}})
+        assert transport.calls == []
+
+
+class TestOnlyTransportFailuresAreRetried:
+    @pytest.mark.parametrize(
+        "failure",
+        [TimeoutError("no answer"), ConnectionError("refused"), OSError("network down")],
+    )
+    def test_a_transport_fault_is_transient_and_retried(self, failure: Exception) -> None:
+        transport = FakeTransport(failure, {"ok": True})
+        assert OpponentClient(transport, SETTINGS).call("receive_turn", {}) == {"ok": True}
+
+    @pytest.mark.parametrize(
+        "failure",
+        [ValueError("malformed"), KeyError("missing"), RuntimeError("bug")],
+    )
+    def test_anything_else_is_a_bug_and_is_not_retried(self, failure: Exception) -> None:
+        """Retrying a logic error sends the same broken message four times.
+
+        It cannot succeed, and it spends the deadline budget discovering that.
+        """
+        transport = FakeTransport(failure)
+        with pytest.raises(type(failure)):
+            OpponentClient(transport, SETTINGS).call("receive_turn", {})
+        assert len(transport.calls) == 1

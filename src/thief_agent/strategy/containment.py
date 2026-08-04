@@ -26,7 +26,7 @@ consulted would break that in a way no single-turn test would show.
 from dataclasses import dataclass, field
 
 from ..domain.axes import AxisConvention
-from ..domain.board import BoardState
+from ..domain.board import BoardState, Position
 from ..domain.search import reachable_area
 
 WINDOW = 3
@@ -52,6 +52,7 @@ class Reach:
     step: int
     area: int
     barriers: int
+    cell: Position
 
 
 @dataclass
@@ -74,6 +75,7 @@ class ContainmentTracker:
             step=state.step,
             area=reachable_area(state, state.thief, axes),
             barriers=len(state.barriers),
+            cell=state.thief,
         )
         self.history.append(entry)
         return entry
@@ -82,6 +84,26 @@ class ContainmentTracker:
     def area(self) -> int:
         """The most recently observed reachable area, or 0 before any turn."""
         return self.history[-1].area if self.history else 0
+
+    @property
+    def linger(self) -> int:
+        """Consecutive turns already spent on the current cell.
+
+        Zero on arrival, one after a turn of standing still, and so on. This
+        is the thief's own scent bill: emission puts τ at the occupied cell
+        every turn while decay only removes ρ of it, so a cell sat on
+        accumulates a signal that a cell passed through never does. Waiting is
+        sometimes right, but it is never free, and this is the meter.
+        """
+        if not self.history:
+            return 0
+        here = self.history[-1].cell
+        count = 0
+        for entry in reversed(self.history[:-1]):
+            if entry.cell != here:
+                break
+            count += 1
+        return count
 
     @property
     def trend(self) -> int:

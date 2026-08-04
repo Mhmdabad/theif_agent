@@ -119,6 +119,21 @@ class ThiefBrain(BrainBase):
         threat = self.threat(state, **context)
         return max(available, key=lambda move: self._rank(state, move, threat))
 
+    def scent_cost(self, move: Move) -> int:
+        """What standing still costs in signal, measured in cells of distance.
+
+        Survival is the win condition, so waiting is a real option — but it is
+        not a free one. The thief emits at its own cell every turn while decay
+        removes only a tenth, so a cell sat on for three turns carries a
+        signal a cell walked through never reaches. That is a beacon, and a
+        beacon is negative distance: it is exactly the quantity that converts
+        the cop's search into a heading.
+
+        Charged only to ``STAY``, and only for turns *already* spent here, so
+        arriving somewhere and pausing once is free. Camping is not.
+        """
+        return self.reach.linger if move == "STAY" else 0
+
     def is_cramped(self, state: BoardState, move: Move, threat: Position) -> bool:
         """Whether ``move`` walks into a corner without earning it.
 
@@ -164,6 +179,13 @@ class ThiefBrain(BrainBase):
         The veto stays on top through both orderings. A trap is exactly the
         situation in which a cramped cell is most tempting and most fatal.
 
+        ``distance`` is charged the scent cost of the move before it is
+        compared, so ``STAY`` competes on what waiting actually buys. It is a
+        candidate like any other — survival, not distance, is the win
+        condition, and waiting is sometimes optimal — but each turn already
+        spent on a cell makes the next one cost another cell of effective
+        distance. A thief that camps is a thief broadcasting its address.
+
         Returned as a tuple so ``max`` applies the criteria in priority order,
         ending in the negated :data:`~..domain.board.MOVES` index. That keeps
         the ordering total — two candidates never tie completely, so the choice
@@ -171,7 +193,7 @@ class ThiefBrain(BrainBase):
         """
         destination = target_of(state.thief, move, self.axes)
         roomy = 0 if self.is_cramped(state, move, threat) else 1
-        distance = manhattan(destination, threat)
+        distance = manhattan(destination, threat) - self.scent_cost(move)
         after = replace(state, thief=destination)
         degree = open_neighbours(after, destination, self.axes)
         if self.reach.closing:

@@ -3,6 +3,7 @@
 import ast
 import json
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ from thief_agent.infra.step_zero import (
     _positive_int,
     _ram_mb,
     collect,
+    provenance,
 )
 
 
@@ -158,3 +160,79 @@ class TestHardwareDirectly:
     def test_a_fully_known_machine_has_nothing_undetected(self) -> None:
         full = Hardware("Linux", 8, 3600.0, 16384, "RTX 4070", 8192, "claude-haiku-4-5")
         assert full.undetected == ()
+
+
+def repo(tmp_path: Path, commit: bool = True, dirty: bool = False) -> Path:
+    """A real git repository, because the thing under test shells out to git."""
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "T"], cwd=tmp_path, check=True)
+    (tmp_path / "agent.py").write_text("print('hello')\n")
+    if commit:
+        subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "commit", "-qm", "first"], cwd=tmp_path, check=True)
+    if dirty:
+        (tmp_path / "agent.py").write_text("print('changed after the commit')\n")
+    return tmp_path
+
+
+class TestTheCommitMustDescribeWhatRan:
+    def test_a_clean_tree_is_reproducible(self, tmp_path: Path) -> None:
+        found = provenance("0.1.0", "s82kma9e", 3, repo=repo(tmp_path))
+        assert found.reproducible
+        assert found.github_commit is not None
+        assert not found.dirty
+        assert "sub-game 3 at" in str(found)
+
+    def test_uncommitted_changes_make_it_unreproducible(self, tmp_path: Path) -> None:
+        """``git rev-parse HEAD`` answers happily with a dirty tree.
+
+        The answer is then a commit that is *not* the code being executed — a
+        declaration nobody can verify, and the easy mistake to make five
+        minutes before a match.
+        """
+        found = provenance("0.1.0", "s82kma9e", 3, repo=repo(tmp_path, dirty=True))
+        assert found.github_commit is not None
+        assert found.dirty
+        assert not found.reproducible
+        assert "uncommitted changes" in str(found)
+
+    def test_the_declaration_records_the_dirty_flag_rather_than_hiding_it(
+        self, tmp_path: Path
+    ) -> None:
+        found = provenance("0.1.0", "s82kma9e", 1, repo=repo(tmp_path, dirty=True))
+        assert found.to_dict()["working_tree_dirty"] is True
+
+    def test_no_repository_is_a_real_state_not_a_failure(self, tmp_path: Path) -> None:
+        """A submitted tarball has no ``.git``.
+
+        An agent that refused to start there would be unrunnable exactly where
+        the examiner runs it.
+        """
+        found = provenance("0.1.0", "s82kma9e", 1, repo=tmp_path)
+        assert found.github_commit is None
+        assert not found.reproducible
+        assert "no commit hash available" in str(found)
+
+    def test_it_finds_this_repository_by_default(self) -> None:
+        assert provenance("0.1.0", "s82kma9e", 1).github_commit is not None
+
+
+class TestTheProvenanceFragment:
+    def test_it_names_every_field_the_rulebook_asks_for(self, tmp_path: Path) -> None:
+        fragment = provenance("0.1.0", "s82kma9e", 2, repo=repo(tmp_path)).to_dict()
+        assert set(fragment) == {
+            "code_version",
+            "group_name",
+            "sub_game",
+            "github_commit",
+            "working_tree_dirty",
+        }
+
+    def test_it_survives_json(self, tmp_path: Path) -> None:
+        fragment = provenance("0.1.0", "s82kma9e", 2, repo=repo(tmp_path)).to_dict()
+        assert json.loads(json.dumps(fragment)) == fragment
+
+    def test_it_is_frozen(self, tmp_path: Path) -> None:
+        with pytest.raises(AttributeError):
+            provenance("0.1.0", "s82kma9e", 1, repo=repo(tmp_path)).sub_game = 9  # type: ignore[misc]

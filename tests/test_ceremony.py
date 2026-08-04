@@ -9,9 +9,11 @@ from thief_agent.domain.crypto import commit_of, step_record
 from thief_agent.infra.ceremony import (
     ACK_FIELDS,
     COMMIT_FIELDS,
+    REVEAL_FIELDS,
     Acknowledgement,
     CeremonyError,
     Commitment,
+    Reveal,
     StepCeremony,
 )
 
@@ -299,3 +301,141 @@ class TestTheLockGate:
     def test_a_ceremony_needs_a_real_role(self) -> None:
         with pytest.raises(CeremonyError, match="role must be one of"):
             StepCeremony(step=4, role="cop")
+
+
+def reveal(**overrides: object) -> Reveal:
+    fields: dict[str, object] = {
+        "step": 4,
+        "sender": "thief",
+        "move": "N",
+        "intent": "lie",
+        "hint": "heading uptown",
+        "timestamp": WHEN,
+    }
+    return Reveal(**{**fields, **overrides})  # type: ignore[arg-type]
+
+
+class TestTheNonceStaysHidden:
+    def test_the_wire_form_has_no_nonce(self) -> None:
+        """One exposed nonce weakens every *other* commitment in the match.
+
+        They all use the same construction, so an opponent holding one turns
+        the rest into hashes whose only unknown is a five-way move — with
+        steps still left to play against them.
+        """
+        assert tuple(reveal().to_dict()) == REVEAL_FIELDS
+        assert "nonce" not in json.dumps(reveal().to_dict())
+
+    def test_an_inbound_nonce_is_refused_rather_than_ignored(self) -> None:
+        """The one stray field this module will not quietly drop.
+
+        Reading less is normally safe. A nonce is different: its early arrival
+        means the opponent has misunderstood the ceremony, and continuing
+        leaves us holding a secret we are not supposed to have yet.
+        """
+        with pytest.raises(CeremonyError, match="carries a nonce"):
+            Reveal.from_dict({**reveal().to_dict(), "nonce": "0" * 32})
+
+    def test_it_round_trips_through_json(self) -> None:
+        opened = reveal(barrier_placed=[2, 2])
+        assert Reveal.from_dict(json.loads(json.dumps(opened.to_dict()))) == opened
+
+    @pytest.mark.parametrize("intent", ["maybe", "TRUTH", ""])
+    def test_an_intent_outside_the_two_is_refused(self, intent: str) -> None:
+        with pytest.raises(CeremonyError, match="intent must be one of"):
+            reveal(intent=intent)
+
+    @pytest.mark.parametrize("sender", ["cop", "referee", ""])
+    def test_a_role_the_wire_does_not_name_is_refused(self, sender: str) -> None:
+        with pytest.raises(CeremonyError, match="sender must be one of"):
+            reveal(sender=sender)
+
+    def test_a_negative_step_is_refused(self) -> None:
+        with pytest.raises(CeremonyError, match="step must be >= 0"):
+            reveal(step=-1)
+
+    @pytest.mark.parametrize(
+        "payload", ["not a mapping", {}, {"step": 4, "sender": "thief", "move": "N"}]
+    )
+    def test_a_malformed_reveal_is_one_error_type(self, payload: object) -> None:
+        with pytest.raises(CeremonyError):
+            Reveal.from_dict(payload)
+
+
+class TestRevealingIsGatedOnTheLock:
+    def test_a_locked_pair_may_reveal(self) -> None:
+        ceremony = both_locked()
+        assert ceremony.reveal(reveal()) is ceremony.revealed_ours
+
+    @pytest.mark.parametrize("build", [StepCeremony, lambda **k: opened()])
+    def test_revealing_before_the_lock_is_refused(self, build: object) -> None:
+        """Not an efficiency — it hands over our move while theirs can change.
+
+        Which is the one thing the acknowledgement was for.
+        """
+        ceremony = build(step=4, role="thief")  # type: ignore[operator]
+        with pytest.raises(CeremonyError, match="before both sides are locked"):
+            ceremony.reveal(reveal())
+
+    def test_the_error_names_what_is_still_missing(self) -> None:
+        """A ceremony stalled at three of four is a question, not a mystery."""
+        ceremony = opened()
+        ceremony.acknowledge(WHEN)
+        with pytest.raises(CeremonyError, match="missing their acknowledgement"):
+            ceremony.reveal(reveal())
+
+    def test_a_second_reveal_is_refused(self) -> None:
+        ceremony = both_locked()
+        ceremony.reveal(reveal())
+        with pytest.raises(CeremonyError, match="not revisable"):
+            ceremony.reveal(reveal(move="S"))
+
+    def test_a_reveal_from_the_wrong_role_is_refused(self) -> None:
+        with pytest.raises(CeremonyError, match="expected 'thief'"):
+            both_locked().reveal(reveal(sender="police"))
+
+
+class TestReceivingTheirReveal:
+    def test_a_locked_pair_may_be_believed(self) -> None:
+        ceremony = both_locked()
+        theirs = reveal(sender="police", move="S")
+        assert ceremony.receive_reveal(theirs) is ceremony.revealed_theirs
+
+    def test_it_cannot_be_verified_when_it_is_acted_upon(self) -> None:
+        """The gap is the design, not a weakness in it.
+
+        The digest cannot be recomputed without their nonce, so the reveal is
+        believed on the strength of the lock and checked only at the audit —
+        which is why an audit failure is unappealable rather than negotiable.
+        """
+        ceremony = both_locked()
+        theirs = reveal(sender="police", move="S")
+        ceremony.receive_reveal(theirs)
+        assert ceremony.theirs is not None
+        assert "nonce" not in json.dumps(theirs.to_dict())
+
+    def test_storing_it_is_the_whole_job(self) -> None:
+        """A reveal we did not keep is a step the audit cannot re-derive."""
+        ceremony = both_locked()
+        ceremony.receive_reveal(reveal(sender="police", move="S", barrier_placed=None))
+        assert ceremony.revealed_theirs is not None
+        assert ceremony.revealed_theirs.move == "S"
+
+    def test_a_reveal_before_the_lock_is_refused(self) -> None:
+        """Accepting it would reward revealing early."""
+        with pytest.raises(CeremonyError, match="before both sides were locked"):
+            opened().receive_reveal(reveal(sender="police"))
+
+    def test_a_second_reveal_from_them_is_refused(self) -> None:
+        """It would replace an action we have already acted on."""
+        ceremony = both_locked()
+        ceremony.receive_reveal(reveal(sender="police"))
+        with pytest.raises(CeremonyError, match="already revealed"):
+            ceremony.receive_reveal(reveal(sender="police", move="W"))
+
+    def test_their_reveal_must_come_from_them(self) -> None:
+        with pytest.raises(CeremonyError, match="expected 'police'"):
+            both_locked().receive_reveal(reveal())
+
+    def test_pending_reads_as_locked_once_it_is(self) -> None:
+        assert both_locked().pending() == "locked"

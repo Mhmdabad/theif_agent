@@ -194,6 +194,13 @@ def check_step(recorded: RecordedStep) -> StepCheck:
     stored record is shaped in a way the committer could not have produced —
     a viewer that crashed on a hand-edited log would be reporting the edit as
     its own bug.
+
+    A matching digest is necessary and not sufficient. It proves the row is
+    **genuine**; it says nothing about whether the row is *here* honestly. A
+    whole step copied from earlier in the same log re-derives perfectly, so the
+    sealed step number is checked against the slot it was filed in — which is
+    what the step number is sealed for. Anti-replay only works if somebody
+    compares the two.
     """
     if not recorded.openable:
         missing = "no reveal" if recorded.reveal is None else "no nonce"
@@ -214,6 +221,16 @@ def check_step(recorded: RecordedStep) -> StepCheck:
             reason=(
                 f"commitment {recorded.commit[:16]}… but the recorded record under the "
                 f"recorded nonce produces {recomputed[:16]}…"
+            ),
+        )
+    sealed = recorded.reveal.get("state")
+    if isinstance(sealed, dict) and sealed.get("step") != recorded.step:
+        return StepCheck(
+            recorded.step,
+            verified=False,
+            reason=(
+                f"the record here is genuine but seals step {sealed.get('step')!r}; "
+                "a real step filed under another number is a replay, not a record"
             ),
         )
     return StepCheck(recorded.step, verified=True)

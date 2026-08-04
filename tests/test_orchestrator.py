@@ -1,6 +1,8 @@
 """Tests for the single-gateway orchestrator."""
 
+import contextlib
 import json
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -244,3 +246,46 @@ class TestConfigAgreement:
         first = orch.agree_config(config)
         config["world"]["map_area"] = "London"
         assert orch.agree_config(config) != first
+
+
+class TestMatchAbortedSurvivesPropagation:
+    """An exception that loses its cause is worse than no exception at all."""
+
+    @contextlib.contextmanager
+    def turn(self) -> Iterator[None]:
+        yield
+
+    def test_it_keeps_its_cause_through_a_context_manager(self) -> None:
+        """``slots=True`` on an Exception silently replaces it with a TypeError.
+
+        A slotted class has nowhere to store ``__traceback__``, so Python
+        discards the exception mid-propagation and raises a ``TypeError`` about
+        class identity instead — losing precisely the named cause both teams
+        must agree on before either may report a result.
+        """
+        with pytest.raises(MatchAborted) as excinfo, self.turn():
+            raise MatchAborted(TechnicalLoss.TIMEOUT, "tunnel died at step 12")
+        assert excinfo.value.cause is TechnicalLoss.TIMEOUT
+        assert excinfo.value.detail == "tunnel died at step 12"
+
+    def test_it_can_carry_a_traceback(self) -> None:
+        try:
+            raise MatchAborted(TechnicalLoss.CRASH, "peer exited")
+        except MatchAborted as exc:
+            assert exc.__traceback__ is not None
+
+    def test_it_survives_nested_context_managers(self) -> None:
+        with pytest.raises(MatchAborted), self.turn(), self.turn():
+            raise MatchAborted(TechnicalLoss.FORGERY, "commit did not match reveal")
+
+    def test_frozen_was_the_actual_culprit_not_slots(self) -> None:
+        """``frozen=True`` refuses ``__traceback__`` just as surely as slots.
+
+        Removing only ``slots=True`` swaps a ``TypeError`` for a
+        ``FrozenInstanceError`` and destroys the exception either way. The
+        assertion is on the ability to carry a traceback, because that is the
+        property the class needs and immutability was never one.
+        """
+        aborted = MatchAborted(TechnicalLoss.TIMEOUT, "detail")
+        aborted.__traceback__ = None
+        assert (aborted.cause, aborted.detail) == (TechnicalLoss.TIMEOUT, "detail")

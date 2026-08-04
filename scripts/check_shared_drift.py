@@ -65,6 +65,7 @@ SHARED: tuple[str, ...] = (
     "infra/mcp_client.py",
     "infra/mcp_server.py",
     "infra/protocol.py",
+    "infra/step_zero.py",
     "infra/transport_log.py",
     "infra/validation.py",
     "runtime/deadline.py",

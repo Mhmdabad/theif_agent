@@ -8,12 +8,14 @@ from typing import Any
 import pytest
 
 from thief_agent.infra.mcp_client import (
+    OPPONENT_URL_ENV,
     ClientSettings,
     OpponentClient,
     OpponentUnreachableError,
 )
 
 SETTINGS = ClientSettings(opponent_url="http://127.0.0.1:8801/mcp", retry_backoff_sec=0.0)
+REMOTE = "https://opponent-c3d4.ngrok-free.app"
 
 
 class FakeTransport:
@@ -118,15 +120,77 @@ class TestSettings:
             ClientSettings(opponent_url="u", max_retries=-1)
 
     def test_defaults_follow_appendix_f(self) -> None:
-        settings = ClientSettings(opponent_url="u")
+        settings = ClientSettings(opponent_url=REMOTE)
         assert (settings.response_timeout_sec, settings.max_retries) == (30.0, 3)
         assert settings.retry_backoff_sec == 5.0
+
+    def test_it_appends_the_endpoint_a_tunnel_never_prints(self) -> None:
+        """A tunnel hands out a base address; the opponent serves at ``/mcp``.
+
+        Doing it here means the URL that gets pasted around is the one the
+        tunnel actually printed, which removes the likeliest transcription
+        error in the whole handshake.
+        """
+        assert ClientSettings(opponent_url=REMOTE).opponent_url == f"{REMOTE}/mcp"
+
+    def test_it_refuses_a_url_it_could_never_call(self) -> None:
+        with pytest.raises(ValueError, match="must use one of"):
+            ClientSettings(opponent_url="opponent.ngrok-free.app")
 
     def test_reads_the_shipped_private_config(self) -> None:
         path = Path(__file__).parents[1] / "config/thief/game.toml"
         private = tomllib.loads(path.read_text())
-        assert ClientSettings.from_config(private["network"]).opponent_url.endswith("8801/mcp")
+        settings = ClientSettings.from_config(private["network"], environ={})
+        assert settings.opponent_url.endswith("8801/mcp")
 
     def test_missing_opponent_url_is_refused(self) -> None:
         with pytest.raises(ValueError, match="must define opponent_url"):
-            ClientSettings.from_config({})
+            ClientSettings.from_config({}, environ={})
+
+
+class TestPointingAtTheOpponentsTunnel:
+    def test_the_environment_overrides_the_committed_file(self) -> None:
+        """League play is one exported variable, not an edit to revert later."""
+        settings = ClientSettings.from_config(
+            {"opponent_url": "http://127.0.0.1:8801/mcp"}, environ={OPPONENT_URL_ENV: REMOTE}
+        )
+        assert settings.opponent_url == f"{REMOTE}/mcp"
+
+    def test_the_override_alone_is_enough(self) -> None:
+        """A config with no ``opponent_url`` is fine if the environment has one."""
+        assert ClientSettings.from_config({}, environ={OPPONENT_URL_ENV: REMOTE}).opponent_url == (
+            f"{REMOTE}/mcp"
+        )
+
+    @pytest.mark.parametrize("blank", ["", "   ", "\n"])
+    def test_a_blank_override_falls_through_to_the_file(self, blank: str) -> None:
+        """An exported-but-empty variable is not an instruction to play nobody."""
+        settings = ClientSettings.from_config(
+            {"opponent_url": "http://127.0.0.1:8801/mcp"}, environ={OPPONENT_URL_ENV: blank}
+        )
+        assert settings.opponent_url.endswith("8801/mcp")
+
+    def test_a_bad_override_raises_rather_than_falling_back(self) -> None:
+        """Falling back would play localhost against a team who is not there."""
+        with pytest.raises(ValueError):
+            ClientSettings.from_config(
+                {"opponent_url": "http://127.0.0.1:8801/mcp"},
+                environ={OPPONENT_URL_ENV: "ftp://opponent"},
+            )
+
+    def test_it_reads_the_real_environment_when_none_is_given(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(OPPONENT_URL_ENV, REMOTE)
+        assert ClientSettings.from_config({}).opponent_url == f"{REMOTE}/mcp"
+
+    def test_the_committed_file_still_points_at_loopback(self) -> None:
+        """Checking out this repo and running both agents must need no setup.
+
+        The opponent's address is ephemeral — a free-tier tunnel issues a new
+        one every restart — and it is theirs, not ours. A repository full of
+        other teams' expired addresses is a record of nothing.
+        """
+        path = Path(__file__).parents[1] / "config/thief/game.toml"
+        private = tomllib.loads(path.read_text())
+        assert private["network"]["opponent_url"].startswith("http://127.0.0.1:")

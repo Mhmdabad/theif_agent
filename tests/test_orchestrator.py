@@ -88,7 +88,23 @@ class TestHeartbeat:
         orch, _ = orchestrator()
         orch.handle_inbound("receive_turn", TURN)
         orch.call_opponent("receive_turn", {})
-        assert orch.heartbeats == ["inbound:receive_turn", "outbound:receive_turn"]
+        assert orch.heartbeats == [
+            "inbound:receive_turn",
+            "outbound:receive_turn",
+            "attempt:receive_turn",
+        ]
+
+    def test_every_retry_attempt_beats(self) -> None:
+        """Retrying is not hanging, and from outside they look the same.
+
+        A call against a dead tunnel can occupy the process for longer than
+        the watchdog's patience. Without a beat per attempt the watchdog fires
+        over a recovery that was working, and a clean named timeout becomes a
+        stall report.
+        """
+        orch, _ = orchestrator(TimeoutError(), TimeoutError(), {"ok": True})
+        orch.call_opponent("receive_turn", {})
+        assert orch.heartbeats.count("attempt:receive_turn") == 3
 
     def test_events_are_published(self) -> None:
         orch, _ = orchestrator()

@@ -85,6 +85,17 @@ class Orchestrator:
     on_event: Callable[[str], None] = lambda _: None
     heartbeats: list[str] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        """Route the connector's liveness into this orchestrator's heartbeats.
+
+        Appendix E rule 3 makes this the only entry point to the subsystems, so
+        it is also the only place that can join them up. Without this, a client
+        retrying against a dead tunnel is silent for longer than the watchdog's
+        patience, and the watchdog reports a stall over a recovery that was
+        working exactly as designed.
+        """
+        self.client.on_attempt = lambda tool: self.beat(f"attempt:{tool}")
+
     def beat(self, what: str) -> None:
         """Record liveness so the watchdog can tell stalled from slow."""
         self.heartbeats.append(what)

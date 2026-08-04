@@ -79,6 +79,27 @@ class ClientSettings:
             raise ValueError(f"max_retries must be >= 0, got {self.max_retries}")
         object.__setattr__(self, "opponent_url", normalise(self.opponent_url))
 
+    @property
+    def worst_case_seconds(self) -> float:
+        """Longest one call can take before it gives up.
+
+        Every attempt may burn the full response timeout before failing, and
+        every gap between attempts costs the backoff:
+
+            (max_retries + 1) * response_timeout_sec + max_retries * retry_backoff_sec
+
+        At the Appendix F defaults that is ``4 * 30 + 3 * 5 = 135`` seconds —
+        **more than twice** ``watchdog_timeout_sec`` of 60. That is not a bug
+        in either number; it means a peer waiting out a dead tunnel looks
+        identical to a peer that has hung, unless it says otherwise. It does:
+        :class:`OpponentClient` reports liveness on every attempt.
+
+        Exposed rather than left implicit because ``max_retries`` is a raisable
+        minimum, and raising it moves this number without anyone noticing.
+        """
+        attempts = self.max_retries + 1
+        return attempts * self.response_timeout_sec + self.max_retries * self.retry_backoff_sec
+
     @classmethod
     def from_config(
         cls, network: dict[str, Any], environ: Mapping[str, str] | None = None
@@ -116,12 +137,23 @@ class OpponentClient:
         settings: ClientSettings,
         sleep: Callable[[float], None] = lambda _: None,
         log: TransportLog | None = None,
+        on_attempt: Callable[[str], None] = lambda _: None,
     ) -> None:
         self._transport = transport
         self._settings = settings
         self._sleep = sleep
         self.attempts = 0
         self.log = log if log is not None else TransportLog()
+        self.on_attempt = on_attempt
+        """Liveness hook, fired before every attempt.
+
+        Retrying is not hanging, but from outside they are indistinguishable:
+        a call against a dead tunnel can occupy the process for
+        :attr:`ClientSettings.worst_case_seconds` — longer than the watchdog's
+        patience — and the watchdog would shut the match down mid-recovery,
+        turning a clean named timeout into a stall report. Saying "still
+        trying" on each attempt is what keeps the two apart.
+        """
         self._connected: set[str] = set()
 
     @property
@@ -190,6 +222,7 @@ class OpponentClient:
         last: Exception | None = None
         for attempt in range(self._settings.max_retries + 1):
             self.attempts += 1
+            self.on_attempt(tool)
             try:
                 answer = self._transport.call(
                     url, tool, json.loads(frozen), self._settings.response_timeout_sec

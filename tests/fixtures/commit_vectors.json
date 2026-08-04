@@ -1,0 +1,102 @@
+{
+  "purpose": "Exchange these with an opponent before a counted match. Both sides run their own commit function over each record and nonce; a mismatch on any line means the two implementations would call an honest match tampered.",
+  "formula": "sha256(json.dumps({**record, 'nonce': nonce}, sort_keys=True, separators=(',',':')))",
+  "source": "police_thief_p2p.pdf p. 37, commit()",
+  "generated_by": "A standalone transcription of the rulebook's commit(), importing neither agent. A fixture produced by the code under test would prove only that the code equals itself.",
+  "vectors": [
+    {
+      "name": "minimal",
+      "why": "The smallest record the formula accepts; catches separator and sort errors.",
+      "record": {
+        "move": "N",
+        "step": 1
+      },
+      "nonce": "00000000000000000000000000000000",
+      "commit": "d5ed45d8aa693af4d8a6903154b19c9283037889b0f4d5b2f31cdb8ec1616540"
+    },
+    {
+      "name": "full_step_record",
+      "why": "The shape domain.crypto.step_record produces for an ordinary turn.",
+      "record": {
+        "state": {
+          "grid_size": 8,
+          "step": 4,
+          "self": [
+            1,
+            2
+          ],
+          "barriers": [
+            [
+              3,
+              3
+            ]
+          ]
+        },
+        "role": "police",
+        "move": "N",
+        "intent": "lie",
+        "hint": "heading uptown",
+        "barrier_placed": null
+      },
+      "nonce": "9f86d081884c7d659a2feaa0c55ad015",
+      "commit": "2b17c6794dc6f3c552b9cfac50c6702a39d3fdd2402e415c5348b7c3d62f72b5"
+    },
+    {
+      "name": "barrier_placed",
+      "why": "A cop turn that seals a cell; pins how a position serialises.",
+      "record": {
+        "state": {
+          "grid_size": 8,
+          "step": 5,
+          "self": [
+            1,
+            2
+          ],
+          "barriers": []
+        },
+        "role": "police",
+        "move": "STAY",
+        "intent": "truth",
+        "hint": "boxing you in",
+        "barrier_placed": [
+          2,
+          2
+        ]
+      },
+      "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "commit": "c177fab9339a6357f0aff11a90fbbd27a087c2da531b3a23b100a299770e9c97"
+    },
+    {
+      "name": "non_ascii_hint",
+      "why": "The ensure_ascii question. Two honest peers disagree here or nowhere.",
+      "record": {
+        "state": {
+          "grid_size": 8,
+          "step": 7,
+          "self": [
+            6,
+            5
+          ],
+          "barriers": []
+        },
+        "role": "thief",
+        "move": "E",
+        "intent": "lie",
+        "hint": "רחוב הים, ליד הקפה",
+        "barrier_placed": null
+      },
+      "nonce": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "commit": "169333e91144f979b4b20f103432ccd3ce4db2e6870d63943dc1e74d51309395"
+    },
+    {
+      "name": "key_order_irrelevant",
+      "why": "Same content, keys written in another order; must match 'minimal'.",
+      "record": {
+        "step": 1,
+        "move": "N"
+      },
+      "nonce": "00000000000000000000000000000000",
+      "commit": "d5ed45d8aa693af4d8a6903154b19c9283037889b0f4d5b2f31cdb8ec1616540"
+    }
+  ]
+}

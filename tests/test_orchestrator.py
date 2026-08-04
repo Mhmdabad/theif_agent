@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from thief_agent.domain.outcome import TechnicalLoss
+from thief_agent.infra.handshake import Peering
 from thief_agent.infra.inboxes import PeerInboxes
 from thief_agent.infra.mcp_client import ClientSettings, OpponentClient
 from thief_agent.runtime.orchestrator import PROTOCOL_VERSION, MatchAborted, Orchestrator
@@ -175,9 +176,37 @@ class TestHandshakeChecks:
 
     def test_an_unreachable_opponent_aborts_when_we_are_public(self) -> None:
         orch, _ = orchestrator()
-        inbound(orch, url="http://127.0.0.1:8802")
+        inbound(orch, url="http://127.0.0.1:8801")
         with pytest.raises(MatchAborted, match="routes nowhere"):
             orch.accept_greeting(orch.greeting(OUR_URL, "s82kma9e"))
+
+    def test_the_newest_greeting_wins_over_a_stale_one(self) -> None:
+        """A greeting says where a peer is *now*; an older one is superseded.
+
+        Greetings genuinely accumulate — a peer whose first announcement failed
+        sends a second, and a series re-greets before every sub-game. Reading
+        the queue in arrival order would adopt an address already left behind.
+        """
+        orch, _ = orchestrator()
+        inbound(orch, url="https://cop-stale.ngrok-free.app")
+        inbound(orch, url="https://cop-fresh.ngrok-free.app")
+        accepted = orch.accept_greeting(orch.greeting(OUR_URL, "s82kma9e"))
+        assert accepted.public_url == "https://cop-fresh.ngrok-free.app/mcp"
+
+    def test_the_stale_greetings_are_drained_not_left_behind(self) -> None:
+        """Otherwise the next sub-game reads the one this one skipped."""
+        orch, _ = orchestrator()
+        inbound(orch, url="https://cop-stale.ngrok-free.app")
+        inbound(orch, url="https://cop-fresh.ngrok-free.app")
+        orch.accept_greeting(orch.greeting(OUR_URL, "s82kma9e"))
+        assert orch.inboxes.agreements.empty()
+
+    def test_a_single_greeting_still_works(self) -> None:
+        orch, _ = orchestrator()
+        inbound(orch)
+        assert orch.accept_greeting(orch.greeting(OUR_URL, "s82kma9e")).public_url == (
+            f"{THEIR_URL}/mcp"
+        )
 
     def test_silence_is_a_timeout_not_a_longer_wait(self) -> None:
         """A handshake with no deadline deadlocks with no board to explain it."""
@@ -199,14 +228,14 @@ class TestExchangingAddresses:
         """Two polite peers each waiting for the other is the deadlock."""
         orch, transport = orchestrator()
         inbound(orch)
-        orch.exchange_addresses(orch.greeting(OUR_URL, "s82kma9e"), tmp_path, "g1")
+        orch.open_series(orch.greeting(OUR_URL, "s82kma9e"), tmp_path, "g1")
         assert [c["tool"] for c in transport.calls] == ["negotiate"]
 
     def test_it_writes_both_addresses_into_the_declaration(self, tmp_path: Path) -> None:
         orch, _ = orchestrator()
         inbound(orch)
-        book = orch.exchange_addresses(orch.greeting(OUR_URL, "s82kma9e"), tmp_path, "g1")
-        assert book.complete
+        peering = orch.open_series(orch.greeting(OUR_URL, "s82kma9e"), tmp_path, "g1")
+        assert peering.sub_game == 1
         written = json.loads((tmp_path / "declaration_g1.json").read_text())
         assert written["mcp_addresses"]["thief"]["public_url"] == f"{OUR_URL}/mcp"
         assert written["mcp_addresses"]["police"]["public_url"] == f"{THEIR_URL}/mcp"
@@ -216,8 +245,134 @@ class TestExchangingAddresses:
         orch, _ = orchestrator()
         inbound(orch, role="thief")
         with pytest.raises(MatchAborted):
-            orch.exchange_addresses(orch.greeting(OUR_URL, "s82kma9e"), tmp_path, "g1")
+            orch.open_series(orch.greeting(OUR_URL, "s82kma9e"), tmp_path, "g1")
         assert not (tmp_path / "declaration_g1.json").exists()
+
+
+ROTATED = "https://cop-9z8y.ngrok-free.app"
+
+
+class TestSurvivingARotatedTunnel:
+    def opened(self, tmp_path: Path, *outcomes: object) -> tuple[Orchestrator, Peering]:
+        orch, _ = orchestrator(*outcomes)
+        inbound(orch)
+        return orch, orch.open_series(orch.greeting(OUR_URL, "s82kma9e"), tmp_path, "g1")
+
+    def test_the_opening_handshake_adopts_the_announced_address(self, tmp_path: Path) -> None:
+        """``opponent_url`` in the config is a bootstrap value, not the truth.
+
+        It is how we reach them the first time. Their greeting says where they
+        actually are, and that is what the declaration records — so calls that
+        kept going to the configured address would contradict the file both
+        teams signed.
+        """
+        orch, _ = self.opened(tmp_path)
+        assert orch.client.opponent_url == f"{THEIR_URL}/mcp"
+        assert orch.client.relocations == [("http://127.0.0.1:8801/mcp", f"{THEIR_URL}/mcp")]
+
+    def test_an_unchanged_address_re_handshakes_quietly(self, tmp_path: Path) -> None:
+        """Both peers re-greet every sub-game, whether or not anything moved.
+
+        A re-handshake that only fires when we already know something changed
+        cannot discover the thing it exists to discover — the side whose tunnel
+        died is precisely the side that cannot tell us.
+        """
+        orch, first = self.opened(tmp_path)
+        inbound(orch)
+        second = orch.rehandshake(first, orch.greeting(OUR_URL, "s82kma9e"), 2, tmp_path, "g1")
+        assert second.sub_game == 2
+        assert len(orch.client.relocations) == 1  # the opening adoption, nothing since
+
+    def test_a_failed_announcement_is_tolerated_then_retried_at_the_new_address(
+        self, tmp_path: Path
+    ) -> None:
+        """If *their* tunnel died, the address we hold died with it.
+
+        Announcing before listening would abort on the very failure the
+        re-handshake exists to recover from. Announcing *not at all* would
+        strand them when it is *our* tunnel that moved. So: try, tolerate,
+        listen, adopt, and try again if the first never landed.
+        """
+        # The opening announce lands; the re-handshake's first one exhausts
+        # its whole retry budget against an address that no longer exists.
+        orch, first = self.opened(tmp_path, {"ok": True}, *[ConnectionError()] * 4)
+        inbound(orch, url=ROTATED)
+        orch.rehandshake(first, orch.greeting(OUR_URL, "s82kma9e"), 2, tmp_path, "g1")
+        assert "announce-failed" in orch.heartbeats
+        assert orch.client.opponent_url == f"{ROTATED}/mcp"
+
+    def test_a_new_opponent_url_re_points_the_client(self, tmp_path: Path) -> None:
+        orch, first = self.opened(tmp_path)
+        inbound(orch, url=ROTATED)
+        orch.rehandshake(first, orch.greeting(OUR_URL, "s82kma9e"), 2, tmp_path, "g1")
+        assert orch.client.opponent_url == f"{ROTATED}/mcp"
+        assert orch.client.relocations[-1] == (f"{THEIR_URL}/mcp", f"{ROTATED}/mcp")
+
+    def test_the_relocation_is_a_heartbeat_so_the_log_can_show_it(self, tmp_path: Path) -> None:
+        orch, first = self.opened(tmp_path)
+        inbound(orch, url=ROTATED)
+        orch.rehandshake(first, orch.greeting(OUR_URL, "s82kma9e"), 2, tmp_path, "g1")
+        assert any(b.startswith("agreed-move:police:") for b in orch.heartbeats)
+        assert any(b.startswith("relocated:police:") for b in orch.heartbeats)
+
+    def test_the_declaration_records_which_sub_game_an_address_took_effect(
+        self, tmp_path: Path
+    ) -> None:
+        """Otherwise a rotated series looks exactly like one that never moved."""
+        orch, first = self.opened(tmp_path)
+        inbound(orch, url=ROTATED)
+        orch.rehandshake(first, orch.greeting(OUR_URL, "s82kma9e"), 2, tmp_path, "g1")
+        written = json.loads((tmp_path / "declaration_g1.json").read_text())
+        assert written["mcp_addresses"]["police"] == {
+            "role": "police",
+            "group_id": "them",
+            "public_url": f"{ROTATED}/mcp",
+            "protocol_version": PROTOCOL_VERSION,
+            "reachable": True,
+            "since_sub_game": 2,
+        }
+
+    def test_a_different_team_at_a_new_address_is_refused(self, tmp_path: Path) -> None:
+        """Not a rotated tunnel — a different peer arriving mid-series."""
+        orch, first = self.opened(tmp_path)
+        orch.inboxes.negotiate(
+            {
+                "greeting": {
+                    "role": "police",
+                    "group_id": "someone-else",
+                    "public_url": ROTATED,
+                    "protocol_version": PROTOCOL_VERSION,
+                }
+            }
+        )
+        with pytest.raises(MatchAborted, match="this is a different peer"):
+            orch.rehandshake(first, orch.greeting(OUR_URL, "s82kma9e"), 2, tmp_path, "g1")
+        assert orch.client.opponent_url == f"{THEIR_URL}/mcp"
+
+    def test_a_mid_sub_game_address_change_is_refused(self, tmp_path: Path) -> None:
+        """Indistinguishable from redirecting our traffic after seeing our commit."""
+        orch, first = self.opened(tmp_path)
+        inbound(orch, url=ROTATED)
+        with pytest.raises(MatchAborted, match="only change between sub-games"):
+            orch.rehandshake(first, orch.greeting(OUR_URL, "s82kma9e"), 1, tmp_path, "g1")
+        assert orch.client.opponent_url == f"{THEIR_URL}/mcp"
+
+    def test_our_own_rotated_address_is_announced_without_re_pointing(self, tmp_path: Path) -> None:
+        """Their client re-points, not ours. We only tell them where we moved."""
+        orch, first = self.opened(tmp_path)
+        inbound(orch)
+        ours_moved = orch.greeting("https://thief-9z8y.ngrok-free.app", "s82kma9e")
+        second = orch.rehandshake(first, ours_moved, 2, tmp_path, "g1")
+        assert second.ours.public_url == "https://thief-9z8y.ngrok-free.app/mcp"
+        assert len(orch.client.relocations) == 1  # the opening adoption only
+
+    def test_silence_at_re_handshake_is_a_timeout(self, tmp_path: Path) -> None:
+        orch, first = self.opened(tmp_path)
+        with pytest.raises(MatchAborted) as excinfo:
+            orch.rehandshake(
+                first, orch.greeting(OUR_URL, "s82kma9e"), 2, tmp_path, "g1", timeout=0.0
+            )
+        assert excinfo.value.cause is TechnicalLoss.TIMEOUT
 
 
 class TestConfigAgreement:

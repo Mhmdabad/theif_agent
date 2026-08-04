@@ -11,7 +11,9 @@ from thief_agent.infra.handshake import (
     AddressBook,
     Greeting,
     HandshakeError,
+    Peering,
     check,
+    check_rotation,
     record,
 )
 from thief_agent.runtime.orchestrator import PROTOCOL_VERSION
@@ -204,3 +206,93 @@ class TestRecordingTheDeclaration:
     def test_it_refuses_a_game_id_that_would_escape_the_directory(self, tmp_path: Path) -> None:
         with pytest.raises(Exception, match="filename component"):
             record(tmp_path, "../../etc/passwd", self.book())
+
+
+ROTATED_COP = "https://cop-9z8y.ngrok-free.app"
+ROTATED_THIEF = "https://thief-e5f6.ngrok-free.app"
+
+
+def opened(sub_game: int = 1) -> Peering:
+    return Peering(greet("police", PUBLIC_COP), greet("thief", PUBLIC_THIEF), sub_game)
+
+
+class TestWhatCountsAsARotatedTunnel:
+    def test_the_same_peer_at_a_new_address_is_accepted(self) -> None:
+        check_rotation(greet("thief", PUBLIC_THIEF), greet("thief", ROTATED_THIEF))
+
+    @pytest.mark.parametrize(
+        ("field", "fresh"),
+        [
+            ("role", ("police", ROTATED_THIEF, "s82kma9e", PROTOCOL_VERSION)),
+            ("group_id", ("thief", ROTATED_THIEF, "another-team", PROTOCOL_VERSION)),
+            ("protocol_version", ("thief", ROTATED_THIEF, "s82kma9e", "2.0")),
+        ],
+    )
+    def test_anything_but_the_address_moving_is_a_different_peer(
+        self, field: str, fresh: tuple[str, str, str, str]
+    ) -> None:
+        """A restarted tunnel changes one thing. Anything else is somebody else.
+
+        Following it would mean finishing a series against a peer the
+        declaration does not name.
+        """
+        role, url, group, version = fresh
+        with pytest.raises(HandshakeError, match=field):
+            check_rotation(greet("thief", PUBLIC_THIEF), greet(role, url, group, version))
+
+
+class TestPeering:
+    def test_it_carries_fresh_addresses_into_the_next_sub_game(self) -> None:
+        later = opened().rotate(greet("police", PUBLIC_COP), greet("thief", ROTATED_THIEF), 2)
+        assert later.sub_game == 2
+        assert later.theirs.public_url == f"{ROTATED_THIEF}/mcp"
+
+    def test_a_mid_sub_game_change_is_refused(self) -> None:
+        """Indistinguishable from redirecting our traffic after seeing our commit.
+
+        Between sub-games there is no live state to protect, which is exactly
+        why the boundary is the condition rather than a matter of trust.
+        """
+        with pytest.raises(HandshakeError, match="only change between sub-games"):
+            opened(2).rotate(greet("police", PUBLIC_COP), greet("thief", ROTATED_THIEF), 2)
+
+    def test_going_backwards_is_refused(self) -> None:
+        with pytest.raises(HandshakeError, match="does not follow"):
+            opened(3).rotate(greet("police", PUBLIC_COP), greet("thief", ROTATED_THIEF), 2)
+
+    def test_a_rotation_still_has_to_be_playable(self) -> None:
+        """The reachability rule does not lapse because we already shook hands."""
+        with pytest.raises(HandshakeError, match="routes nowhere"):
+            opened().rotate(greet("police", PUBLIC_COP), greet("thief", LOCAL_THIEF), 2)
+
+    def test_it_reports_only_the_addresses_that_actually_moved(self) -> None:
+        """A re-handshake usually changes nothing; the tunnel outlived the game."""
+        first = opened()
+        assert first.relocations(first.rotate(*(first.ours, first.theirs), 2)) == {}
+
+    def test_it_names_both_sides_when_both_rotate(self) -> None:
+        first = opened()
+        later = first.rotate(greet("police", ROTATED_COP), greet("thief", ROTATED_THIEF), 2)
+        assert first.relocations(later) == {
+            "police": (f"{PUBLIC_COP}/mcp", f"{ROTATED_COP}/mcp"),
+            "thief": (f"{PUBLIC_THIEF}/mcp", f"{ROTATED_THIEF}/mcp"),
+        }
+
+    def test_it_is_frozen_so_the_agreed_pair_cannot_drift(self) -> None:
+        with pytest.raises(AttributeError):
+            opened().sub_game = 9  # type: ignore[misc]
+
+
+class TestTheDeclarationRecordsWhenAnAddressTookEffect:
+    def test_the_sub_game_travels_with_the_book(self) -> None:
+        """Otherwise a rotated series looks like one that never moved."""
+        book = AddressBook.peered(opened(4))
+        assert {e["since_sub_game"] for e in book.entries.values()} == {4}
+
+    def test_a_rotation_updates_the_file_in_place(self, tmp_path: Path) -> None:
+        first = opened()
+        record(tmp_path, "g1", AddressBook.peered(first))
+        later = first.rotate(greet("police", PUBLIC_COP), greet("thief", ROTATED_THIEF), 2)
+        written = json.loads(record(tmp_path, "g1", AddressBook.peered(later)).read_text())
+        assert written[ADDRESS_KEY]["thief"]["public_url"] == f"{ROTATED_THIEF}/mcp"
+        assert written[ADDRESS_KEY]["thief"]["since_sub_game"] == 2

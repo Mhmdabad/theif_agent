@@ -25,13 +25,16 @@ from typing import Any
 
 import pytest
 
-from thief_agent.infra.handshake import ADDRESS_KEY
+from thief_agent.domain.outcome import TechnicalLoss
+from thief_agent.infra.handshake import ADDRESS_KEY, Greeting, Peering
 from thief_agent.infra.inboxes import PeerInboxes
 from thief_agent.infra.mcp_client import OPPONENT_URL_ENV, ClientSettings, OpponentClient
-from thief_agent.runtime.orchestrator import MatchAborted, Orchestrator
+from thief_agent.runtime.orchestrator import PROTOCOL_VERSION, MatchAborted, Orchestrator
 
 THIEF_URL = "https://thief-c3d4.ngrok-free.app/mcp"
 COP_URL = "https://cop-a1b2.ngrok-free.app/mcp"
+MOVED_COP_URL = "https://cop-e5f6.ngrok-free.app/mcp"
+MOVED_THIEF_URL = "https://thief-9z8y.ngrok-free.app/mcp"
 TURN = {
     "step": 1,
     "sender": "police",
@@ -97,8 +100,8 @@ class TestAFullRoundOverPublicAddresses:
         thief.announce(ours)
         cop.announce(theirs)
 
-        book = thief.exchange_addresses(ours, tmp_path, "uoh26-s82kma9e")
-        assert book.complete
+        peering = thief.open_series(ours, tmp_path, "uoh26-s82kma9e")
+        assert peering.sub_game == 1
         written = json.loads((tmp_path / "declaration_uoh26-s82kma9e.json").read_text())
         assert written[ADDRESS_KEY]["thief"]["public_url"] == THIEF_URL
         assert written[ADDRESS_KEY]["police"]["public_url"] == COP_URL
@@ -118,7 +121,7 @@ class TestAFullRoundOverPublicAddresses:
         """The stage 5 milestone: handshake, then turns, over public addresses."""
         net, thief, cop = wired
         cop.announce(cop.greeting(COP_URL, "them"))
-        thief.exchange_addresses(thief.greeting(THIEF_URL, "s82kma9e"), tmp_path, "g1")
+        thief.open_series(thief.greeting(THIEF_URL, "s82kma9e"), tmp_path, "g1")
 
         for step in range(1, 6):
             assert cop.call_opponent("receive_turn", {**TURN, "step": step})["ok"] is True
@@ -140,6 +143,115 @@ class TestAFullRoundOverPublicAddresses:
         del net.hosts[COP_URL]
         with pytest.raises(MatchAborted, match="nothing answers|after 4 attempts"):
             thief.call_opponent("receive_turn", TURN)
+
+
+class TestSurvivingATunnelRestartMidSeries:
+    """The stage 5 milestone: a new URL between sub-games, no restart."""
+
+    def test_the_series_continues_at_the_new_address(
+        self, wired: tuple[Internet, Orchestrator, Orchestrator], tmp_path: Path
+    ) -> None:
+        net, thief, cop = wired
+        cop.announce(cop.greeting(COP_URL, "them"))
+        first = thief.open_series(thief.greeting(THIEF_URL, "s82kma9e"), tmp_path, "g1")
+        assert thief.call_opponent("receive_turn", TURN)["ok"] is True
+
+        # The cop's free-tier tunnel is recycled between sub-games.
+        del net.hosts[COP_URL]
+        net.listen(MOVED_COP_URL, cop)
+        cop.announce(cop.greeting(MOVED_COP_URL, "them"))
+
+        second = thief.rehandshake(first, thief.greeting(THIEF_URL, "s82kma9e"), 2, tmp_path, "g1")
+        assert second.theirs.public_url == MOVED_COP_URL
+        assert thief.call_opponent("receive_turn", {**TURN, "step": 2})["ok"] is True
+        assert net.delivered[-1] == (MOVED_COP_URL, "receive_turn")
+
+    def test_without_the_re_handshake_the_old_address_is_dead(
+        self, wired: tuple[Internet, Orchestrator, Orchestrator], tmp_path: Path
+    ) -> None:
+        """What the re-handshake is worth: the whole series, not one sub-game.
+
+        A technical loss scores zero for **both** sides, so a tunnel recycled
+        partway through destroys sub-games already won on the board.
+        """
+        net, thief, cop = wired
+        cop.announce(cop.greeting(COP_URL, "them"))
+        thief.open_series(thief.greeting(THIEF_URL, "s82kma9e"), tmp_path, "g1")
+
+        del net.hosts[COP_URL]
+        net.listen(MOVED_COP_URL, cop)
+        with pytest.raises(MatchAborted):
+            thief.call_opponent("receive_turn", TURN)
+
+    def test_our_own_tunnel_moving_is_survivable_the_other_way_round(
+        self, wired: tuple[Internet, Orchestrator, Orchestrator], tmp_path: Path
+    ) -> None:
+        """The mirror case, and the reason the first announcement is still made.
+
+        If *we* moved, they cannot reach us and announcing is the only way they
+        ever learn where we went. Listening first would deadlock — they are
+        waiting for a greeting they have no address to ask for.
+
+        Both sides run the same ``rehandshake``; this drives them in the order
+        a real pair would fall into, since only one of the two can speak first.
+        """
+        net, thief, cop = wired
+        cop.announce(cop.greeting(COP_URL, "them"))
+        first = thief.open_series(thief.greeting(THIEF_URL, "s82kma9e"), tmp_path, "g1")
+        theirs = Peering(
+            cop.greeting(COP_URL, "them"),
+            Greeting("thief", "s82kma9e", THIEF_URL, PROTOCOL_VERSION),
+            sub_game=1,
+        )
+
+        # Our tunnel is recycled. Their address still works, so we can still
+        # reach them — they cannot reach us until they hear it from us.
+        del net.hosts[THIEF_URL]
+        net.listen(MOVED_THIEF_URL, thief)
+        moved = thief.greeting(MOVED_THIEF_URL, "s82kma9e")
+        assert thief.try_announce(moved) is True
+
+        cop.rehandshake(theirs, cop.greeting(COP_URL, "them"), 2, tmp_path, "g2")
+        assert cop.client.opponent_url == MOVED_THIEF_URL
+        assert "announce-failed" in cop.heartbeats
+
+        second = thief.rehandshake(first, moved, 2, tmp_path, "g1")
+        assert second.ours.public_url == MOVED_THIEF_URL
+
+    def test_both_tunnels_rotating_at_once_is_a_clean_timeout(
+        self, wired: tuple[Internet, Orchestrator, Orchestrator], tmp_path: Path
+    ) -> None:
+        """Genuinely unrecoverable — there is no in-band channel left.
+
+        What matters is that it ends as a named ``TIMEOUT`` rather than a hang.
+        Pretending to recover would only replace a clean technical loss with a
+        match that never finishes.
+        """
+        net, thief, cop = wired
+        cop.announce(cop.greeting(COP_URL, "them"))
+        first = thief.open_series(thief.greeting(THIEF_URL, "s82kma9e"), tmp_path, "g1")
+
+        net.hosts.clear()
+        with pytest.raises(MatchAborted) as excinfo:
+            thief.rehandshake(
+                first, thief.greeting(MOVED_THIEF_URL, "s82kma9e"), 2, tmp_path, "g1", timeout=0.0
+            )
+        assert excinfo.value.cause is TechnicalLoss.TIMEOUT
+        assert "announce-failed" in thief.heartbeats
+
+    def test_the_declaration_says_which_sub_game_the_move_took_effect(
+        self, wired: tuple[Internet, Orchestrator, Orchestrator], tmp_path: Path
+    ) -> None:
+        net, thief, cop = wired
+        cop.announce(cop.greeting(COP_URL, "them"))
+        first = thief.open_series(thief.greeting(THIEF_URL, "s82kma9e"), tmp_path, "g1")
+        net.listen(MOVED_COP_URL, cop)
+        cop.announce(cop.greeting(MOVED_COP_URL, "them"))
+        thief.rehandshake(first, thief.greeting(THIEF_URL, "s82kma9e"), 2, tmp_path, "g1")
+
+        written = json.loads((tmp_path / "declaration_g1.json").read_text())
+        assert written[ADDRESS_KEY]["police"]["since_sub_game"] == 2
+        assert written[ADDRESS_KEY]["thief"]["public_url"] == THIEF_URL
 
 
 class TestConfiguringTheRemotePeer:

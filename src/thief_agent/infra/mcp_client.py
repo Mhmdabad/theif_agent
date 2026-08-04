@@ -20,6 +20,15 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from ..shared.config import canonical_bytes
+from .transport_log import (
+    CONNECT,
+    RECONNECT,
+    RETRY,
+    SENT,
+    TIMEOUT,
+    UNREACHABLE,
+    TransportLog,
+)
 from .tunnel import normalise
 
 OPPONENT_URL_ENV = "OPPONENT_URL"
@@ -106,19 +115,34 @@ class OpponentClient:
         transport: Transport,
         settings: ClientSettings,
         sleep: Callable[[float], None] = lambda _: None,
+        log: TransportLog | None = None,
     ) -> None:
         self._transport = transport
         self._settings = settings
         self._sleep = sleep
         self.attempts = 0
-        self.relocations: list[tuple[str, str]] = []
-        self.sent: list[tuple[str, str]] = []
-        """``(tool, sha256)`` per call. Evidence that a retry changed nothing."""
+        self.log = log if log is not None else TransportLog()
+        self._connected: set[str] = set()
 
     @property
     def opponent_url(self) -> str:
         """Where calls are going right now. Not necessarily where they started."""
         return self._settings.opponent_url
+
+    @property
+    def sent(self) -> list[tuple[str, str]]:
+        """``(tool, sha256)`` per call. Evidence that a retry changed nothing.
+
+        Derived from the log rather than kept beside it. Two records of the
+        same thing is one record that can be wrong without anyone noticing —
+        and this one is the record an opponent may be shown.
+        """
+        return [(event.tool, event.detail) for event in self.log.of_kind(SENT)]
+
+    @property
+    def relocations(self) -> list[tuple[str, str]]:
+        """``(was, now)`` per address change, derived from the same log."""
+        return [(event.detail, event.url) for event in self.log.of_kind(RECONNECT)]
 
     def repoint(self, url: str) -> str:
         """Send subsequent calls somewhere else, recording the move.
@@ -136,7 +160,7 @@ class OpponentClient:
         was = self._settings.opponent_url
         self._settings = dataclasses.replace(self._settings, opponent_url=url)
         if self._settings.opponent_url != was:
-            self.relocations.append((was, self._settings.opponent_url))
+            self.log.record(RECONNECT, "", self._settings.opponent_url, detail=was)
         return was
 
     def call(self, tool: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -160,23 +184,35 @@ class OpponentClient:
                 the first attempt: a message we cannot reproduce byte-for-byte
                 is one we cannot prove we sent only once.
         """
+        url = self._settings.opponent_url
         frozen = canonical_bytes(payload)
-        self.sent.append((tool, hashlib.sha256(frozen).hexdigest()))
+        self.log.record(SENT, tool, url, detail=hashlib.sha256(frozen).hexdigest())
         last: Exception | None = None
         for attempt in range(self._settings.max_retries + 1):
             self.attempts += 1
             try:
-                return self._transport.call(
-                    self._settings.opponent_url,
-                    tool,
-                    json.loads(frozen),
-                    self._settings.response_timeout_sec,
+                answer = self._transport.call(
+                    url, tool, json.loads(frozen), self._settings.response_timeout_sec
                 )
             except (TimeoutError, ConnectionError, OSError) as exc:
                 last = exc
+                self.log.record(TIMEOUT, tool, url, detail=f"{type(exc).__name__}: {exc}")
                 if attempt < self._settings.max_retries:
+                    self.log.record(
+                        RETRY,
+                        tool,
+                        url,
+                        detail=(
+                            f"attempt {attempt + 2} of {self._settings.max_retries + 1} "
+                            f"after {self._settings.retry_backoff_sec:g}s"
+                        ),
+                    )
                     self._sleep(self._settings.retry_backoff_sec)
-        raise OpponentUnreachableError(
-            f"{tool} failed after {self._settings.max_retries + 1} attempts "
-            f"against {self._settings.opponent_url}"
-        ) from last
+            else:
+                if url not in self._connected:
+                    self._connected.add(url)
+                    self.log.record(CONNECT, tool, url)
+                return answer
+        detail = f"{tool} failed after {self._settings.max_retries + 1} attempts against {url}"
+        self.log.record(UNREACHABLE, tool, url, detail=str(last))
+        raise OpponentUnreachableError(detail) from last

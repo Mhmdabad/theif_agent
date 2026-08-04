@@ -57,6 +57,18 @@ def log_filename(game_id: str, sub_game: int) -> str:
     return f"log_{game_id}_g{sub_game:02d}.json"
 
 
+def transport_log_filename(game_id: str, sub_game: int) -> str:
+    """Wire-event log for one sub-game. Not one of the four mandatory files.
+
+    Named alongside them anyway. It is the evidence a technical result is
+    argued from, and evidence that cannot be matched to the sub-game it came
+    from is evidence nobody can check.
+    """
+    _check_game_id(game_id)
+    _check_sub_game(sub_game)
+    return f"transport_{game_id}_g{sub_game:02d}.log"
+
+
 def result_filename(game_id: str) -> str:
     """Final results report. One per match; this is what is emailed."""
     _check_game_id(game_id)

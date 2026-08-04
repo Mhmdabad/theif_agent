@@ -8,10 +8,10 @@ from typing import Any
 
 import pytest
 
-from thief_agent.domain.actions import MoveAction, PlaceBarrier
+from thief_agent.domain.actions import Action, MoveAction, PlaceBarrier
 from thief_agent.domain.axes import AxisConvention
 from thief_agent.domain.board import MOVES, BoardState, Move
-from thief_agent.domain.rules import target_of
+from thief_agent.domain.rules import legal_moves, target_of
 from thief_agent.domain.search import reachable_area
 from thief_agent.strategy.base import BrainBase, Decision, NoLegalActionError
 from thief_agent.strategy.loader import DEFAULT_BRAIN, StrategyError, load_brain
@@ -154,10 +154,61 @@ class TestLegalityGuard:
         with pytest.raises(NoLegalActionError, match="has no legal move"):
             Stubborn(axes=AXES).decide(make(thief=(3, 3), barriers=walls))
 
-    def test_a_barrier_action_passes_the_move_guard(self) -> None:
-        """Placement legality belongs to the domain layer, not here."""
+    def test_a_barrier_action_is_refused_outright(self) -> None:
+        """The thief may never place one, in any position, ever.
+
+        This used to pass the guard on the grounds that placement legality
+        belongs to the domain layer. It does — and the domain layer would
+        reject it *after* it had gone out on the wire, where the cop rejects
+        it and we take a technical loss worth zero to both sides. There is no
+        board state to validate against here: the action is refused because of
+        who is taking it.
+        """
         brain = ThiefBrain(axes=AXES)
-        brain._guard(make(), PlaceBarrier((1, 0)))
+        with pytest.raises(NoLegalActionError, match="only the cop may place barriers"):
+            brain._guard(make(), PlaceBarrier((1, 0)))
+
+    def test_a_brain_that_returns_a_barrier_cannot_commit_it(self) -> None:
+        """The guard runs inside decide(), so an override cannot route past it."""
+
+        class Greedy(ThiefBrain):
+            def _decide_move(self, state: BoardState, **context: object) -> Action:
+                return PlaceBarrier((1, 0))
+
+        with pytest.raises(NoLegalActionError, match="only the cop may place barriers"):
+            Greedy(axes=AXES).decide(make())
+
+    def test_the_guard_never_passes_an_illegal_move(self) -> None:
+        """#40's acceptance criterion: a property, over random boards.
+
+        Each brain returns a fixed move regardless of the position, which is
+        the cheapest stand-in for a heuristic, a learned policy or a model
+        suggestion that has lost track of the geometry.
+        """
+        rng = random.Random(40)
+        cells = [(row, col) for row in range(7) for col in range(7)]
+        checked = 0
+        for _ in range(300):
+            walls = frozenset(rng.sample(cells, rng.randint(0, 20)))
+            free = [cell for cell in cells if cell not in walls]
+            state = make(cop=rng.choice(free), thief=rng.choice(free), barriers=walls)
+            legal = legal_moves(state, "thief", AXES)
+            for forced in MOVES:
+
+                class Fixed(ThiefBrain):
+                    def _pick_move(self, state: BoardState, **context: object) -> Move:
+                        return forced  # noqa: B023
+
+                brain = Fixed(axes=AXES)
+                if forced in legal:
+                    action = brain.decide(state).action
+                    assert isinstance(action, MoveAction)
+                    assert action.move in legal
+                else:
+                    checked += 1
+                    with pytest.raises(NoLegalActionError):
+                        brain.decide(state)
+        assert checked > 0, "the sweep never produced an illegal candidate to reject"
 
 
 class TestDeterminism:

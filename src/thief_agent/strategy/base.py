@@ -25,7 +25,7 @@ import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
-from ..domain.actions import Action, MoveAction
+from ..domain.actions import Action, MoveAction, PlaceBarrier
 from ..domain.axes import AxisConvention
 from ..domain.board import Agent, BoardState, Move
 from ..domain.rules import legal_moves
@@ -112,14 +112,30 @@ class BrainBase(ABC):
         it here costs a local error rather than a rejected move and a technical
         loss.
 
+        Two different questions, and only the first is about this board.
+
+        A **barrier is never legal for the thief**, in any position, under any
+        configuration. Only the cop may forfeit movement to seal a cell, so
+        there is nothing here to validate against the state — the action is
+        refused because of who is taking it. Letting it through on the grounds
+        that "placement legality belongs to the domain layer" is exactly the
+        mistake this guard exists to prevent: the domain layer would reject it
+        too, but only after it had gone out on the wire, where the cop rejects
+        it and we take a technical loss worth zero to both sides.
+
+        A **move** is checked against the legal set for this position.
+
         Raises:
-            NoLegalActionError: if the chosen move is not legal.
+            NoLegalActionError: if the action is not one the thief may take.
         """
-        if isinstance(action, MoveAction):
-            available = self.options(state)
-            if not available:
-                raise NoLegalActionError(f"{self.role} has no legal move")
-            if action.move not in available:
-                raise NoLegalActionError(
-                    f"{self.role} chose {action.move}, which is not among {available}"
-                )
+        if isinstance(action, PlaceBarrier):
+            raise NoLegalActionError(
+                f"thief cannot place a barrier at {action.at}; only the cop may place barriers"
+            )
+        available = self.options(state)
+        if not available:
+            raise NoLegalActionError(f"{self.role} has no legal move")
+        if action.move not in available:
+            raise NoLegalActionError(
+                f"{self.role} chose {action.move}, which is not among {available}"
+            )

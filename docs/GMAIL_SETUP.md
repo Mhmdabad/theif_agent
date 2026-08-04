@@ -64,13 +64,76 @@ the duplication of these five steps. What must **not** be shared is the
 
 ---
 
-## Steps 2–5
+## Step 2 — the OAuth Consent Screen, and every team member as a Test User
+
+**Do this:**
+
+1. **APIs & Services → OAuth consent screen**, on the *same project* as step 1.
+2. Choose a user type:
+   - **Internal** if the account is on a Google Workspace domain and everyone
+     who will authorize is inside it. No test-user list is needed and the app
+     never has to be verified.
+   - **External** otherwise — which is the case for ordinary `@gmail.com`
+     accounts, so it is the likely answer here.
+3. Fill the app information. App name, a support email, a developer contact
+   email. All three are required; none of them are checked while the app stays
+   in Testing.
+4. Save, then find the **Test users** section and **add every email address
+   that will ever run the authorization flow** — each team member, and the
+   sending account itself if it differs.
+5. Leave the publishing status as **Testing**. Do not press *Publish app*.
+
+**Done when:** the consent screen page shows **Publishing status: Testing** and
+every team member's address is listed under **Test users**.
+
+### What a Test User actually is
+
+While an External app is in Testing, Google will complete the authorization flow
+**only for accounts on that list**. An account not on it gets
+
+```
+Error 403: access_denied
+```
+
+which does not mention test users, does not mention the consent screen, and
+reads as though the account lacks permission for the Gmail API. It is the
+rulebook's example of a step that fails "later and more confusingly" — the
+missing configuration is on a page nobody is looking at, and the error names the
+wrong thing.
+
+The list is not a formality. Add people **before** they need it, because
+discovering this at 2am on a match night means waiting for whoever owns the
+console to wake up.
+
+### Why Testing rather than Published
+
+Publishing an External app that requests `gmail.send` puts it in front of
+Google's verification process — a review with a turnaround measured in weeks,
+requiring a privacy policy, a homepage and a recorded demonstration. None of
+that is wanted for a course project.
+
+The cost of staying in Testing is a **refresh token that expires after seven
+days**. That is the trade, and it is the right way round: a week is a term-time
+inconvenience, and verification is not a thing to start in week eleven. Practical
+consequence — re-run the authorization flow (step 5) if the agent has not
+reported in a week. FR-7.26's "reports autonomously for months" describes a
+published app; ours is not one, and pretending otherwise would mean discovering
+it during the tournament.
+
+### The unverified-app warning is expected
+
+Testing apps show a **"Google hasn't verified this app"** interstitial during the
+flow. It is reached through *Advanced → Go to \<app name\> (unsafe)*. This is
+normal for a project in Testing and not a sign anything is misconfigured.
+
+---
+
+## Steps 3–5
 
 Not yet written up. They land with the issues that cover them:
 
 | Step | What | Issue |
 |---|---|---|
-| 2 | OAuth Consent Screen, team members as Test Users | #94 |
 | 3 | Scope restricted to `gmail.send` and nothing else | #95 |
 | 4 | OAuth Client ID (Desktop Application) → `credentials.json` | #96 |
 | 5 | First authorization flow → `token.json` | #97 |

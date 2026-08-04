@@ -5,10 +5,13 @@ import pytest
 from thief_agent.domain.credibility import (
     CONTRADICTION,
     FRESH_TRACE,
+    MIN_RELIABILITY,
+    Credibility,
     Verdict,
     check,
     true_source,
 )
+from thief_agent.domain.inference import MAX_RELIABILITY as MAX_TRUST
 
 
 class TestTheBooksWorkedExample:
@@ -118,3 +121,98 @@ class TestTheTrailCannotLie:
         the cop's hints by exactly this procedure."""
         assert check({(2, 2): 1.0}, {(2, 2): 0.81}).contradicted is False
         assert check({(2, 2): 1.0}, {(5, 5): 0.81}).contradicted is True
+
+
+class TestAdaptiveReliability:
+    """#59: trust falls on each detected contradiction."""
+
+    LIE = check({(0, 3): 1.0}, {(6, 6): 0.9})
+    TRUTH = check({(6, 6): 1.0}, {(6, 6): 0.81})
+
+    def test_an_unheard_opponent_starts_neither_trusted_nor_dismissed(self) -> None:
+        """Starting high lets a patient opponent bank credibility and spend it
+        on the one lie that matters. Starting at zero gives an honest opponent
+        no way to earn anything."""
+        assert Credibility().reliability == 0.5
+        assert not Credibility().discredited
+
+    def test_a_contradiction_lowers_it(self) -> None:
+        credibility = Credibility()
+        before = credibility.reliability
+        assert credibility.observe(self.LIE) < before
+        assert credibility.discredited
+
+    def test_it_collapses_fast(self) -> None:
+        """Two lies leave an opponent barely audible; three pin them down."""
+        credibility = Credibility()
+        assert round(credibility.observe(self.LIE), 3) == 0.175
+        assert round(credibility.observe(self.LIE), 3) == 0.061
+        assert credibility.observe(self.LIE) == MIN_RELIABILITY
+
+    def test_support_raises_it(self) -> None:
+        credibility = Credibility()
+        assert credibility.observe(self.TRUTH) > 0.5
+
+    def test_recovery_is_slower_than_the_fall(self) -> None:
+        """The correct asymmetry against an adversary who chooses when to lie.
+        A symmetric rule would let them alternate and hold a usable average."""
+        alternating = Credibility()
+        for _ in range(6):
+            alternating.observe(self.LIE)
+            alternating.observe(self.TRUTH)
+        assert alternating.reliability < 0.5
+
+    def test_a_consistently_honest_opponent_earns_trust(self) -> None:
+        credibility = Credibility()
+        for _ in range(20):
+            credibility.observe(self.TRUTH)
+        assert credibility.reliability > 0.9
+        assert not credibility.discredited
+
+    def test_trust_never_reaches_certainty(self) -> None:
+        """The cap from the inference layer holds here too: the rules permit
+        lying, so no history of honesty justifies certainty."""
+        credibility = Credibility()
+        for _ in range(200):
+            credibility.observe(self.TRUTH)
+        assert credibility.reliability <= MAX_TRUST < 1.0
+
+    def test_a_proven_liar_is_still_heard_faintly(self) -> None:
+        """Zero would kill the channel permanently, and a discredited opponent
+        who starts telling the truth has information we would be refusing."""
+        credibility = Credibility()
+        for _ in range(50):
+            credibility.observe(self.LIE)
+        assert credibility.reliability == MIN_RELIABILITY > 0.0
+
+    def test_a_liar_can_climb_back(self) -> None:
+        credibility = Credibility()
+        credibility.observe(self.LIE)
+        credibility.observe(self.LIE)
+        floor = credibility.reliability
+        for _ in range(10):
+            credibility.observe(self.TRUTH)
+        assert credibility.reliability > floor
+        assert credibility.discredited
+
+    def test_the_counts_are_recorded_for_the_audit(self) -> None:
+        credibility = Credibility()
+        credibility.observe(self.LIE)
+        credibility.observe(self.TRUTH)
+        assert (credibility.lies, credibility.supported) == (1, 1)
+        assert "1 contradicted" in str(credibility)
+
+    def test_it_feeds_the_inference_layer_directly(self) -> None:
+        """The coefficient the Bayes update weights a hint by."""
+        from thief_agent.domain.belief import Belief
+        from thief_agent.domain.board import BoardState
+        from thief_agent.domain.inference import update
+
+        board = BoardState(cop=(0, 0), thief=(6, 6), grid_size=7)
+        credibility = Credibility()
+        credibility.observe(self.LIE)
+        credibility.observe(self.LIE)
+
+        belief = Belief.uniform(board)
+        update(belief, {(6, 6): 0.9}, claim={(0, 0): 1.0}, reliability=credibility.reliability)
+        assert belief.most_likely() == (6, 6), "a discredited hint must not steer us"

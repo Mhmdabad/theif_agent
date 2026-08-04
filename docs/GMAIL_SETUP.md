@@ -128,13 +128,55 @@ normal for a project in Testing and not a sign anything is misconfigured.
 
 ---
 
-## Steps 3–5
+## Step 3 — one scope, and no other
+
+**Do this:** on the consent screen, **Add or remove scopes**, and select exactly
+
+```
+https://www.googleapis.com/auth/gmail.send
+```
+
+Nothing else. Not `gmail.readonly`, not `gmail.modify`, not `mail.google.com`.
+
+**Done when:** the scopes table lists that one entry, and
+[`infra/gmail_auth.py`](../src/thief_agent/infra/gmail_auth.py) is still the only
+file in the package containing a scope string — which
+`test_only_the_send_scope_appears_anywhere_in_the_source` checks by reading the
+source tree on every CI run.
+
+### What the narrow scope actually buys
+
+`token.json` lives on a laptop and grants exactly what the scope says. Assume it
+leaks — a stray commit, a shared screen, a backup:
+
+| Granted | What the leaked file does |
+|---|---|
+| `gmail.send` | sends mail as the account. Bad, loud, recoverable. |
+| `+ gmail.readonly` | hands over years of correspondence. Silent, permanent. |
+
+The second row is why FR-7.25 calls this the difference between a weapon and a
+nearly harmless tool. Same file, same carelessness, entirely different day.
+
+### Asking narrowly is not the same as receiving narrowly
+
+Google returns the scopes **granted**, not the scopes requested. If the same
+OAuth client was ever authorized more broadly, the grant can come back as the
+union — and a token we did not ask for the power of is still a token that has
+it.
+
+`check_granted()` refuses such a token instead of trimming the list. Trimming
+would describe the credential as narrow while the file on disk stayed wide, and
+the file is what an attacker gets; it does not read our variables. The remedy is
+to revoke at <https://myaccount.google.com/permissions> and authorize again.
+
+---
+
+## Steps 4–5
 
 Not yet written up. They land with the issues that cover them:
 
 | Step | What | Issue |
 |---|---|---|
-| 3 | Scope restricted to `gmail.send` and nothing else | #95 |
 | 4 | OAuth Client ID (Desktop Application) → `credentials.json` | #96 |
 | 5 | First authorization flow → `token.json` | #97 |
 

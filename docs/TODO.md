@@ -159,7 +159,7 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done · **🚪 GATE** = milesto
 ### Gmail + Gatekeeper
 - [ ] Google Cloud project + Gmail API enabled
 - [ ] OAuth Consent Screen configured, team members added as Test Users
-- [ ] Scope restricted to `https://www.googleapis.com/auth/gmail.send` **only**
+- [x] Scope restricted to `https://www.googleapis.com/auth/gmail.send` **only**
 - [ ] OAuth Client ID (Desktop Application) → `credentials.json` **(gitignored)**
 - [ ] First authorization flow → `token.json` **(gitignored)**
 - [ ] **Quota Manager** — daily safety threshold

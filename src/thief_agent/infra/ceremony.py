@@ -27,11 +27,12 @@ can hash the remainder in microseconds.
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ..domain.actions import ROLES
 from ..domain.bluff import INTENTS
+from ..domain.crypto import NONCE_BYTES
 from .validation import (
     InvalidPayloadError,
     optional_cell,
@@ -47,6 +48,10 @@ Checked rather than assumed. An uppercase or truncated digest still compares
 unequal to ours, so it would surface as a forgery verdict against an opponent
 whose only crime was formatting — and a forgery verdict is unappealable.
 """
+
+NONCE_LENGTH = NONCE_BYTES * 2
+NONCE = re.compile(rf"^[0-9a-f]{{{NONCE_LENGTH}}}$")
+"""A nonce as :func:`~..domain.crypto.nonce` renders it."""
 
 COMMIT_FIELDS = ("step", "sender", "commit", "timestamp")
 """Everything phase 1 may carry. The tuple is the specification, not a hint."""
@@ -283,25 +288,40 @@ class StepCeremony:
     ack_received: Acknowledgement | None = None
     revealed_ours: Reveal | None = None
     revealed_theirs: Reveal | None = None
+    our_nonce: str | None = None
+    """The secret this step will disclose in phase 4, and not before.
+
+    Held by the ceremony rather than by the message, which is the whole point:
+    :class:`Commitment` cannot carry it and :class:`Reveal` refuses it, so the
+    only path from here to the wire is the final reveal.
+    """
 
     def __post_init__(self) -> None:
         if self.role not in ROLES:
             raise CeremonyError(f"role must be one of {sorted(ROLES)}, got {self.role!r}")
 
-    def commit(self, ours: Commitment) -> Commitment:
-        """File our own commitment for this step.
+    def commit(self, ours: Commitment, nonce: str) -> Commitment:
+        """File our own commitment for this step, and keep the nonce that opens it.
+
+        The nonce arrives here rather than staying with the caller because this
+        object is what discloses it in phase 4. A secret held somewhere else is
+        a secret with a second path to the wire.
 
         Raises:
-            CeremonyError: on a second commitment, or one for another step or
-                role. Re-committing is the move this ceremony exists to
-                prevent, and it is not less serious for being local.
+            CeremonyError: on a second commitment, one for another step or
+                role, or a malformed nonce. Re-committing is the move this
+                ceremony exists to prevent, and it is not less serious for
+                being local.
         """
         if self.ours is not None:
             raise CeremonyError(
                 f"step {self.step} is already committed; a commitment is not revisable"
             )
+        if not NONCE.match(nonce):
+            raise CeremonyError(f"nonce is not {NONCE_LENGTH} hex characters: {nonce!r}")
         self._check_belongs(ours.step, ours.sender, expected_role=self.role, what="commitment")
         self.ours = ours
+        self.our_nonce = nonce
         return ours
 
     def receive(self, theirs: Commitment) -> Commitment:
@@ -450,3 +470,161 @@ class StepCeremony:
             raise CeremonyError(f"{what} is for step {step}, this ceremony is step {self.step}")
         if sender != expected_role:
             raise CeremonyError(f"{what} is from {sender!r}, expected {expected_role!r}")
+
+
+@dataclass(frozen=True, slots=True)
+class FinalReveal:
+    """Phase 4. Every nonce of the match, disclosed at once, at the end.
+
+    **At once and at the end are both load-bearing.** A nonce released while
+    the match is running reopens the commitment it belongs to, and because
+    every step uses the same construction it also narrows every other one — so
+    the rulebook's *"only at the end of the whole game are all the Nonce values
+    revealed"* is a single event by necessity rather than by tidiness.
+
+    Disclosing them **all** matters for the opposite reason. A step whose nonce
+    is missing is a step nobody can re-derive, and an audit that cannot
+    re-derive a step proves nothing about it either way — which is exactly the
+    step a cheat would omit. A partial final reveal is therefore refused rather
+    than partially accepted.
+    """
+
+    sender: str
+    nonces: dict[int, str]
+    timestamp: str
+
+    def __post_init__(self) -> None:
+        if self.sender not in ROLES:
+            raise CeremonyError(f"sender must be one of {sorted(ROLES)}, got {self.sender!r}")
+        for step, value in sorted(self.nonces.items()):
+            if step < 0:
+                raise CeremonyError(f"step must be >= 0, got {step}")
+            if not NONCE.match(value):
+                raise CeremonyError(
+                    f"nonce for step {step} is not {NONCE_LENGTH} hex characters: {value!r}"
+                )
+
+    def to_dict(self) -> dict[str, Any]:
+        """The wire form. Step keys become strings, as JSON requires."""
+        return {
+            "sender": self.sender,
+            "nonces": {str(step): value for step, value in sorted(self.nonces.items())},
+            "timestamp": self.timestamp,
+        }
+
+    @classmethod
+    def from_dict(cls, data: object) -> "FinalReveal":
+        """Parse an inbound final reveal.
+
+        Raises:
+            CeremonyError: on anything malformed. A step key that is not an
+                integer is refused rather than skipped: a nonce we cannot file
+                against a step is a nonce that verifies nothing, and silently
+                dropping it would turn their formatting error into our
+                unverifiable step.
+        """
+        try:
+            body = require_mapping(data, "final reveal")
+            raw = body.get("nonces")
+            if not isinstance(raw, dict):
+                raise CeremonyError(f"'nonces' must be an object, got {type(raw).__name__}")
+            nonces: dict[int, str] = {}
+            for key, value in raw.items():
+                try:
+                    step = int(key)
+                except (TypeError, ValueError) as exc:
+                    raise CeremonyError(f"step key {key!r} is not an integer") from exc
+                if not isinstance(value, str):
+                    raise CeremonyError(f"nonce for step {step} is not a string")
+                nonces[step] = value
+            return cls(
+                sender=require_str(body, "sender"),
+                nonces=nonces,
+                timestamp=require_str(body, "timestamp"),
+            )
+        except InvalidPayloadError as exc:
+            raise CeremonyError(str(exc)) from exc
+
+
+@dataclass
+class MatchCeremony:
+    """Every step's ceremony, and the one event that ends them all.
+
+    Exists so phase 4 has something to be complete *against*. A final reveal is
+    only meaningful relative to the set of steps that were played, and no
+    individual :class:`StepCeremony` knows how many of those there were.
+    """
+
+    role: str
+    steps: dict[int, StepCeremony] = field(default_factory=dict)
+    over: bool = False
+
+    def __post_init__(self) -> None:
+        if self.role not in ROLES:
+            raise CeremonyError(f"role must be one of {sorted(ROLES)}, got {self.role!r}")
+
+    def at(self, step: int) -> StepCeremony:
+        """The ceremony for ``step``, opening one if this is its first message."""
+        if step not in self.steps:
+            self.steps[step] = StepCeremony(step=step, role=self.role)
+        return self.steps[step]
+
+    def finish(self) -> None:
+        """Mark the match over. Only after this may nonces be disclosed."""
+        self.over = True
+
+    def final_reveal(self, timestamp: str) -> FinalReveal:
+        """Disclose every nonce of the match, at the end, in one message.
+
+        Raises:
+            CeremonyError: while the match is still running, or if any step
+                cannot contribute a nonce. Both refusals protect the same
+                thing from opposite sides — an early disclosure reopens
+                commitments that still matter, and a partial one leaves a step
+                nobody can re-derive, which is precisely the step a cheat would
+                omit.
+        """
+        if not self.over:
+            raise CeremonyError(
+                "cannot disclose nonces while the match is running; every step uses the "
+                "same construction, so one released early narrows all the others"
+            )
+        missing = sorted(step for step, one in self.steps.items() if one.our_nonce is None)
+        if missing:
+            raise CeremonyError(
+                f"no nonce recorded for step(s) {missing}; a step nobody can re-derive "
+                "proves nothing at audit, which is what makes a partial reveal worse "
+                "than a late one"
+            )
+        return FinalReveal(
+            sender=self.role,
+            nonces={step: one.our_nonce for step, one in self.steps.items() if one.our_nonce},
+            timestamp=timestamp,
+        )
+
+    def receive_final_reveal(self, disclosed: FinalReveal) -> FinalReveal:
+        """File the opponent's nonces, checking they cover what they committed to.
+
+        Raises:
+            CeremonyError: if it comes from the wrong role, or omits a step
+                they committed to. Extra steps are tolerated — a nonce for a
+                step we have no record of verifies nothing and harms nothing —
+                but a **missing** one is the shape of a hidden move.
+        """
+        if disclosed.sender != self.opponent:
+            raise CeremonyError(
+                f"final reveal is from {disclosed.sender!r}, expected {self.opponent!r}"
+            )
+        owed = {step for step, one in self.steps.items() if one.theirs is not None}
+        absent = sorted(owed - set(disclosed.nonces))
+        if absent:
+            raise CeremonyError(
+                f"their final reveal omits step(s) {absent}, which they committed to; "
+                "an unopenable commitment is indistinguishable from a hidden move"
+            )
+        return disclosed
+
+    @property
+    def opponent(self) -> str:
+        """The role that is not ours."""
+        return next(role for role in sorted(ROLES) if role != self.role)

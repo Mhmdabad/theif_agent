@@ -13,12 +13,16 @@ from thief_agent.infra.ceremony import (
     Acknowledgement,
     CeremonyError,
     Commitment,
+    FinalReveal,
+    MatchCeremony,
     Reveal,
     StepCeremony,
 )
 
 DIGEST = "a" * 64
 WHEN = "2026-08-04T09:00:00+00:00"
+OUR_NONCE = "0" * 32
+THEIR_NONCE = "1" * 32
 BOARD = BoardState(grid_size=8, cop=(1, 2), thief=(6, 5), barriers=frozenset({(3, 3)}), step=4)
 
 
@@ -141,7 +145,7 @@ def their_commitment(**overrides: object) -> Commitment:
 def opened() -> StepCeremony:
     """Both sides committed, nothing acknowledged yet."""
     ceremony = StepCeremony(step=4, role="thief")
-    ceremony.commit(commitment())
+    ceremony.commit(commitment(), OUR_NONCE)
     ceremony.receive(their_commitment())
     return ceremony
 
@@ -203,9 +207,9 @@ class TestCommittingOnce:
         else has seen it yet.
         """
         ceremony = StepCeremony(step=4, role="thief")
-        ceremony.commit(commitment())
+        ceremony.commit(commitment(), OUR_NONCE)
         with pytest.raises(CeremonyError, match="not revisable"):
-            ceremony.commit(commitment(commit="c" * 64))
+            ceremony.commit(commitment(commit="c" * 64), OUR_NONCE)
 
     def test_a_second_commitment_of_theirs_is_refused(self) -> None:
         """Either a bug on their side or an attempt to replace a move.
@@ -219,12 +223,12 @@ class TestCommittingOnce:
     def test_a_commitment_for_another_step_is_refused(self) -> None:
         ceremony = StepCeremony(step=4, role="thief")
         with pytest.raises(CeremonyError, match="is for step 9"):
-            ceremony.commit(commitment(step=9))
+            ceremony.commit(commitment(step=9), OUR_NONCE)
 
     def test_our_own_role_is_expected_on_our_commitment(self) -> None:
         ceremony = StepCeremony(step=4, role="thief")
         with pytest.raises(CeremonyError, match="expected 'thief'"):
-            ceremony.commit(their_commitment())
+            ceremony.commit(their_commitment(), OUR_NONCE)
 
     def test_the_opponents_role_is_expected_on_theirs(self) -> None:
         ceremony = StepCeremony(step=4, role="thief")
@@ -240,7 +244,7 @@ class TestAcknowledging:
         therefore cannot check afterwards.
         """
         ceremony = StepCeremony(step=4, role="thief")
-        ceremony.commit(commitment())
+        ceremony.commit(commitment(), OUR_NONCE)
         with pytest.raises(CeremonyError, match="has not committed"):
             ceremony.acknowledge(WHEN)
 
@@ -439,3 +443,149 @@ class TestReceivingTheirReveal:
 
     def test_pending_reads_as_locked_once_it_is(self) -> None:
         assert both_locked().pending() == "locked"
+
+
+def played(steps: int = 3, role: str = "thief") -> MatchCeremony:
+    """A match whose steps all committed, from our side."""
+    match = MatchCeremony(role=role)
+    for step in range(1, steps + 1):
+        match.at(step).commit(commitment(step=step), OUR_NONCE)
+    return match
+
+
+class TestTheFinalRevealMessage:
+    def test_it_carries_every_nonce_keyed_by_step(self) -> None:
+        match = played()
+        match.finish()
+        assert match.final_reveal(WHEN).nonces == {1: OUR_NONCE, 2: OUR_NONCE, 3: OUR_NONCE}
+
+    def test_step_keys_become_strings_on_the_wire(self) -> None:
+        """JSON has no integer keys, so the conversion is explicit."""
+        match = played(steps=1)
+        match.finish()
+        assert match.final_reveal(WHEN).to_dict()["nonces"] == {"1": OUR_NONCE}
+
+    def test_it_round_trips_through_json(self) -> None:
+        match = played()
+        match.finish()
+        disclosed = match.final_reveal(WHEN)
+        assert FinalReveal.from_dict(json.loads(json.dumps(disclosed.to_dict()))) == disclosed
+
+    @pytest.mark.parametrize("bad", ["0" * 31, "0" * 33, "Z" * 32, ""])
+    def test_a_nonce_that_is_not_one_is_refused(self, bad: str) -> None:
+        with pytest.raises(CeremonyError, match="hex characters"):
+            FinalReveal(sender="thief", nonces={1: bad}, timestamp=WHEN)
+
+    @pytest.mark.parametrize("sender", ["cop", "referee", ""])
+    def test_a_role_the_wire_does_not_name_is_refused(self, sender: str) -> None:
+        with pytest.raises(CeremonyError, match="sender must be one of"):
+            FinalReveal(sender=sender, nonces={1: OUR_NONCE}, timestamp=WHEN)
+
+    def test_a_negative_step_is_refused(self) -> None:
+        with pytest.raises(CeremonyError, match="step must be >= 0"):
+            FinalReveal(sender="thief", nonces={-1: OUR_NONCE}, timestamp=WHEN)
+
+    def test_a_step_key_that_is_not_an_integer_is_refused(self) -> None:
+        """Refused rather than skipped.
+
+        A nonce we cannot file against a step verifies nothing, and dropping
+        it silently would turn their formatting error into our unverifiable
+        step.
+        """
+        with pytest.raises(CeremonyError, match="not an integer"):
+            FinalReveal.from_dict(
+                {"sender": "thief", "nonces": {"one": OUR_NONCE}, "timestamp": WHEN}
+            )
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            "not a mapping",
+            {"sender": "thief", "timestamp": WHEN},
+            {"sender": "thief", "nonces": [], "timestamp": WHEN},
+            {"sender": "thief", "nonces": {"1": 42}, "timestamp": WHEN},
+        ],
+    )
+    def test_a_malformed_final_reveal_is_one_error_type(self, payload: object) -> None:
+        with pytest.raises(CeremonyError):
+            FinalReveal.from_dict(payload)
+
+
+class TestNoncesAreDisclosedOnlyAtTheEnd:
+    def test_disclosing_mid_match_is_refused(self) -> None:
+        """Every step uses the same construction.
+
+        One nonce released early reopens its own commitment and narrows every
+        other one, with steps still left to play against them.
+        """
+        with pytest.raises(CeremonyError, match="while the match is running"):
+            played().final_reveal(WHEN)
+
+    def test_the_nonce_never_leaves_by_any_other_path(self) -> None:
+        """Commitment cannot carry it and Reveal refuses it.
+
+        Holding it on the ceremony rather than in the caller is what makes the
+        final reveal the only route to the wire.
+        """
+        ceremony = both_locked()
+        assert ceremony.our_nonce == OUR_NONCE
+        assert OUR_NONCE not in json.dumps(commitment().to_dict())
+        assert OUR_NONCE not in json.dumps(reveal().to_dict())
+
+    def test_a_malformed_nonce_is_refused_at_commit_time(self) -> None:
+        ceremony = StepCeremony(step=4, role="thief")
+        with pytest.raises(CeremonyError, match="hex characters"):
+            ceremony.commit(commitment(), "not-a-nonce")
+
+
+class TestAPartialRevealIsRefused:
+    def test_a_step_with_no_recorded_nonce_stops_the_reveal(self) -> None:
+        """The step a cheat would omit.
+
+        A step nobody can re-derive proves nothing at audit, which makes a
+        partial reveal worse than a late one.
+        """
+        match = played(steps=2)
+        match.at(7)  # opened but never committed
+        match.finish()
+        with pytest.raises(CeremonyError, match=r"no nonce recorded for step\(s\) \[7\]"):
+            match.final_reveal(WHEN)
+
+    def test_their_reveal_must_cover_every_step_they_committed_to(self) -> None:
+        """An unopenable commitment is indistinguishable from a hidden move."""
+        match = MatchCeremony(role="thief")
+        for step in (1, 2):
+            match.at(step).receive(their_commitment(step=step))
+        with pytest.raises(CeremonyError, match=r"omits step\(s\) \[2\]"):
+            match.receive_final_reveal(
+                FinalReveal(sender="police", nonces={1: THEIR_NONCE}, timestamp=WHEN)
+            )
+
+    def test_extra_steps_in_their_reveal_are_tolerated(self) -> None:
+        """A nonce for a step we have no record of verifies nothing and harms nothing."""
+        match = MatchCeremony(role="thief")
+        match.at(1).receive(their_commitment(step=1))
+        disclosed = FinalReveal(
+            sender="police", nonces={1: THEIR_NONCE, 9: THEIR_NONCE}, timestamp=WHEN
+        )
+        assert match.receive_final_reveal(disclosed) is disclosed
+
+    def test_a_final_reveal_from_the_wrong_role_is_refused(self) -> None:
+        match = MatchCeremony(role="thief")
+        with pytest.raises(CeremonyError, match="expected 'police'"):
+            match.receive_final_reveal(FinalReveal(sender="thief", nonces={}, timestamp=WHEN))
+
+
+class TestTheMatchCeremony:
+    def test_it_opens_a_step_on_first_reference_and_reuses_it(self) -> None:
+        match = MatchCeremony(role="thief")
+        assert match.at(3) is match.at(3)
+        assert match.at(3).role == "thief"
+
+    def test_it_needs_a_real_role(self) -> None:
+        with pytest.raises(CeremonyError, match="role must be one of"):
+            MatchCeremony(role="cop")
+
+    def test_the_opponent_is_whichever_role_is_not_ours(self) -> None:
+        assert MatchCeremony(role="thief").opponent == "police"
+        assert MatchCeremony(role="police").opponent == "thief"

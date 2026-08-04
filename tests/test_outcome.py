@@ -1,11 +1,17 @@
 """Tests for sub-game termination conditions."""
 
+import inspect
+import random
+from pathlib import Path
+
 from thief_agent.domain.actions import PlaceBarrier, apply_action
 from thief_agent.domain.axes import ORIGIN_CORNERS, AxisConvention
 from thief_agent.domain.board import BoardState
 from thief_agent.domain.outcome import (
     DEFAULT_SURVIVAL_THRESHOLD,
     TechnicalLoss,
+    answer_is_supported,
+    capture_answer,
     is_capture_by_overlap,
     is_enclosure_capture,
     is_survival,
@@ -196,3 +202,74 @@ class TestTechnicalLoss:
         won = make(step=40)
         assert is_survival(won, AXES)
         assert technical_loss_scores() == (0, 0)
+
+
+SRC = Path(__file__).parents[1] / "src" / "thief_agent"
+
+
+def board(**overrides: object) -> BoardState:
+    fields: dict[str, object] = {
+        "grid_size": 6,
+        "cop": (0, 0),
+        "thief": (3, 3),
+        "barriers": frozenset(),
+        "step": 1,
+    }
+    return BoardState(**{**fields, **overrides})  # type: ignore[arg-type]
+
+
+class TestTheAnswerIsComputedNeverChosen:
+    def test_an_ordinary_position_answers_no(self) -> None:
+        assert not capture_answer(board(), AXES)
+
+    def test_being_stood_on_answers_yes(self) -> None:
+        assert capture_answer(board(cop=(3, 3)), AXES)
+
+    def test_being_sealed_in_place_answers_yes(self) -> None:
+        assert capture_answer(board(barriers=frozenset({(3, 3)})), AXES)
+
+    def test_being_walled_in_answers_yes(self) -> None:
+        assert capture_answer(board(thief=(0, 0), barriers=frozenset({(0, 1), (1, 0)})), AXES)
+
+    def test_it_takes_the_board_and_nothing_else(self) -> None:
+        """No argument a policy could set, so no branch that consults preference.
+
+        An honest answer to a lost position costs a sub-game. A dishonest one
+        is caught at the log audit — where both sides re-derive the same board
+        from the same committed records — and costs the project.
+        """
+        assert set(inspect.signature(capture_answer).parameters) == {"state", "axes"}
+
+    def test_no_module_can_override_the_answer(self) -> None:
+        """An absence, and absences are invisible until someone adds a path."""
+        offenders = [
+            path.relative_to(SRC)
+            for path in sorted(SRC.rglob("*.py"))
+            if path.name != "outcome.py" and "capture_answer" in path.read_text()
+        ]
+        assert offenders == []
+
+    def test_over_many_random_boards_it_agrees_with_the_three_conditions(self) -> None:
+        """The property, rather than four examples of it."""
+        rng = random.Random(20260804)
+        for _ in range(4000):
+            cells = [(rng.randrange(6), rng.randrange(6)) for _ in range(4)]
+            state = board(cop=cells[0], thief=cells[1], barriers=frozenset(cells[2:]))
+            expected = (
+                is_capture_by_overlap(state)
+                or is_trapping_capture(state)
+                or is_enclosure_capture(state, AXES)
+            )
+            assert capture_answer(state, AXES) is expected
+
+
+class TestTheClaimMustNameTheCell:
+    def test_a_supported_claim_at_our_cell_is_agreed(self) -> None:
+        assert answer_is_supported(board(cop=(3, 3)), AXES, (3, 3))
+
+    def test_a_claim_with_no_capture_behind_it_is_refused(self) -> None:
+        assert not answer_is_supported(board(), AXES, (3, 3))
+
+    def test_a_real_capture_named_at_the_wrong_cell_is_refused(self) -> None:
+        """Agreeing would agree to a board we do not hold."""
+        assert not answer_is_supported(board(cop=(3, 3)), AXES, (2, 2))

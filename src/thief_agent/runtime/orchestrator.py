@@ -23,7 +23,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..domain.board import BoardState
 from ..domain.outcome import TechnicalLoss
+from ..infra.ceremony import AuditResult, FinalReveal, MatchCeremony, audit_opponent
 from ..infra.handshake import (
     AddressBook,
     Greeting,
@@ -326,6 +328,32 @@ class Orchestrator:
             self.beat(f"agreed-move:{role}:{was}->{now}")
         record(directory, game_id, AddressBook.peered(later))
         return later
+
+    def audit(
+        self,
+        match: MatchCeremony,
+        disclosed: FinalReveal,
+        sealed_states: dict[int, BoardState],
+    ) -> AuditResult:
+        """Re-derive the opponent's whole match, converting forgery into a result.
+
+        The one verdict in this system that is **unappealable**. Everywhere
+        else a failure is a technical loss both teams reconcile; a commitment
+        that does not open to the move it was revealed as is proof, not a
+        dispute, and the rulebook prices it as disqualification.
+
+        Which is exactly why the failure list travels with the exception rather
+        than being summarised away: an accusation this serious has to arrive
+        with the arithmetic attached, so the other side can run it.
+
+        Raises:
+            MatchAborted: with ``TechnicalLoss.FORGERY`` on any failed step.
+        """
+        self.beat("audit")
+        result = audit_opponent(match, disclosed, sealed_states)
+        if not result.clean:
+            raise MatchAborted(TechnicalLoss.FORGERY, str(result))
+        return result
 
     def agree_config(self, config: dict[str, Any]) -> str:
         """Exchange config digests, refusing to play on any mismatch.

@@ -106,3 +106,192 @@ class Commitment:
             )
         except InvalidPayloadError as exc:
             raise CeremonyError(str(exc)) from exc
+
+
+ACK_FIELDS = ("step", "sender", "acknowledges", "timestamp")
+"""Everything phase 2 may carry."""
+
+
+@dataclass(frozen=True, slots=True)
+class Acknowledgement:
+    """Phase 2. *I have your commitment and I am locked on it.*
+
+    The rulebook gives this phase one job and states it plainly: the
+    acknowledgement *"ensures the reveal happens only once both sides have
+    already fixed their moves"*. It does two things at once — it stops the
+    sender walking back a commitment we have already seen, and it stops us
+    revealing into a peer who has not committed yet.
+
+    ``acknowledges`` carries the digest being acknowledged rather than a bare
+    "yes". A yes is unfalsifiable: a peer that later claims it acknowledged a
+    *different* commitment cannot be contradicted by it, and the whole phase
+    turns on being able to say precisely what was locked.
+    """
+
+    step: int
+    sender: str
+    acknowledges: str
+    timestamp: str
+
+    def __post_init__(self) -> None:
+        if self.sender not in ROLES:
+            raise CeremonyError(f"sender must be one of {sorted(ROLES)}, got {self.sender!r}")
+        if self.step < 0:
+            raise CeremonyError(f"step must be >= 0, got {self.step}")
+        if not DIGEST.match(self.acknowledges):
+            raise CeremonyError(
+                f"acknowledges must be 64 lowercase hex characters, got {self.acknowledges!r}"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "step": self.step,
+            "sender": self.sender,
+            "acknowledges": self.acknowledges,
+            "timestamp": self.timestamp,
+        }
+
+    @classmethod
+    def from_dict(cls, data: object) -> "Acknowledgement":
+        """Parse an inbound acknowledgement.
+
+        Raises:
+            CeremonyError: on anything we would not want to act on.
+        """
+        try:
+            body = require_mapping(data, "acknowledgement")
+            return cls(
+                step=require_int(body, "step", minimum=0, maximum=10_000),
+                sender=require_str(body, "sender"),
+                acknowledges=require_str(body, "acknowledges"),
+                timestamp=require_str(body, "timestamp"),
+            )
+        except InvalidPayloadError as exc:
+            raise CeremonyError(str(exc)) from exc
+
+
+@dataclass
+class StepCeremony:
+    """The four phases of one step, and what is permitted at each point.
+
+    A mutable object among frozen ones, deliberately: the messages are
+    evidence and must not change, while *how far we have got* is the one thing
+    that legitimately does.
+
+    The invariant the whole class exists for is :attr:`locked` — nothing may be
+    revealed until both peers hold each other's commitment and have said so.
+    Everything else here is bookkeeping in service of that one question.
+    """
+
+    step: int
+    role: str
+    ours: Commitment | None = None
+    theirs: Commitment | None = None
+    ack_sent: Acknowledgement | None = None
+    ack_received: Acknowledgement | None = None
+
+    def __post_init__(self) -> None:
+        if self.role not in ROLES:
+            raise CeremonyError(f"role must be one of {sorted(ROLES)}, got {self.role!r}")
+
+    def commit(self, ours: Commitment) -> Commitment:
+        """File our own commitment for this step.
+
+        Raises:
+            CeremonyError: on a second commitment, or one for another step or
+                role. Re-committing is the move this ceremony exists to
+                prevent, and it is not less serious for being local.
+        """
+        if self.ours is not None:
+            raise CeremonyError(
+                f"step {self.step} is already committed; a commitment is not revisable"
+            )
+        self._check_belongs(ours.step, ours.sender, expected_role=self.role, what="commitment")
+        self.ours = ours
+        return ours
+
+    def receive(self, theirs: Commitment) -> Commitment:
+        """File the opponent's commitment.
+
+        Raises:
+            CeremonyError: if they commit twice, or for the wrong step or role.
+                A second commitment for one step is either a bug on their side
+                or an attempt to replace a move, and we cannot tell which.
+        """
+        if self.theirs is not None:
+            raise CeremonyError(
+                f"the opponent already committed to step {self.step}; "
+                "a second commitment would replace a move that is already locked"
+            )
+        self._check_belongs(
+            theirs.step, theirs.sender, expected_role=self.opponent, what="commitment"
+        )
+        self.theirs = theirs
+        return theirs
+
+    def acknowledge(self, timestamp: str) -> Acknowledgement:
+        """Confirm we are locked on their commitment.
+
+        Raises:
+            CeremonyError: if they have not committed. Acknowledging nothing is
+                worse than not acknowledging: it tells them they may reveal,
+                against a step we have no record of.
+        """
+        if self.theirs is None:
+            raise CeremonyError(
+                f"nothing to acknowledge at step {self.step}; the opponent has not committed, "
+                "and acknowledging would tell them to reveal into a step we cannot check"
+            )
+        self.ack_sent = Acknowledgement(
+            step=self.step,
+            sender=self.role,
+            acknowledges=self.theirs.commit,
+            timestamp=timestamp,
+        )
+        return self.ack_sent
+
+    def receive_ack(self, ack: Acknowledgement) -> Acknowledgement:
+        """File their acknowledgement of *our* commitment.
+
+        Raises:
+            CeremonyError: if we have not committed, if it is for the wrong
+                step or role, or if the digest is not the one we sent. That
+                last case is the one worth the check: an acknowledgement of
+                some other digest is not a weaker lock, it is a lock on a
+                commitment we never made.
+        """
+        if self.ours is None:
+            raise CeremonyError(f"acknowledgement for step {self.step} arrived before we committed")
+        self._check_belongs(
+            ack.step, ack.sender, expected_role=self.opponent, what="acknowledgement"
+        )
+        if ack.acknowledges != self.ours.commit:
+            raise CeremonyError(
+                f"they acknowledged {ack.acknowledges[:16]}… but we committed "
+                f"{self.ours.commit[:16]}…; that is a lock on a commitment we never made"
+            )
+        self.ack_received = ack
+        return ack
+
+    @property
+    def opponent(self) -> str:
+        """The role that is not ours."""
+        return next(role for role in sorted(ROLES) if role != self.role)
+
+    @property
+    def locked(self) -> bool:
+        """Whether both sides have committed *and* said so.
+
+        The gate the rulebook puts between Commit and Reveal. All four have to
+        be in: our commitment, theirs, our acknowledgement of theirs and theirs
+        of ours. Three out of four is a peer that can still change its mind.
+        """
+        return all(
+            part is not None for part in (self.ours, self.theirs, self.ack_sent, self.ack_received)
+        )
+
+    def _check_belongs(self, step: int, sender: str, expected_role: str, what: str) -> None:
+        if step != self.step:
+            raise CeremonyError(f"{what} is for step {step}, this ceremony is step {self.step}")
+        if sender != expected_role:
+            raise CeremonyError(f"{what} is from {sender!r}, expected {expected_role!r}")

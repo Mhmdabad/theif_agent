@@ -1,6 +1,7 @@
 """Phase 1 of the Commit-Reveal ceremony: the hash, and nothing else."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -17,8 +18,12 @@ from thief_agent.infra.ceremony import (
     MatchCeremony,
     Reveal,
     StepCeremony,
+    Verdict,
+    audit_opponent,
+    verify_step,
 )
 
+SRC = Path(__file__).parents[1] / "src" / "thief_agent"
 DIGEST = "a" * 64
 WHEN = "2026-08-04T09:00:00+00:00"
 OUR_NONCE = "0" * 32
@@ -589,3 +594,157 @@ class TestTheMatchCeremony:
     def test_the_opponent_is_whichever_role_is_not_ours(self) -> None:
         assert MatchCeremony(role="thief").opponent == "police"
         assert MatchCeremony(role="police").opponent == "thief"
+
+
+def sealed_state(step: int) -> BoardState:
+    return BoardState(grid_size=8, cop=(1, 2), thief=(6, 5), barriers=frozenset(), step=step)
+
+
+def honest_match(steps: int = 3) -> tuple[MatchCeremony, FinalReveal, dict[int, BoardState]]:
+    """A match the opponent played straight, from our side of the wire."""
+    match = MatchCeremony(role="thief")
+    states = {step: sealed_state(step) for step in range(1, steps + 1)}
+    nonces: dict[int, str] = {}
+    for step in range(1, steps + 1):
+        record = step_record(states[step], "police", "S", "truth", f"hint {step}")
+        their_nonce = f"{step:032x}"
+        nonces[step] = their_nonce
+        ceremony = match.at(step)
+        ceremony.commit(commitment(step=step), OUR_NONCE)
+        ceremony.receive(their_commitment(step=step, commit=commit_of(record, their_nonce)))
+        ceremony.acknowledge(WHEN)
+        ceremony.receive_ack(
+            Acknowledgement(step=step, sender="police", acknowledges=DIGEST, timestamp=WHEN)
+        )
+        ceremony.receive_reveal(
+            reveal(step=step, sender="police", move="S", intent="truth", hint=f"hint {step}")
+        )
+    return match, FinalReveal(sender="police", nonces=nonces, timestamp=WHEN), states
+
+
+class TestAnHonestMatchAuditsClean:
+    def test_every_step_is_re_derived_and_matches(self) -> None:
+        match, disclosed, states = honest_match()
+        result = audit_opponent(match, disclosed, states)
+        assert result.clean
+        assert result.checked == 3
+        assert "3 steps re-derived, all matching" in str(result)
+
+    def test_a_step_they_never_committed_to_is_not_audited(self) -> None:
+        """We open a ceremony on our own first message.
+
+        A step where only *we* committed is a step they owe nothing for, and
+        counting it would manufacture a failure out of our own bookkeeping.
+        """
+        match, disclosed, states = honest_match()
+        match.at(9).commit(commitment(step=9), OUR_NONCE)
+        result = audit_opponent(match, disclosed, states)
+        assert result.clean
+        assert result.checked == 3
+
+    def test_a_match_with_nothing_committed_is_vacuously_clean(self) -> None:
+        result = audit_opponent(MatchCeremony(role="thief"), FinalReveal("police", {}, WHEN), {})
+        assert result.clean
+        assert result.checked == 0
+
+
+class TestForgeryIsCaught:
+    def test_a_move_changed_after_the_commitment_fails(self) -> None:
+        """The whole point: they committed to one move and revealed another."""
+        match, disclosed, states = honest_match()
+        match.steps[2].revealed_theirs = reveal(
+            step=2, sender="police", move="W", intent="truth", hint="hint 2"
+        )
+        result = audit_opponent(match, disclosed, states)
+        assert result.verdict is Verdict.FORGED
+        assert len(result.failures) == 1
+        assert "step 2" in result.failures[0]
+
+    def test_a_changed_hint_fails_too(self) -> None:
+        """The sentence is inside the commitment, so it cannot be revised either."""
+        match, disclosed, states = honest_match()
+        match.steps[1].revealed_theirs = reveal(
+            step=1, sender="police", move="S", intent="truth", hint="a different story"
+        )
+        assert audit_opponent(match, disclosed, states).verdict is Verdict.FORGED
+
+    def test_a_flipped_intent_fails(self) -> None:
+        """No claiming afterwards that a lie was meant honestly."""
+        match, disclosed, states = honest_match()
+        match.steps[1].revealed_theirs = reveal(
+            step=1, sender="police", move="S", intent="lie", hint="hint 1"
+        )
+        assert audit_opponent(match, disclosed, states).verdict is Verdict.FORGED
+
+    def test_a_substituted_nonce_fails(self) -> None:
+        match, disclosed, states = honest_match()
+        swapped = FinalReveal("police", {**disclosed.nonces, 3: "f" * 32}, WHEN)
+        assert audit_opponent(match, swapped, states).verdict is Verdict.FORGED
+
+    def test_the_failure_states_arithmetic_both_sides_can_run(self) -> None:
+        """ "You cheated" is not a claim anyone concedes.
+
+        Both teams must agree a result before either may report it, so the
+        failure names the digest committed and the digest their own revealed
+        move produces — they can run the same arithmetic and get the same
+        answer.
+        """
+        match, disclosed, states = honest_match()
+        match.steps[1].revealed_theirs = reveal(
+            step=1, sender="police", move="W", intent="truth", hint="hint 1"
+        )
+        failure = audit_opponent(match, disclosed, states).failures[0]
+        assert "committed" in failure and "produces" in failure and "'W'" in failure
+
+    def test_every_step_is_checked_rather_than_stopping_at_the_first(self) -> None:
+        """A dispute settled on one step tends to be reopened on the next."""
+        match, disclosed, states = honest_match()
+        for step in (1, 3):
+            match.steps[step].revealed_theirs = reveal(
+                step=step, sender="police", move="W", intent="truth", hint=f"hint {step}"
+            )
+        result = audit_opponent(match, disclosed, states)
+        assert len(result.failures) == 2
+        assert result.checked == 3
+
+
+class TestUnprovableIsReportedSeparatelyFromProven:
+    def test_a_commitment_never_revealed(self) -> None:
+        """Not the same accusation as a wrong digest, and not provable tampering."""
+        match, disclosed, states = honest_match()
+        match.steps[2].revealed_theirs = None
+        result = audit_opponent(match, disclosed, states)
+        assert "never revealed" in result.failures[0]
+
+    def test_a_commitment_with_no_nonce_disclosed(self) -> None:
+        match, disclosed, states = honest_match()
+        thin = FinalReveal("police", {k: v for k, v in disclosed.nonces.items() if k != 2}, WHEN)
+        assert "no nonce disclosed" in audit_opponent(match, thin, states).failures[0]
+
+    def test_a_step_we_cannot_rebuild_the_board_for(self) -> None:
+        match, disclosed, states = honest_match()
+        del states[3]
+        assert "no board state" in audit_opponent(match, disclosed, states).failures[0]
+
+
+class TestVerifyStep:
+    def test_an_honest_record_verifies(self) -> None:
+        record = step_record(sealed_state(1), "police", "S", "truth", "hint")
+        assert verify_step(record, THEIR_NONCE, commit_of(record, THEIR_NONCE))
+
+    def test_a_changed_record_does_not(self) -> None:
+        record = step_record(sealed_state(1), "police", "S", "truth", "hint")
+        commit = commit_of(record, THEIR_NONCE)
+        changed = step_record(sealed_state(1), "police", "N", "truth", "hint")
+        assert not verify_step(changed, THEIR_NONCE, commit)
+
+    def test_it_uses_a_constant_time_comparison(self) -> None:
+        """The rulebook names ``compare_digest``.
+
+        Being honest about why: by audit time both digests are public, so the
+        timing channel leaks nothing. The reason to use it anyway is that
+        ``==`` on a digest is a habit, and the habit is what eventually reaches
+        a comparison where timing does matter.
+        """
+        source = (SRC / "infra" / "ceremony.py").read_text()
+        assert "secrets.compare_digest(" in source

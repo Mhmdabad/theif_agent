@@ -27,12 +27,15 @@ can hash the remainder in microseconds.
 """
 
 import re
+import secrets
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
 
 from ..domain.actions import ROLES
 from ..domain.bluff import INTENTS
-from ..domain.crypto import NONCE_BYTES
+from ..domain.board import BoardState
+from ..domain.crypto import NONCE_BYTES, commit_of, step_record
 from .validation import (
     InvalidPayloadError,
     optional_cell,
@@ -628,3 +631,119 @@ class MatchCeremony:
     def opponent(self) -> str:
         """The role that is not ours."""
         return next(role for role in sorted(ROLES) if role != self.role)
+
+
+class Verdict(Enum):
+    """What the audit concluded about one peer's play."""
+
+    CLEAN = "clean"
+    FORGED = "forged"
+
+
+@dataclass(frozen=True, slots=True)
+class AuditResult:
+    """Every step re-derived, and what that showed.
+
+    Carries the failures rather than only the verdict. Both teams must **agree**
+    a result before either may report it, and "you cheated" is not a claim
+    anyone concedes — "step 12 committed to a digest that your own revealed
+    move and nonce do not produce" is, because they can run the same
+    arithmetic and get the same answer.
+    """
+
+    verdict: Verdict
+    checked: int
+    failures: tuple[str, ...] = ()
+
+    @property
+    def clean(self) -> bool:
+        return self.verdict is Verdict.CLEAN
+
+    def __str__(self) -> str:
+        if self.clean:
+            return f"{self.checked} steps re-derived, all matching"
+        return f"{self.checked} steps re-derived, {len(self.failures)} failed: " + "; ".join(
+            self.failures
+        )
+
+
+def verify_step(record: dict[str, Any], nonce: str, commit: str) -> bool:
+    """Whether ``record`` under ``nonce`` really produces ``commit``.
+
+    Compared with :func:`secrets.compare_digest` rather than ``==``, as the
+    rulebook specifies. Being honest about why: by audit time both digests are
+    public, so the timing channel here leaks nothing anyone does not already
+    have. The reason to use it anyway is that ``==`` on a digest is a habit,
+    and the habit is what eventually gets applied to a comparison where the
+    timing *does* matter — and a project that hashes for a living should not be
+    growing that habit.
+    """
+    return secrets.compare_digest(commit_of(record, nonce), commit)
+
+
+def audit_opponent(
+    match: MatchCeremony,
+    disclosed: FinalReveal,
+    sealed_states: dict[int, BoardState],
+) -> AuditResult:
+    """Re-derive every step the opponent committed to, and say whether it holds.
+
+    ``sealed_states`` is the board they sealed against at each step, supplied
+    by the caller: reconstructing their trajectory is a different job from
+    checking arithmetic, and mixing the two would make a reconstruction bug
+    indistinguishable from a forgery.
+
+    The record is rebuilt through :func:`~..domain.crypto.step_record` — the
+    same function the committer used, not a re-implementation of it. An audit
+    with its own assembly path would report forgery whenever the two paths
+    drifted, which is the one verdict that must never be reachable by accident.
+
+    A step is a failure if we cannot rebuild it *or* if the rebuild disagrees.
+    Those are reported separately: a missing reveal and a wrong digest are
+    different accusations, and only one of them is provable tampering.
+
+    **Every step is checked before returning.** Stopping at the first failure
+    would be faster and would hand the opponent an incomplete accusation — they
+    are entitled to see the whole list, and a dispute settled on one step tends
+    to be reopened on the next.
+    """
+    failures: list[str] = []
+    checked = 0
+    for step in sorted(match.steps):
+        ceremony = match.steps[step]
+        if ceremony.theirs is None:
+            continue
+        checked += 1
+        opened, nonce = ceremony.revealed_theirs, disclosed.nonces.get(step)
+        if opened is None:
+            failures.append(f"step {step}: committed but never revealed")
+            continue
+        if nonce is None:
+            failures.append(f"step {step}: committed but no nonce disclosed")
+            continue
+        if step not in sealed_states:
+            failures.append(f"step {step}: no board state to re-derive against")
+            continue
+        record = step_record(
+            sealed_states[step],
+            opened.sender,
+            opened.move,
+            opened.intent,
+            opened.hint,
+            barrier_placed=(
+                (opened.barrier_placed[0], opened.barrier_placed[1])
+                if opened.barrier_placed
+                else None
+            ),
+        )
+        if not verify_step(record, nonce, ceremony.theirs.commit):
+            failures.append(
+                f"step {step}: committed {ceremony.theirs.commit[:16]}… but the revealed "
+                f"move {opened.move!r} under the disclosed nonce produces "
+                f"{commit_of(record, nonce)[:16]}…"
+            )
+    return AuditResult(
+        verdict=Verdict.FORGED if failures else Verdict.CLEAN,
+        checked=checked,
+        failures=tuple(failures),
+    )

@@ -5,8 +5,10 @@ from pathlib import Path
 
 import pytest
 
+from thief_agent.domain.board import BoardState
+from thief_agent.domain.crypto import commit_of, step_record
 from thief_agent.infra.match_log import MatchLog
-from thief_agent.ui.replay import Replay, ReplayError, load
+from thief_agent.ui.replay import Replay, ReplayError, check_step, load
 
 OPENED = {"move": "N", "intent": "lie", "hint": "heading uptown", "barrier_placed": None}
 
@@ -182,3 +184,86 @@ class TestTheReplayObject:
     def test_a_replay_with_no_steps_is_refused_at_construction(self) -> None:
         with pytest.raises(ReplayError, match="no steps cannot be replayed"):
             Replay(game_id="g", sub_game=1, role="thief", steps=())
+
+
+def sealed_log(tmp_path: Path, steps: int = 3, corrupt: int | None = None) -> Path:
+    """A log built the way a real match builds one: sealed records, real digests."""
+    log = MatchLog(game_id="uoh26-s82kma9e", sub_game=2, role="thief")
+    for step in range(1, steps + 1):
+        board = BoardState(
+            grid_size=8, cop=(1, step), thief=(6, 5), barriers=frozenset(), step=step
+        )
+        record = step_record(board, "thief", "N", "truth", f"step {step}")
+        secret = f"{step:032x}"
+        log.commit(step, commit_of(record, secret))
+        log.reveal(step, {**record, "move": "S"} if step == corrupt else record)
+        log.disclose(step, secret)
+    return log.write(tmp_path)
+
+
+class TestTheLogCanVerifyItself:
+    def test_an_honest_step_re_derives(self, tmp_path: Path) -> None:
+        """The whole authority of the Replay App is this arithmetic."""
+        replay = load(sealed_log(tmp_path))
+        assert check_step(replay.current).verified
+
+    def test_the_log_stores_what_was_sealed_not_what_was_sent(self, tmp_path: Path) -> None:
+        """A wire Reveal carries sender/step/timestamp; the digest covers
+        state/role/move/intent/hint/barrier_placed. Storing the message would
+        make every honest step recompute to a different digest."""
+        stored = load(sealed_log(tmp_path)).current.reveal
+        assert stored is not None
+        assert set(stored) == {"state", "role", "move", "intent", "hint", "barrier_placed"}
+        assert "timestamp" not in stored
+
+    def test_every_step_of_an_honest_log_verifies(self, tmp_path: Path) -> None:
+        replay = load(sealed_log(tmp_path, steps=5))
+        assert all(check_step(step).verified for step in replay.steps)
+
+    def test_an_edited_record_cannot_be_made_to_agree(self, tmp_path: Path) -> None:
+        replay = load(sealed_log(tmp_path, corrupt=2))
+        checked = check_step(replay.seek(2))
+        assert not checked.verified
+        assert "produces" in checked.reason
+
+    def test_an_edited_digest_is_caught_too(self, tmp_path: Path) -> None:
+        path = sealed_log(tmp_path)
+        body = json.loads(path.read_text())
+        body["steps"][0]["commit"] = "f" * 64
+        path.write_text(json.dumps(body))
+        assert not check_step(load(path).current).verified
+
+    def test_a_swapped_nonce_is_caught(self, tmp_path: Path) -> None:
+        path = sealed_log(tmp_path)
+        body = json.loads(path.read_text())
+        body["steps"][0]["nonce"] = f"{99:032x}"
+        path.write_text(json.dumps(body))
+        assert not check_step(load(path).current).verified
+
+
+class TestUnopenableIsNotTampered:
+    def test_a_step_with_no_nonce_is_unverifiable_rather_than_failed(self, tmp_path: Path) -> None:
+        """A sub-game that ended early has steps with no nonce.
+
+        Calling those tampered would accuse an honest team of fraud for
+        stopping.
+        """
+        checked = check_step(load(written(tmp_path, unopened=1)).seek(4))
+        assert not checked.verified
+        assert "cannot be opened (no nonce)" in checked.reason
+
+    def test_a_step_with_no_reveal_says_so(self, tmp_path: Path) -> None:
+        path = written(tmp_path)
+        body = json.loads(path.read_text())
+        body["steps"][0]["reveal"] = None
+        path.write_text(json.dumps(body))
+        checked = check_step(load(path).current)
+        assert "cannot be opened (no reveal)" in checked.reason
+
+    def test_the_two_reasons_read_differently(self, tmp_path: Path) -> None:
+        """An auditor needs to tell a gap from a forgery at a glance."""
+        gap = check_step(load(written(tmp_path, unopened=1)).seek(4))
+        forged = check_step(load(sealed_log(tmp_path, corrupt=1)).seek(1))
+        assert "cannot be opened" in gap.reason
+        assert "cannot be opened" not in forged.reason
+        assert str(gap) != str(forged)

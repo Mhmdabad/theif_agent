@@ -26,10 +26,12 @@ traceback.
 """
 
 import json
+import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..domain.crypto import commit_of
 from ..infra.match_log import SLOTS
 
 
@@ -160,3 +162,46 @@ def load(path: Path) -> Replay:
         role=str(body.get("role", "")),
         steps=tuple(steps),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class StepCheck:
+    """One step, re-derived."""
+
+    step: int
+    verified: bool
+    reason: str = ""
+
+    def __str__(self) -> str:
+        return f"step {self.step}: {'ok' if self.verified else self.reason}"
+
+
+def check_step(recorded: RecordedStep) -> StepCheck:
+    """Recompute the digest from the sealed record and its nonce.
+
+    The whole of the Replay App's authority is this one line of arithmetic:
+    ``sha256`` over the record the log stores, under the nonce the log stores,
+    compared with the commitment the log stores. If those three were written
+    honestly as the match ran, they agree; if any was edited afterwards, they
+    cannot be made to.
+
+    A step that cannot be opened is reported as **unverifiable** rather than
+    failed. A mid-match log, or one from a sub-game that ended early, has steps
+    with no nonce — and calling those tampered would accuse an honest team of
+    fraud for stopping.
+    """
+    if not recorded.openable:
+        missing = "no reveal" if recorded.reveal is None else "no nonce"
+        return StepCheck(recorded.step, verified=False, reason=f"cannot be opened ({missing})")
+    assert recorded.reveal is not None and recorded.nonce is not None
+    recomputed = commit_of(recorded.reveal, recorded.nonce)
+    if not secrets.compare_digest(recomputed, recorded.commit):
+        return StepCheck(
+            recorded.step,
+            verified=False,
+            reason=(
+                f"commitment {recorded.commit[:16]}… but the recorded record under the "
+                f"recorded nonce produces {recomputed[:16]}…"
+            ),
+        )
+    return StepCheck(recorded.step, verified=True)

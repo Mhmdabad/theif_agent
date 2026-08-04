@@ -11,6 +11,7 @@ deadline, and a missed deadline is a **failure**, not an invitation to wait
 longer.
 """
 
+import dataclasses
 import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -107,6 +108,31 @@ class OpponentClient:
         self._settings = settings
         self._sleep = sleep
         self.attempts = 0
+        self.relocations: list[tuple[str, str]] = []
+
+    @property
+    def opponent_url(self) -> str:
+        """Where calls are going right now. Not necessarily where they started."""
+        return self._settings.opponent_url
+
+    def repoint(self, url: str) -> str:
+        """Send subsequent calls somewhere else, recording the move.
+
+        A free-tier tunnel issues a new URL on every restart, so the address
+        agreed at the start of a series can stop existing partway through.
+        Re-pointing beats restarting the series — but it is only ever done
+        from an accepted re-handshake, never from a redirect the transport
+        happened to follow, and the previous address is kept so a match that
+        ends in a dispute can show where its traffic actually went.
+
+        Returns:
+            The address that was in force before the move.
+        """
+        was = self._settings.opponent_url
+        self._settings = dataclasses.replace(self._settings, opponent_url=url)
+        if self._settings.opponent_url != was:
+            self.relocations.append((was, self._settings.opponent_url))
+        return was
 
     def call(self, tool: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Invoke ``tool`` on the opponent, retrying transport failures only.

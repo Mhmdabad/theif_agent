@@ -198,3 +198,87 @@ class TestRegistration:
         host = RecordingHost()
         register(host, PeerInboxes())
         assert len(host.registered) == 4
+
+
+class TestARetriedTurnIsNotASecondTurn:
+    """The receiving half of the retry rule.
+
+    The sender guarantees identical bytes go out. That guarantee is worth
+    nothing on its own: a request that timed out *after* being delivered gets
+    retried, so without this the same step is enqueued twice and played twice.
+    """
+
+    def test_the_first_copy_is_taken(self) -> None:
+        inboxes = PeerInboxes()
+        assert inboxes.receive_turn(TURN) == ACK
+        assert inboxes.turns.qsize() == 1
+
+    def test_an_identical_re_send_is_acknowledged_and_dropped(self) -> None:
+        """Acknowledged because it genuinely arrived.
+
+        Refusing would only make the sender retry again, spending its budget
+        on a message we already have.
+        """
+        inboxes = PeerInboxes()
+        inboxes.receive_turn(TURN)
+        assert inboxes.receive_turn(dict(TURN)) == ACK
+        assert inboxes.turns.qsize() == 1
+        assert inboxes.duplicates == ["receive_turn: police step 3 re-sent"]
+
+    def test_key_order_does_not_make_a_re_send_look_new(self) -> None:
+        """JSON does not preserve dictionary order across a round trip."""
+        inboxes = PeerInboxes()
+        inboxes.receive_turn(TURN)
+        inboxes.receive_turn(dict(reversed(list(TURN.items()))))
+        assert inboxes.turns.qsize() == 1
+
+    def test_the_same_step_with_a_different_move_is_refused(self) -> None:
+        """Not a retry — a move changed after the fact.
+
+        This is the exact fraud Commit-Reveal exists to expose, and it arrives
+        looking like an ordinary re-send.
+        """
+        inboxes = PeerInboxes()
+        inboxes.receive_turn(TURN)
+        reply = inboxes.receive_turn({**TURN, "commit": "b" * 64})
+        assert reply["ok"] is False
+        assert "never replace one" in reply["detail"]
+        assert inboxes.turns.qsize() == 1
+
+    def test_the_contradiction_is_recorded_not_only_refused(self) -> None:
+        """Silently keeping the first copy would hide evidence the audit needs."""
+        inboxes = PeerInboxes()
+        inboxes.receive_turn(TURN)
+        inboxes.receive_turn({**TURN, "hint": "a different story"})
+        assert any("already played step 3" in entry for entry in inboxes.rejected)
+
+    def test_a_later_step_is_not_a_duplicate(self) -> None:
+        inboxes = PeerInboxes()
+        inboxes.receive_turn(TURN)
+        inboxes.receive_turn({**TURN, "step": 4})
+        assert inboxes.turns.qsize() == 2
+
+    def test_each_sender_has_its_own_step_numbering(self) -> None:
+        """Both peers number from one; a shared key would collide every turn."""
+        inboxes = PeerInboxes()
+        inboxes.receive_turn(TURN)
+        inboxes.receive_turn({**TURN, "sender": "thief"})
+        assert inboxes.turns.qsize() == 2
+
+    def test_a_malformed_turn_is_not_remembered(self) -> None:
+        """Otherwise a rejected message would block the valid one that follows."""
+        inboxes = PeerInboxes()
+        inboxes.receive_turn({**TURN, "commit": 42})
+        assert inboxes.receive_turn(TURN) == ACK
+        assert inboxes.turns.qsize() == 1
+
+    def test_greetings_are_deliberately_not_deduplicated(self) -> None:
+        """A series re-greets before every sub-game; repetition is the design.
+
+        Deduplicating ``negotiate`` would break the re-handshake that tunnel
+        rotation depends on.
+        """
+        inboxes = PeerInboxes()
+        inboxes.negotiate({"greeting": {"public_url": "https://a"}})
+        inboxes.negotiate({"greeting": {"public_url": "https://a"}})
+        assert inboxes.agreements.qsize() == 2

@@ -12,11 +12,14 @@ longer.
 """
 
 import dataclasses
+import hashlib
+import json
 import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from ..shared.config import canonical_bytes
 from .tunnel import normalise
 
 OPPONENT_URL_ENV = "OPPONENT_URL"
@@ -109,6 +112,8 @@ class OpponentClient:
         self._sleep = sleep
         self.attempts = 0
         self.relocations: list[tuple[str, str]] = []
+        self.sent: list[tuple[str, str]] = []
+        """``(tool, sha256)`` per call. Evidence that a retry changed nothing."""
 
     @property
     def opponent_url(self) -> str:
@@ -137,13 +142,26 @@ class OpponentClient:
     def call(self, tool: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Invoke ``tool`` on the opponent, retrying transport failures only.
 
-        A retry re-sends the **same** payload. It is never a chance to send a
-        different move after seeing the opponent's — that is precisely the
-        fraud Commit-Reveal exists to prevent, and it is detected at audit.
+        **A retry re-sends bytes, not an intention.** The payload is serialised
+        canonically once, before the first attempt, and every attempt sends a
+        fresh object rebuilt from those exact bytes. Passing the caller's dict
+        down the retry loop would have looked identical and been weaker: a
+        caller that mutated it between attempts — or a transport that annotated
+        it in place — would turn attempt two into a *different action*, which is
+        precisely the "change a move after seeing the opponent's" fraud that
+        Commit-Reveal exists to prevent and that is detected at audit.
+
+        Freezing here rather than trusting call sites means the guarantee holds
+        for call sites that have not been written yet.
 
         Raises:
             OpponentUnreachableError: once the retry budget is spent.
+            TypeError: if the payload cannot be serialised. Deliberately before
+                the first attempt: a message we cannot reproduce byte-for-byte
+                is one we cannot prove we sent only once.
         """
+        frozen = canonical_bytes(payload)
+        self.sent.append((tool, hashlib.sha256(frozen).hexdigest()))
         last: Exception | None = None
         for attempt in range(self._settings.max_retries + 1):
             self.attempts += 1
@@ -151,7 +169,7 @@ class OpponentClient:
                 return self._transport.call(
                     self._settings.opponent_url,
                     tool,
-                    payload,
+                    json.loads(frozen),
                     self._settings.response_timeout_sec,
                 )
             except (TimeoutError, ConnectionError, OSError) as exc:

@@ -84,8 +84,18 @@ class MatchLog:
         """Record a commitment, before the move goes out."""
         self._slot(step, "commit").commit = digest
 
-    def reveal(self, step: int, opened: dict[str, Any]) -> None:
-        """Record a disclosure.
+    def reveal(self, step: int, sealed: dict[str, Any]) -> None:
+        """Record the **sealed record** — what the commitment was taken over.
+
+        Not the wire ``Reveal``. Those are different objects: the message
+        carries ``sender``, ``step`` and ``timestamp``, while the commitment
+        was computed over ``state``, ``role``, ``move``, ``intent``, ``hint``
+        and ``barrier_placed``. Storing the message would produce a log that
+        **cannot verify itself** — the Replay App would recompute a digest from
+        fields that were never hashed and report every honest step as tampered.
+
+        The log is the audit artefact, so what it stores has to be the thing
+        the digest is about.
 
         Raises:
             MatchLogError: if the step was never committed. A reveal with no
@@ -99,7 +109,7 @@ class MatchLog:
                 f"step {step} revealed with no commitment recorded; the order is the "
                 "evidence, and a reveal that precedes its commitment proves nothing"
             )
-        entry.reveal = opened
+        entry.reveal = sealed
 
     def disclose(self, step: int, nonce: str) -> None:
         """Record a nonce, once the match is over.

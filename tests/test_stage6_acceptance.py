@@ -92,7 +92,7 @@ class Peer:
             step=step, sender=self.role, move=move, intent="truth", hint=hint, timestamp=WHEN
         )
         self.match.at(step).reveal(opened)
-        self.log.reveal(step, opened.to_dict())
+        self.log.reveal(step, self.records[step])  # the sealed record, not the message
         return self.wire.carry("reveal", opened.to_dict())
 
     def final_reveal(self) -> dict[str, object]:

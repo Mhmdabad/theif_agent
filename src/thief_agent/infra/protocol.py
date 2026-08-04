@@ -22,15 +22,13 @@ refuse what we cannot trust, and remain wire-compatible.
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from ..domain.actions import ROLES as ROLES
 from .validation import (
     InvalidPayloadError,
     require_int,
     require_mapping,
     require_str,
 )
-
-ROLES = frozenset({"police", "thief"})
-"""Wire role names. The reference says ``police``, not ``cop``."""
 
 CONTROL_KINDS = frozenset({"enable", "status", "restart", "quit"})
 

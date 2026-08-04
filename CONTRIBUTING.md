@@ -103,9 +103,14 @@ same shape, and say so in the PR.
 normalises the package name, and fails if any module in its `SHARED` manifest
 differs. Two consequences worth knowing before you start:
 
-- **A shared change lands in the sibling first.** This repo stays red from the
-  moment you push until the sibling's copy is on `main`. That is the gate
-  working, not a flake — merge the sibling PR, then re-run.
+- **Paired branches are compared against each other.** A shared change has to
+  land in both repos, and until it has, each side's branch disagrees with the
+  other's `main`. So the check first looks for a sibling branch with the *same
+  name* and compares against that; it falls back to `main` when there is none.
+  Give both PRs the same branch name and the gate stays green throughout,
+  without either side being exempted. `--no-pair` forces a `main` comparison.
+  Pairing does not weaken anything: two same-named branches that disagree
+  still fail.
 - **A new module must be added to `SHARED` or to `DIVERGENT`,** with a reason
   in the latter case. A module in neither is unchecked, and unchecked is how
   every drift so far got in.

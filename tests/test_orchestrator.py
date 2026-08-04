@@ -13,6 +13,8 @@ from thief_agent.runtime.orchestrator import PROTOCOL_VERSION, MatchAborted, Orc
 from thief_agent.shared.config import config_sha256
 
 SETTINGS = ClientSettings(opponent_url="http://127.0.0.1:8801/mcp", retry_backoff_sec=0.0)
+OUR_URL = "https://thief-c3d4.ngrok-free.app"
+THEIR_URL = "https://cop-a1b2.ngrok-free.app"
 TURN = {
     "step": 1,
     "sender": "police",
@@ -112,38 +114,108 @@ class TestTimeoutBecomesARecordedCause:
         assert orch.call_opponent("receive_turn", {})["ok"] is True
 
 
+def inbound(
+    orch: Orchestrator,
+    role: str = "police",
+    url: str = THEIR_URL,
+    version: str = PROTOCOL_VERSION,
+) -> None:
+    """Put an opponent greeting in the mailbox, as their push would."""
+    orch.inboxes.negotiate(
+        {
+            "greeting": {
+                "role": role,
+                "group_id": "them",
+                "public_url": url,
+                "protocol_version": version,
+            }
+        }
+    )
+
+
 class TestHandshakeChecks:
+    def test_our_greeting_takes_its_role_from_the_orchestrator(self) -> None:
+        """The address we announce and the role we play cannot disagree."""
+        orch, _ = orchestrator()
+        assert orch.greeting(OUR_URL, "s82kma9e").role == "thief"
+
+    def test_announcing_pushes_the_address_through_negotiate(self) -> None:
+        orch, transport = orchestrator()
+        orch.announce(orch.greeting(OUR_URL, "s82kma9e"))
+        assert transport.calls[0]["tool"] == "negotiate"
+        assert transport.calls[0]["payload"]["greeting"]["public_url"] == f"{OUR_URL}/mcp"
+
     def test_a_matching_protocol_and_opposite_role_passes(self) -> None:
         orch, _ = orchestrator()
-        orch.check_handshake("police", PROTOCOL_VERSION)
+        inbound(orch)
+        assert orch.accept_greeting(orch.greeting(OUR_URL, "s82kma9e")).role == "police"
 
     def test_a_protocol_mismatch_aborts(self) -> None:
         orch, _ = orchestrator()
-        with pytest.raises(MatchAborted, match="protocol 0.9"):
-            orch.check_handshake("police", "0.9")
+        inbound(orch, version="0.9")
+        with pytest.raises(MatchAborted, match="wire contract must match"):
+            orch.accept_greeting(orch.greeting(OUR_URL, "s82kma9e"))
 
     def test_a_duplicate_role_aborts(self) -> None:
-        """Two peers claiming thief is a game with no pursuer."""
+        """Two peers claiming thief is a game with no pursuer and no ending."""
         orch, _ = orchestrator()
-        with pytest.raises(MatchAborted, match="both peers claim"):
-            orch.check_handshake("thief", PROTOCOL_VERSION)
+        inbound(orch, role="thief")
+        with pytest.raises(MatchAborted, match="no capture target"):
+            orch.accept_greeting(orch.greeting(OUR_URL, "s82kma9e"))
 
-    def test_an_unknown_role_aborts(self) -> None:
+    @pytest.mark.parametrize("role", ["referee", "cop"])
+    def test_a_role_the_wire_does_not_name_aborts(self, role: str) -> None:
+        """``cop`` is the opponent's internal name; the wire says ``police``."""
         orch, _ = orchestrator()
-        with pytest.raises(MatchAborted, match="unknown role"):
-            orch.check_handshake("referee", PROTOCOL_VERSION)
+        inbound(orch, role=role)
+        with pytest.raises(MatchAborted, match="role must be one of"):
+            orch.accept_greeting(orch.greeting(OUR_URL, "s82kma9e"))
 
-    def test_cop_is_not_a_valid_wire_role(self) -> None:
-        """Our internal name; the wire says police."""
+    def test_an_unreachable_opponent_aborts_when_we_are_public(self) -> None:
         orch, _ = orchestrator()
-        with pytest.raises(MatchAborted, match="unknown role"):
-            orch.check_handshake("cop", PROTOCOL_VERSION)
+        inbound(orch, url="http://127.0.0.1:8802")
+        with pytest.raises(MatchAborted, match="routes nowhere"):
+            orch.accept_greeting(orch.greeting(OUR_URL, "s82kma9e"))
+
+    def test_silence_is_a_timeout_not_a_longer_wait(self) -> None:
+        """A handshake with no deadline deadlocks with no board to explain it."""
+        orch, _ = orchestrator()
+        with pytest.raises(MatchAborted, match="no greeting from the opponent") as excinfo:
+            orch.accept_greeting(orch.greeting(OUR_URL, "s82kma9e"), timeout=0.0)
+        assert excinfo.value.cause is TechnicalLoss.TIMEOUT
 
     def test_the_cause_is_recorded(self) -> None:
         orch, _ = orchestrator()
+        inbound(orch, role="thief")
         with pytest.raises(MatchAborted) as excinfo:
-            orch.check_handshake("thief", PROTOCOL_VERSION)
+            orch.accept_greeting(orch.greeting(OUR_URL, "s82kma9e"))
         assert excinfo.value.cause is TechnicalLoss.ILLEGAL_ACTION
+
+
+class TestExchangingAddresses:
+    def test_it_announces_before_it_waits(self, tmp_path: Path) -> None:
+        """Two polite peers each waiting for the other is the deadlock."""
+        orch, transport = orchestrator()
+        inbound(orch)
+        orch.exchange_addresses(orch.greeting(OUR_URL, "s82kma9e"), tmp_path, "g1")
+        assert [c["tool"] for c in transport.calls] == ["negotiate"]
+
+    def test_it_writes_both_addresses_into_the_declaration(self, tmp_path: Path) -> None:
+        orch, _ = orchestrator()
+        inbound(orch)
+        book = orch.exchange_addresses(orch.greeting(OUR_URL, "s82kma9e"), tmp_path, "g1")
+        assert book.complete
+        written = json.loads((tmp_path / "declaration_g1.json").read_text())
+        assert written["mcp_addresses"]["thief"]["public_url"] == f"{OUR_URL}/mcp"
+        assert written["mcp_addresses"]["police"]["public_url"] == f"{THEIR_URL}/mcp"
+
+    def test_a_refused_greeting_writes_no_declaration(self, tmp_path: Path) -> None:
+        """A declaration is a record of a match that is going to happen."""
+        orch, _ = orchestrator()
+        inbound(orch, role="thief")
+        with pytest.raises(MatchAborted):
+            orch.exchange_addresses(orch.greeting(OUR_URL, "s82kma9e"), tmp_path, "g1")
+        assert not (tmp_path / "declaration_g1.json").exists()
 
 
 class TestConfigAgreement:

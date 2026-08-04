@@ -17,18 +17,27 @@ mailboxes; it does not re-validate, because two validators that disagree are
 worse than one.
 """
 
+import queue
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from ..domain.outcome import TechnicalLoss
+from ..infra.handshake import AddressBook, Greeting, HandshakeError, check, record
 from ..infra.inboxes import PeerInboxes
 from ..infra.mcp_client import OpponentClient, OpponentUnreachableError
-from ..infra.protocol import ROLES
 from ..shared.config import config_sha256
 
 PROTOCOL_VERSION = "1.0"
 """Bumped when the wire contract changes. Exchanged during negotiation."""
+
+GREETING_TIMEOUT_SEC = 30.0
+"""How long to wait for the opponent's address before declaring a timeout.
+
+The Appendix F response timeout. A handshake with no deadline is the one place
+a deadlock costs nothing to reach and everything to diagnose: neither peer has
+moved, so there is no board state to explain what happened."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,32 +100,72 @@ class Orchestrator:
         except OpponentUnreachableError as exc:
             raise MatchAborted(TechnicalLoss.TIMEOUT, str(exc)) from exc
 
-    def check_handshake(self, sender_role: str, protocol_version: str) -> None:
-        """Reject a mismatched protocol or a duplicate role before play starts.
+    def greeting(self, public_url: str, group_id: str) -> Greeting:
+        """What we tell the opponent about ourselves.
 
-        Carried over from the retired tool surface, because both catch
-        pre-match errors that otherwise surface mid-turn as arbitrary
-        rejections. The duplicate-role case is the sharper one: two peers both
-        claiming ``thief`` is a game with no pursuer — nothing to run from,
-        no capture possible, and the survival clock running unopposed.
+        The role comes from this orchestrator rather than from an argument, so
+        the address we announce and the role we play can never disagree.
+        """
+        return Greeting(
+            role=self.role,
+            group_id=group_id,
+            public_url=public_url,
+            protocol_version=PROTOCOL_VERSION,
+        )
+
+    def announce(self, ours: Greeting) -> dict[str, Any]:
+        """Push our address to the opponent through ``negotiate``."""
+        self.beat("announce")
+        return self.call_opponent("negotiate", {"greeting": ours.to_dict()})
+
+    def accept_greeting(self, ours: Greeting, timeout: float = GREETING_TIMEOUT_SEC) -> Greeting:
+        """Take the opponent's greeting off the queue and decide if we can play.
+
+        Fire-and-forget, like every other inbound message: their greeting is
+        pushed into *our* server and drains from :attr:`PeerInboxes.agreements`
+        rather than arriving as the return value of our own call.
+
+        The checks live in :func:`~..infra.handshake.check`, which is the only
+        validator of a greeting. Re-checking the role and version here — as an
+        earlier ``check_handshake`` did — meant two validators that could
+        disagree, and the pair that disagrees is always the pair that matters.
 
         Raises:
-            MatchAborted: with ``TechnicalLoss.ILLEGAL_ACTION``.
+            MatchAborted: ``TIMEOUT`` if no greeting arrives inside the window,
+                ``ILLEGAL_ACTION`` if the one that does cannot be played
+                against. A missed deadline is a failure, not a reason to wait.
         """
-        if protocol_version != PROTOCOL_VERSION:
+        self.beat("accept_greeting")
+        try:
+            message = self.inboxes.agreements.get(timeout=timeout)
+        except queue.Empty:
             raise MatchAborted(
-                TechnicalLoss.ILLEGAL_ACTION,
-                f"protocol {protocol_version} != ours {PROTOCOL_VERSION}",
-            )
-        if sender_role not in ROLES:
-            raise MatchAborted(
-                TechnicalLoss.ILLEGAL_ACTION,
-                f"unknown role {sender_role!r}; expected one of {sorted(ROLES)}",
-            )
-        if sender_role == self.role:
-            raise MatchAborted(
-                TechnicalLoss.ILLEGAL_ACTION, f"both peers claim the role {sender_role!r}"
-            )
+                TechnicalLoss.TIMEOUT, f"no greeting from the opponent within {timeout}s"
+            ) from None
+        try:
+            theirs = Greeting.from_dict(message.get("greeting"))
+            check(ours, theirs)
+        except HandshakeError as exc:
+            raise MatchAborted(TechnicalLoss.ILLEGAL_ACTION, str(exc)) from exc
+        return theirs
+
+    def exchange_addresses(
+        self,
+        ours: Greeting,
+        directory: Path,
+        game_id: str,
+        timeout: float = GREETING_TIMEOUT_SEC,
+    ) -> AddressBook:
+        """Trade addresses and write both into the pre-game declaration.
+
+        Announcing first is deliberate. Waiting for the opponent before saying
+        anything is a handshake where two polite peers wait for each other
+        forever — the deadlock the state machine exists to make impossible.
+        """
+        self.announce(ours)
+        book = AddressBook.of(ours, self.accept_greeting(ours, timeout))
+        record(directory, game_id, book)
+        return book
 
     def agree_config(self, config: dict[str, Any]) -> str:
         """Exchange config digests, refusing to play on any mismatch.

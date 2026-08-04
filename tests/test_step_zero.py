@@ -1,23 +1,33 @@
 """Step-0 hardware: true, or explicitly unknown, but never plausibly wrong."""
 
 import ast
+import hashlib
 import json
 import os
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from thief_agent.infra.step_zero import (
     GPU_ENV,
+    SIGNING_KEY_ENV,
+    UNSIGNED,
     VRAM_ENV,
+    Declaration,
     Hardware,
     _cpu_max_mhz,
     _positive_int,
     _ram_mb,
     collect,
+    declare,
     provenance,
+    sign,
+    statement,
+    verify_signature,
 )
+from thief_agent.shared.config import canonical_bytes
 
 
 class TestUnknownIsDeclaredAsUnknown:
@@ -236,3 +246,88 @@ class TestTheProvenanceFragment:
     def test_it_is_frozen(self, tmp_path: Path) -> None:
         with pytest.raises(AttributeError):
             provenance("0.1.0", "s82kma9e", 1, repo=repo(tmp_path)).sub_game = 9  # type: ignore[misc]
+
+
+KEY = "a-key-the-course-supplies"
+
+
+def declaration(tmp_path: Path, key: str | None = KEY) -> Declaration:
+    return declare(
+        collect("claude-haiku-4-5", environ={}),
+        provenance("0.1.0", "s82kma9e", 1, repo=repo(tmp_path)),
+        environ={SIGNING_KEY_ENV: key} if key else {},
+    )
+
+
+class TestSigning:
+    def test_a_key_produces_a_verifiable_signature(self, tmp_path: Path) -> None:
+        declared = declaration(tmp_path)
+        assert declared.signed
+        assert verify_signature(declared.to_dict(), KEY)
+
+    def test_the_wrong_key_does_not_verify(self, tmp_path: Path) -> None:
+        assert not verify_signature(declaration(tmp_path).to_dict(), "someone-elses-key")
+
+    def test_editing_any_declared_field_breaks_the_signature(self, tmp_path: Path) -> None:
+        tampered = declaration(tmp_path).to_dict()
+        tampered["hardware"] = {**tampered["hardware"], "logical_cores": 256}
+        assert not verify_signature(tampered, KEY)
+
+    def test_it_is_an_hmac_rather_than_a_bare_hash(self) -> None:
+        """A sha256 of a public document is something anybody can compute.
+
+        It would authenticate nothing while looking exactly like a signature.
+        """
+        content: dict[str, Any] = {"hardware": {}, "provenance": {}}
+        assert sign(content, KEY) != hashlib.sha256(canonical_bytes(content)).hexdigest()
+
+    def test_it_signs_canonical_bytes(self) -> None:
+        """A signature over ``str(dict)`` verifies only against the same Python.
+
+        That is a compatibility bug wearing the costume of a forgery.
+        """
+        content: dict[str, Any] = {"hardware": {"b": 1, "a": 2}, "provenance": {}}
+        reordered: dict[str, Any] = {"hardware": {"a": 2, "b": 1}, "provenance": {}}
+        assert sign(content, KEY) == sign(reordered, KEY)
+
+
+class TestWithoutTheKey:
+    def test_no_key_declares_itself_unsigned(self, tmp_path: Path) -> None:
+        """Not an empty string and not a signature over an empty key.
+
+        Both of those *verify*, and a declaration that verifies against a key
+        nobody holds is worse than one that says plainly it was never signed.
+        """
+        declared = declaration(tmp_path, key=None)
+        assert not declared.signed
+        assert declared.to_dict()["signature"] == UNSIGNED
+
+    def test_an_unsigned_declaration_never_verifies(self, tmp_path: Path) -> None:
+        assert not verify_signature(declaration(tmp_path, key=None).to_dict(), KEY)
+
+    @pytest.mark.parametrize("claimed", [None, 42, "", UNSIGNED])
+    def test_a_missing_or_unsigned_claim_is_refused(self, claimed: object) -> None:
+        assert not verify_signature({"hardware": {}, "provenance": {}, "signature": claimed}, KEY)
+
+
+class TestWhatIsSignedIsNotWhatIsSent:
+    def test_the_statement_excludes_the_signature(self, tmp_path: Path) -> None:
+        """A function returning both would eventually sign a document
+        containing its own signature."""
+        declared = declaration(tmp_path)
+        content = statement(declared.hardware, declared.provenance)
+        assert "signature" not in content
+        assert set(declared.to_dict()) == {"hardware", "provenance", "signature"}
+
+    def test_the_key_is_never_read_from_a_file_in_this_repository(self) -> None:
+        """A key committed beside the thing it signs is not a key.
+
+        These repositories are public, so anyone in the cohort could forge the
+        signature — and Appendix C makes a leaked secret a submission gate.
+        """
+        source = (Path(__file__).parents[1] / "src/thief_agent/infra/step_zero.py").read_text()
+        assert "environ.get(SIGNING_KEY_ENV)" in source.replace("source.", "environ.")
+        assert "open(" not in source
+        for tracked in (Path(__file__).parents[1] / "config").rglob("*"):
+            if tracked.is_file():
+                assert SIGNING_KEY_ENV not in tracked.read_text()

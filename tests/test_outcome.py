@@ -229,7 +229,8 @@ class TestTheAnswerIsComputedNeverChosen:
         assert capture_answer(board(barriers=frozenset({(3, 3)})), AXES)
 
     def test_being_walled_in_answers_yes(self) -> None:
-        assert capture_answer(board(thief=(0, 0), barriers=frozenset({(0, 1), (1, 0)})), AXES)
+        walled = board(cop=(5, 5), thief=(0, 0), barriers=frozenset({(0, 1), (1, 0)}))
+        assert capture_answer(walled, AXES)
 
     def test_it_takes_the_board_and_nothing_else(self) -> None:
         """No argument a policy could set, so no branch that consults preference.

@@ -40,7 +40,7 @@ a deadlock costs nothing to reach and everything to diagnose: neither peer has
 moved, so there is no board state to explain what happened."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass
 class MatchAborted(Exception):
     """A subsystem failure ended the sub-game.
 
@@ -48,6 +48,20 @@ class MatchAborted(Exception):
     result before either may report it, and "technical loss" with no cause is
     far harder to agree on than "timeout at step 12" — so the cause is recorded
     at the point it is known, not reconstructed afterwards.
+
+    **Neither frozen nor slotted, and both for the same reason.** Python sets
+    ``__traceback__`` on an exception as it propagates. ``slots=True`` leaves
+    nowhere to put it; ``frozen=True`` generates a ``__setattr__`` that refuses
+    it. Either way the interpreter discards the exception mid-flight and raises
+    something else in its place — a ``TypeError`` about class identity, or a
+    ``FrozenInstanceError`` — so the named cause this class exists to carry is
+    precisely what gets destroyed.
+
+    Worse, it only happens when a ``@contextlib.contextmanager`` is somewhere
+    in the call path, which is why it survived until an acceptance test used a
+    fixture. Immutability here was decorative: ``cause`` and ``detail`` are
+    written once at the raise site and read at the catch site. An exception
+    that cannot be raised is not a trade worth making.
     """
 
     cause: TechnicalLoss

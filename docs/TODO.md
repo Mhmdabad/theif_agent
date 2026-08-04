@@ -153,7 +153,7 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done · **🚪 GATE** = milesto
 ### Replay
 - [ ] Replay App loading `log_<game_id>_g<NN>.json`, step forward/backward
 - [ ] Per-step SHA-256 re-computation vs stored commitment
-- [ ] Green `Verified OK` / red `TAMPERED`; abort and void on first failure
+- [x] Green `Verified OK` / red `TAMPERED`; abort and void on first failure
 - [ ] Hand-tampered log test triggers `TAMPERED`
 
 ### Gmail + Gatekeeper

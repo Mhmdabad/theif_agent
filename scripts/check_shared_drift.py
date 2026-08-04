@@ -75,6 +75,7 @@ SHARED: tuple[str, ...] = (
     "runtime/watchdog.py",
     "ui/banner.py",
     "ui/replay.py",
+    "ui/verdict.py",
     "ui/view.py",
     "shared/appendix_f.py",
     "shared/config.py",

@@ -84,6 +84,7 @@ DIVERGENT: dict[str, str] = {
     "runtime/orchestrator.py": "role default, and the duplicate-role failure differs by side",
     "strategy/base.py": "notes which hooks this role overrides",
     "strategy/loader.py": "reads police_class vs thief_class",
+    "domain/barrier_audit.py": "cop-only; the thief has no barriers to replay",
     "strategy/barriers.py": "cop-only; the thief places no barriers",
     "strategy/containment.py": "thief-only; the cop builds the trap rather than reading it",
     "strategy/police_brain.py": "the cop's policy; no counterpart here",

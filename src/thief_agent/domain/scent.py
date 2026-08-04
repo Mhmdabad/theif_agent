@@ -1,34 +1,42 @@
 """Scent emission: the signal an agent cannot help leaving.
 
-Every agent emits on every turn — moving or standing still — a square field
-centred on its own cell. This is the stigmergic channel: neither side can
-suppress it, forge it, or emit somewhere it is not, which is what makes it the
-evidence a verbal claim gets checked against. A hint can lie; a trail cannot.
+Every agent emits on every turn — moving or standing still — a field centred
+on its own cell. This is the stigmergic channel: neither side can suppress it,
+forge it, or emit somewhere it is not, which is what makes it the evidence a
+verbal claim gets checked against. A hint can lie; a trail cannot.
 
-**Chebyshev falloff, not Euclidean.** Intensity drops by a fixed step per ring,
-where a ring is ``max(|dr|, |dc|)`` — so the field is a square terrace, and
-every cell on the border of the 5x5 carries the same value. The rulebook calls
-the emission *radial*, and so does the reference implementation, in the same
-sentence in which it uses Chebyshev distance: "radial" means emanating from a
-centre, not measured with a circle.
+**The falloff is a Euclidean hill, and the rulebook proves it in a figure.**
+Figure 4 (PDF p. 44) prints the whole 5x5 field, and two of its numbers settle
+the shape on their own: ``(1,2)`` and ``(2,1)`` are 0.14 while ``(2,2)`` is
+0.04. Under Chebyshev distance all three are ring 2 and would be equal. They
+are not, so intensity falls with ``dr**2 + dc**2``.
 
-Matching the reference here is not deference, it is the acceptance criterion.
-The emission model is exchanged and **hash-locked before a series**, so a field
-that differs from the opponent's is not a weaker strategy — it is a failed
-negotiation at best and a disputed match at worst.
+That difference is the mechanism, not a detail. Ch. 4.3 explains the point of
+spreading at all: a single hot cell is a crude measure, while a hill marks
+*direction* even when the exact cell is missed. A square terrace of equal
+border values carries no direction, so flattening the falloff removes the
+reason the field is emitted.
 
-Three properties are load-bearing for that agreement and each looks like a
-detail:
+The reference implementation uses Chebyshev, and it is therefore selectable —
+:data:`CHEBYSHEV` — but not the default. The emission model is exchanged and
+**hash-locked before a series** precisely because implementations differ; that
+lock is the resolution procedure, so the honest posture is to default to the
+authoritative source and be able to agree the other.
+
+Three properties are load-bearing for that agreement and each looks cosmetic:
 
 * **Rounding to three decimals at emission.** Floats do not reproduce across
   implementations; a rounded field does. This is what makes "same formula"
   mean "same numbers".
 * **Clipping to the board, not wrapping.** A field emitted in a corner is
-  simply smaller.
+  simply smaller, and the centre keeps full intensity.
 * **No barrier awareness.** Scent passes through walls. Barriers block
-  movement, not diffusion, and adding a plausible-sounding occlusion rule
-  would silently break the lock.
+  movement, not diffusion, and a plausible-sounding occlusion rule invented
+  here would break the lock without anyone noticing until audit.
 """
+
+import math
+from collections.abc import Callable
 
 from ..shared.appendix_f import book_value
 from .board import Position
@@ -37,8 +45,18 @@ PRECISION = 3
 """Decimal places every intensity is rounded to.
 
 Not cosmetic. Two peers running the same formula in different float orders
-disagree in the last bits, and the disagreement is permanent because the
-field is hashed into the pre-series lock.
+disagree in the last bits, and the disagreement is permanent because the field
+is hashed into the pre-series lock.
+"""
+
+SIGMA = 1.15
+"""Spread of the Gaussian, fitted to figure 4 rather than chosen.
+
+The figure prints the field to two decimals; ``0.9 * exp(-(dr**2+dc**2) /
+(2*sigma**2))`` reproduces every printed value for sigma in [1.148, 1.1544],
+and 1.15 is the round number inside that interval. It is derived from the
+rulebook, not tuned for play, because it is an agreement term rather than a
+strategy parameter.
 """
 
 
@@ -55,24 +73,40 @@ CENTRE_INTENSITY: float = _fixed_float("pheromones", "pheromone_center_intensity
 GRID_SIZE: int = int(_fixed_float("pheromones", "pheromone_grid_size"))
 """Appendix F emission width. *Fixed*. Odd, so the emitter has a centre cell."""
 
+Falloff = Callable[[int, int, float, int], float]
+"""A falloff model: ``(dr, dc, centre_intensity, grid_size) -> intensity``."""
 
-def ring(offset_row: int, offset_col: int) -> int:
-    """Chebyshev distance from the emission centre.
 
-    The number of rings out, where every cell of a ring shares one intensity.
+def gaussian(offset_row: int, offset_col: int, intensity: float, grid_size: int) -> float:
+    """The rulebook's radial hill. Figure 4, PDF p. 44.
+
+    ``grid_size`` is unused: the hill's shape is set by :data:`SIGMA`, and the
+    grid only decides where it is cut off. Kept in the signature so every
+    falloff model is interchangeable.
     """
-    return max(abs(offset_row), abs(offset_col))
+    del grid_size
+    squared = offset_row * offset_row + offset_col * offset_col
+    return intensity * math.exp(-squared / (2 * SIGMA * SIGMA))
 
 
-def falloff(intensity: float, grid_size: int = GRID_SIZE) -> float:
-    """Intensity lost per ring.
+def chebyshev(offset_row: int, offset_col: int, intensity: float, grid_size: int) -> float:
+    """The reference implementation's square terrace.
 
-    ``intensity / (half + 1)`` rather than ``intensity / half``, so the
-    outermost ring still carries signal instead of decaying to nothing. With
-    the book's 5x5 at 0.9 the rings are 0.9, 0.6, 0.3 — a field whose edge is
-    still worth reading, which is the point of emitting a field at all.
+    Selectable so it can be agreed at negotiation against an opponent running
+    the reference code, which is a likely enough case to be worth supporting
+    without a code change. Rings are 0.9, 0.6, 0.3.
     """
-    return intensity / (grid_size // 2 + 1)
+    step = intensity / (grid_size // 2 + 1)
+    return intensity - step * max(abs(offset_row), abs(offset_col))
+
+
+CHEBYSHEV: Falloff = chebyshev
+GAUSSIAN: Falloff = gaussian
+DEFAULT_FALLOFF: Falloff = gaussian
+"""The rulebook's model, used unless a series is negotiated otherwise."""
+
+MODELS: dict[str, Falloff] = {"gaussian": gaussian, "chebyshev": chebyshev}
+"""Named models, so a negotiated agreement can name one on the wire."""
 
 
 def emission(
@@ -80,6 +114,7 @@ def emission(
     board_size: int,
     intensity: float = CENTRE_INTENSITY,
     grid_size: int = GRID_SIZE,
+    falloff: Falloff = DEFAULT_FALLOFF,
 ) -> dict[Position, float]:
     """The field laid down by an agent standing on ``centre``.
 
@@ -89,31 +124,39 @@ def emission(
     would make the wire form depend on where the emitter happened to stand.
     """
     half = grid_size // 2
-    step = falloff(intensity, grid_size)
     field: dict[Position, float] = {}
     for offset_row in range(-half, half + 1):
         for offset_col in range(-half, half + 1):
             cell = (centre[0] + offset_row, centre[1] + offset_col)
             if 0 <= cell[0] < board_size and 0 <= cell[1] < board_size:
-                value = intensity - step * ring(offset_row, offset_col)
+                value = falloff(offset_row, offset_col, intensity, grid_size)
                 field[cell] = round(max(0.0, value), PRECISION)
     return field
 
 
-def numeric_example(intensity: float = CENTRE_INTENSITY, grid_size: int = GRID_SIZE) -> str:
+def numeric_example(
+    intensity: float = CENTRE_INTENSITY,
+    grid_size: int = GRID_SIZE,
+    falloff: Falloff = DEFAULT_FALLOFF,
+) -> str:
     """The worked example exchanged at the pre-series lock.
 
     The rulebook requires both teams to swap the emission model *with a
-    concrete numeric example* and hash the agreement. A formula agreed in
-    prose is a formula two teams can implement differently; a formula agreed
+    concrete numeric example* and hash the agreement. A formula agreed in prose
+    is a formula two teams can implement differently; a formula agreed
     alongside the numbers it produces is not.
+
+    Reports whichever model is in force, so a negotiated Chebyshev series
+    exchanges Chebyshev numbers rather than the ones we prefer.
     """
-    step = falloff(intensity, grid_size)
-    rings = ", ".join(
-        f"ring {distance} = {round(max(0.0, intensity - step * distance), PRECISION)}"
-        for distance in range(grid_size // 2 + 1)
-    )
-    return (
-        f"emission {grid_size}x{grid_size} centred at tau={intensity}, "
-        f"Chebyshev falloff {round(step, PRECISION)} per ring: {rings}"
-    )
+    name = next((key for key, model in MODELS.items() if model is falloff), "custom")
+    half = grid_size // 2
+    rows = []
+    for offset_row in range(-half, half + 1):
+        rows.append(
+            " ".join(
+                f"{round(max(0.0, falloff(offset_row, offset_col, intensity, grid_size)), 2):.2f}"
+                for offset_col in range(-half, half + 1)
+            )
+        )
+    return f"{name} {grid_size}x{grid_size}, centre tau={intensity}:\n" + "\n".join(rows)

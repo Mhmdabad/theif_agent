@@ -108,6 +108,11 @@ class ThiefBrain(BrainBase):
         :data:`~..domain.board.MOVES` order rather than randomly, so two peers
         replaying the same match reach the same move.
 
+        The seed goes out on every line rather than once at startup. A match
+        transcript is the artefact a bug report is reconstructed from, and a
+        seed recorded only in a line that may have been truncated, rotated or
+        never captured is a seed the reproduction does not have.
+
         Raises:
             NoLegalActionError: if no move is legal.
         """
@@ -115,7 +120,7 @@ class ThiefBrain(BrainBase):
         if not available:
             raise NoLegalActionError("thief has no legal move")
         self.reach.observe(state, self.axes)
-        logger.info("step %d %s", state.step, self.reach)
+        logger.info("step %d seed=%d %s", state.step, self.seed, self.reach)
         threat = self.threat(state, **context)
         return max(available, key=lambda move: self._rank(state, move, threat))
 

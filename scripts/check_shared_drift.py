@@ -56,6 +56,7 @@ SHARED: tuple[str, ...] = (
     "domain/bluff.py",
     "domain/providers.py",
     "domain/budgeting.py",
+    "infra/ceremony.py",
     "infra/handshake.py",
     "infra/inboxes.py",
     "infra/latency.py",

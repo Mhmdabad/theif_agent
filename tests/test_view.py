@@ -7,7 +7,16 @@ import pytest
 
 from thief_agent.domain.belief import Belief
 from thief_agent.domain.board import BoardState
-from thief_agent.ui.view import BARRIER, EMPTY, SUSPECTED, View, render
+from thief_agent.ui.view import (
+    BARRIER,
+    EMPTY,
+    SHADES,
+    SUSPECTED,
+    View,
+    heatmap,
+    render,
+    shade,
+)
 
 OURS = "T"
 
@@ -128,3 +137,89 @@ class TestGuards:
 
     def test_a_cell_serialises_for_a_front_end(self) -> None:
         assert set(view().at((4, 4)).to_dict()) == {"row", "col", "glyph", "heat"}
+
+
+class TestTheHeatmapIsBoundToTheLiveBelief:
+    def test_updating_the_belief_changes_the_picture(self) -> None:
+        """Bound to the object the strategy uses, not to a copy of it.
+
+        A heatmap fed from a snapshot would show what the agent believed at
+        some earlier moment, and the screenshot would be a true picture of a
+        stale opinion — the least useful kind of wrong.
+        """
+        live = Belief.uniform(BOARD)
+        before = heatmap(view(belief=live))
+        live.update({(3, 1): 100.0})
+        assert heatmap(view(belief=live)) != before
+
+    def test_the_peak_is_the_deepest_band(self) -> None:
+        drawn = view(belief=belief_at((3, 1)))
+        bands = heatmap(drawn)
+        assert bands[3][1] == SHADES - 1
+        assert drawn.suspected == (3, 1)
+
+    def test_the_glyph_and_the_colour_agree_about_which_cell_is_suspected(self) -> None:
+        """Same Cell values behind both, so they cannot disagree."""
+        drawn = view(belief=belief_at((2, 4)))
+        bands = heatmap(drawn)
+        hottest = max(
+            ((r, c) for r in range(BOARD.grid_size) for c in range(BOARD.grid_size)),
+            key=lambda cell: bands[cell[0]][cell[1]],
+        )
+        assert hottest == drawn.suspected
+
+
+class TestTheScaleIsRelativeToTheObservedPeak:
+    def test_a_spread_belief_still_shows_a_shape(self) -> None:
+        """An absolute scale would render every honest mid-game board black.
+
+        A belief over twenty-five cells has no value above 0.04, so the
+        heatmap would look broken exactly when it is working.
+        """
+        gentle = Belief.uniform(BOARD)
+        gentle.update({(1, 1): 2.0, (1, 2): 1.5})
+        bands = heatmap(view(belief=gentle))
+        assert bands[1][1] == SHADES - 1
+        assert max(max(row) for row in bands) > min(min(row) for row in bands)
+
+    def test_a_uniform_belief_is_flat_except_where_it_cannot_be(self) -> None:
+        """Barriers carry no mass, so they are cold on an otherwise flat board.
+
+        That is the belief being honest rather than the scale misbehaving: a
+        sealed cell is somewhere the opponent cannot be, not somewhere we
+        merely doubt.
+        """
+        bands = heatmap(view(belief=Belief.uniform(BOARD)))
+        reachable = {
+            bands[row][col]
+            for row in range(BOARD.grid_size)
+            for col in range(BOARD.grid_size)
+            if (row, col) != (2, 2)
+        }
+        assert reachable == {SHADES - 1}
+        assert bands[2][2] == 0
+
+    @pytest.mark.parametrize(
+        ("heat", "peak", "expected"),
+        [(0.0, 1.0, 0), (1.0, 1.0, SHADES - 1), (0.5, 1.0, 2), (0.0, 0.0, 0)],
+    )
+    def test_the_band_arithmetic(self, heat: float, peak: float, expected: int) -> None:
+        assert shade(heat, peak) == expected
+
+    def test_a_peak_of_zero_is_cold_rather_than_a_division_error(self) -> None:
+        """Reachable before the first observation arrives."""
+        assert shade(0.0, 0.0) == 0
+
+    def test_bands_stay_inside_the_scale(self) -> None:
+        assert shade(2.0, 1.0) == SHADES - 1
+        assert shade(-1.0, 1.0) == 0
+
+
+class TestTheHeatmapShape:
+    def test_it_is_one_row_per_board_row(self) -> None:
+        bands = heatmap(view())
+        assert len(bands) == BOARD.grid_size
+        assert all(len(row) == BOARD.grid_size for row in bands)
+
+    def test_every_band_is_in_range(self) -> None:
+        assert all(0 <= band < SHADES for row in heatmap(view()) for band in row)

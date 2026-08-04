@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..domain.crypto import commit_of
+from ..domain.crypto import CryptoError, commit_of
 from ..infra.match_log import SLOTS
 
 
@@ -189,12 +189,24 @@ def check_step(recorded: RecordedStep) -> StepCheck:
     failed. A mid-match log, or one from a sub-game that ended early, has steps
     with no nonce — and calling those tampered would accuse an honest team of
     fraud for stopping.
+
+    Never raises. Every recorded step gets an answer, including one whose
+    stored record is shaped in a way the committer could not have produced —
+    a viewer that crashed on a hand-edited log would be reporting the edit as
+    its own bug.
     """
     if not recorded.openable:
         missing = "no reveal" if recorded.reveal is None else "no nonce"
         return StepCheck(recorded.step, verified=False, reason=f"cannot be opened ({missing})")
     assert recorded.reveal is not None and recorded.nonce is not None
-    recomputed = commit_of(recorded.reveal, recorded.nonce)
+    try:
+        recomputed = commit_of(recorded.reveal, recorded.nonce)
+    except CryptoError as exc:
+        return StepCheck(
+            recorded.step,
+            verified=False,
+            reason=f"its recorded record cannot be hashed as the committer hashed it: {exc}",
+        )
     if not secrets.compare_digest(recomputed, recorded.commit):
         return StepCheck(
             recorded.step,

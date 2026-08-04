@@ -32,6 +32,7 @@ cop's trail against the cop's hints by exactly this procedure.
 from dataclasses import dataclass
 
 from .board import Position
+from .inference import MAX_RELIABILITY as MAX_TRUST
 from .trail import DECAY
 
 FRESH_TRACE: float = round((1.0 - DECAY) * 0.9, 3)
@@ -110,3 +111,74 @@ def true_source(field: dict[Position, float]) -> Position | None:
     if not field:
         return None
     return min(field, key=lambda cell: (-field[cell], cell))
+
+
+START_RELIABILITY = 0.5
+"""What an opponent's word is worth before they have said anything.
+
+Neither trusted nor dismissed. Starting high would let a patient opponent
+bank credibility and spend it on the one lie that matters; starting at zero
+would make the first honest hints worthless and give an honest opponent no way
+to earn anything.
+"""
+
+PENALTY = 0.35
+"""Multiplier applied on each detected contradiction.
+
+Geometric rather than subtractive, so trust never reaches zero and a
+recovered opponent is never permanently unhearable — but it collapses fast:
+0.5 falls to 0.175 on the first lie and 0.061 on the second, so a
+twice-caught opponent is barely audible and a third contradiction pins them
+to the floor.
+"""
+
+RECOVERY = 0.05
+"""Added for each claim the trail supports. Deliberately slower than the fall.
+
+Credibility is cheap to lose and expensive to rebuild, which is the correct
+asymmetry against an adversary who chooses when to lie. A symmetric rule would
+let an opponent alternate lies and truths and hold a usable average.
+"""
+
+MIN_RELIABILITY = 0.05
+"""Floor. A proven liar's claims are still weak evidence, not anti-evidence.
+
+Zero would make the hint channel permanently dead, and a discredited opponent
+who starts telling the truth has information we would be refusing to hear.
+"""
+
+
+@dataclass
+class Credibility:
+    """How much this opponent's word is currently worth.
+
+    Adaptive, and asymmetric on purpose: contradictions multiply trust down
+    sharply, support adds it back slowly. The opponent picks the moment to
+    lie, so a rule that let them recover as fast as they fell would be a rule
+    they could farm.
+    """
+
+    reliability: float = START_RELIABILITY
+    lies: int = 0
+    supported: int = 0
+
+    def observe(self, verdict: Verdict) -> float:
+        """Fold one verdict into the running estimate."""
+        if verdict.contradicted:
+            self.lies += 1
+            self.reliability = max(MIN_RELIABILITY, self.reliability * PENALTY)
+        else:
+            self.supported += 1
+            self.reliability = min(MAX_TRUST, self.reliability + RECOVERY)
+        return self.reliability
+
+    @property
+    def discredited(self) -> bool:
+        """Whether this opponent has been caught at least once."""
+        return self.lies > 0
+
+    def __str__(self) -> str:
+        return (
+            f"reliability {self.reliability:.2f} "
+            f"({self.lies} contradicted, {self.supported} supported)"
+        )

@@ -5,6 +5,7 @@ from dataclasses import replace
 
 import pytest
 
+from thief_agent.domain.actions import MoveAction
 from thief_agent.domain.axes import AxisConvention
 from thief_agent.domain.board import BoardState
 from thief_agent.domain.rules import target_of
@@ -202,3 +203,93 @@ class TestAvailableToTheScorer:
         tracker = ContainmentTracker()
         walk(tracker, make(step=0), make(step=1, barriers={(0, 0), (0, 1), (1, 0)}))
         assert "CLOSING" in str(tracker)
+
+
+class TestStayIsFirstClass:
+    """#39: STAY is scored alongside the four moves, and charged for."""
+
+    def test_it_is_among_the_candidates_not_a_fallback(self) -> None:
+        assert "STAY" in ThiefBrain(axes=AXES).options(make())
+
+    def test_arriving_somewhere_costs_nothing(self) -> None:
+        brain = ThiefBrain(axes=AXES)
+        brain.reach.observe(make(step=0), AXES)
+        assert brain.reach.linger == 0
+        assert brain.scent_cost("STAY") == 0
+
+    def test_each_turn_held_adds_a_cell_to_the_bill(self) -> None:
+        brain = ThiefBrain(axes=AXES)
+        walk(brain.reach, make(thief=(3, 3), step=0), make(thief=(3, 3), step=1))
+        assert brain.scent_cost("STAY") == 1
+        walk(brain.reach, make(thief=(3, 3), step=2))
+        assert brain.scent_cost("STAY") == 2
+
+    def test_moving_clears_it(self) -> None:
+        brain = ThiefBrain(axes=AXES)
+        walk(brain.reach, make(thief=(3, 3), step=0), make(thief=(3, 3), step=1))
+        assert brain.reach.linger == 1
+        walk(brain.reach, make(thief=(3, 4), step=2))
+        assert brain.reach.linger == 0
+
+    def test_returning_later_is_not_lingering(self) -> None:
+        """Consecutive occupancy, not lifetime visits. Decay is real."""
+        brain = ThiefBrain(axes=AXES)
+        walk(
+            brain.reach,
+            make(thief=(3, 3), step=0),
+            make(thief=(3, 4), step=1),
+            make(thief=(3, 3), step=2),
+        )
+        assert brain.reach.linger == 0
+
+    def test_only_staying_is_charged(self) -> None:
+        brain = ThiefBrain(axes=AXES)
+        walk(brain.reach, make(thief=(3, 3), step=0), make(thief=(3, 3), step=1))
+        assert brain.scent_cost("STAY") == 1
+        assert all(brain.scent_cost(move) == 0 for move in ("N", "S", "E", "W"))
+
+    def test_stay_is_chosen_when_it_dominates(self) -> None:
+        """Closing region, and standing still is the only degree-4 cell that
+        is not also nearer the cop. Waiting is the right answer."""
+        walls = {(6, 0), (6, 1), (6, 2)}
+        brain = ThiefBrain(axes=AXES)
+        walk(brain.reach, make(step=0), make(cop=(5, 5), thief=(1, 1), barriers=walls, step=1))
+        assert brain.reach.closing
+        state = make(cop=(5, 5), thief=(1, 1), barriers=walls, step=1)
+        action = brain.decide(state).action
+        assert isinstance(action, MoveAction)
+        assert action.move == "STAY"
+
+    def test_and_abandoned_once_the_signal_is_paid_for(self) -> None:
+        """Same position, one turn of lingering. The beacon costs the cell of
+        distance that made waiting worth it."""
+        walls = {(6, 0), (6, 1), (6, 2)}
+        held = make(cop=(5, 5), thief=(1, 1), barriers=walls, step=1)
+        later = make(cop=(5, 5), thief=(1, 1), barriers=walls, step=2)
+        brain = ThiefBrain(axes=AXES)
+        walk(brain.reach, make(step=0), held, later)
+        assert brain.reach.linger == 1
+        action = brain.decide(later).action
+        assert isinstance(action, MoveAction)
+        assert action.move != "STAY"
+
+    def test_a_thief_with_nowhere_to_go_still_stays(self) -> None:
+        """The cost is a weight, not a veto. No scent bill makes an illegal
+        move legal."""
+        walls = frozenset({(2, 3), (4, 3), (3, 2), (3, 4)})
+        state = make(thief=(3, 3), barriers=walls, step=5)
+        brain = ThiefBrain(axes=AXES)
+        for step in range(5):
+            walk(brain.reach, make(thief=(3, 3), barriers=walls, step=step))
+        assert brain.scent_cost("STAY") >= 4
+        action = brain.decide(state).action
+        assert isinstance(action, MoveAction)
+        assert action.move == "STAY"
+
+    def test_the_cost_is_charged_to_distance_not_to_the_veto(self) -> None:
+        """Geometry decides whether a cell is cramped; scent does not."""
+        brain = ThiefBrain(axes=AXES)
+        walk(brain.reach, make(thief=(3, 3), step=0), make(thief=(3, 3), step=1))
+        state = make(cop=(0, 0), thief=(3, 3), step=1)
+        assert not brain.is_cramped(state, "STAY", state.cop)
+        assert brain._rank(state, "STAY", state.cop)[1] == 6 - 1

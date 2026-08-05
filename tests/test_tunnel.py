@@ -17,6 +17,7 @@ from thief_agent.infra.tunnel import (
     host_is_public,
     normalise,
     read_ngrok_api,
+    rehearsal_url,
 )
 
 PUBLIC = "https://a1b2c3d4.ngrok-free.app"
@@ -233,3 +234,30 @@ class TestDiscovery:
         """
         with pytest.raises(NotPublicError):
             discover({}, ngrok_reader=lambda: '{"tunnels": []}')
+
+
+class TestRehearsingAgainstOurselves:
+    """Loopback is allowed only when a caller asks for it by name.
+
+    A solo rehearsal over a public tunnel opens a fresh TLS connection per tool
+    call, and a free tunnel stops accepting them well before a sub-game ends —
+    so the network decides how far practice gets, not the game. Over loopback
+    there is no tunnel to exhaust.
+    """
+
+    def test_loopback_is_allowed_here_and_nowhere_else(self) -> None:
+        assert rehearsal_url({"PUBLIC_URL": "http://127.0.0.1:8801"}) == "http://127.0.0.1:8801/mcp"
+        with pytest.raises(NotPublicError):
+            PublicEndpoint("http://127.0.0.1:8801")
+
+    def test_it_falls_back_to_this_agents_own_port(self) -> None:
+        """So a rehearsal needs no environment at all."""
+        assert rehearsal_url({}, 8801) == "http://127.0.0.1:8801/mcp"
+
+    def test_the_mcp_path_is_still_appended(self) -> None:
+        assert rehearsal_url({"PUBLIC_URL": "http://localhost:8802"}).endswith("/mcp")
+
+    def test_a_typo_is_still_a_typo(self) -> None:
+        """Being a rehearsal excuses a private host, not a malformed address."""
+        with pytest.raises(NotPublicError):
+            rehearsal_url({"PUBLIC_URL": "127.0.0.1:8801"})

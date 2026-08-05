@@ -1,5 +1,6 @@
 """The command somebody actually types, and what it tells them before it binds."""
 
+import argparse
 from collections.abc import Callable
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from thief_agent.__main__ import (
     describe_failure,
     load_private,
     main,
+    require_playable,
     safely_describe,
     where_we_are,
 )
@@ -333,3 +335,18 @@ class TestTheReporterCannotBecomeTheFailure:
         said = safely_describe(Hostile())
         assert "the failure description itself failed" in said
         assert "Hostile" in said
+
+
+class TestRehearsalIsExemptFromTheTunnelRequirement:
+    def test_rehearsing_announces_to_nobody_so_the_refusal_does_not_apply(self) -> None:
+        """Keyed on the flag, not the address, so the league path cannot reach it."""
+        require_playable(argparse.Namespace(game_id="uoh26-x", rehearse=True), NO_TUNNEL, NO_NGROK)
+
+    def test_rehearsing_does_not_excuse_a_missing_game_id(self) -> None:
+        """Both sides' files are still named from it, and still have to match."""
+        with pytest.raises(StartupError, match="game-id"):
+            require_playable(argparse.Namespace(game_id="", rehearse=True), NO_TUNNEL, NO_NGROK)
+
+    def test_without_the_flag_a_tunnel_is_still_required(self) -> None:
+        with pytest.raises(StartupError, match="Start a tunnel"):
+            require_playable(argparse.Namespace(game_id="uoh26-x", rehearse=False), {}, NO_NGROK)

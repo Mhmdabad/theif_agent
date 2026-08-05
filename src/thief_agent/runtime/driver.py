@@ -40,7 +40,7 @@ from ..infra.mcp_client import ClientSettings, OpponentClient
 from ..infra.mcp_transport import FastMcpTransport
 from ..infra.report import Repositories
 from ..infra.step_zero import SIGNING_KEY_ENV, collect, provenance
-from ..infra.tunnel import discover
+from ..infra.tunnel import discover, rehearsal_url
 from ..shared.config import load as load_shared
 from ..strategy.loader import load_brain
 from .match import MatchRunner
@@ -106,6 +106,7 @@ def open_match(
     game_id: str,
     sub_games: int,
     directory: Path,
+    rehearsal: bool = False,
 ) -> tuple[Path, ...]:  # pragma: no cover - the other side of this is another team
     """Run a whole match and write its evidence. Returns the files written.
 
@@ -122,10 +123,12 @@ def open_match(
     )
     orchestrator = Orchestrator(inboxes=inboxes, client=client, role=ROLE)
 
-    endpoint = discover(environ)
-    ours = orchestrator.greeting(
-        endpoint.url if endpoint else "", str(private.get("game", {}).get("group_id", ""))
-    )
+    if rehearsal:
+        address = rehearsal_url(environ, int(network.get("my_port", 8801)))
+    else:
+        endpoint = discover(environ)
+        address = endpoint.url if endpoint else ""
+    ours = orchestrator.greeting(address, str(private.get("game", {}).get("group_id", "")))
     directory.mkdir(parents=True, exist_ok=True)
     peering = await_opponent(orchestrator, ours, directory, game_id)
 

@@ -171,7 +171,7 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done · **🚪 GATE** = milesto
 - [x] Send-storm simulation blocked before reaching the API
 
 ### JSON artefacts
-- [ ] `declaration_<game_id>.json` — teams, members, **4 repo URLs**, MCP addresses,
+- [x] `declaration_<game_id>.json` — teams, members, **4 repo URLs**, MCP addresses,
       hardware, LLM model, token ceiling, start/end times
 - [ ] `config_<game_id>_g<NN>.json` — locked agreed parameters
 - [ ] `log_<game_id>_g<NN>.json` — full step record

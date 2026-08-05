@@ -173,7 +173,7 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done · **🚪 GATE** = milesto
 ### JSON artefacts
 - [x] `declaration_<game_id>.json` — teams, members, **4 repo URLs**, MCP addresses,
       hardware, LLM model, token ceiling, start/end times
-- [ ] `config_<game_id>_g<NN>.json` — locked agreed parameters
+- [x] `config_<game_id>_g<NN>.json` — locked agreed parameters
 - [ ] `log_<game_id>_g<NN>.json` — full step record
 - [ ] `result_<game_id>.json` — per-sub-game and aggregate scores, commit hashes,
       total tokens

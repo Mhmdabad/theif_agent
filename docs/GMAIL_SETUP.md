@@ -139,7 +139,7 @@ https://www.googleapis.com/auth/gmail.send
 Nothing else. Not `gmail.readonly`, not `gmail.modify`, not `mail.google.com`.
 
 **Done when:** the scopes table lists that one entry, and
-[`infra/gmail_auth.py`](../src/thief_agent/infra/gmail_auth.py) is still the only
+[`infra/gmail_auth.py`](../src/cop_agent/infra/gmail_auth.py) is still the only
 file in the package containing a scope string — which
 `test_only_the_send_scope_appears_anywhere_in_the_source` checks by reading the
 source tree on every CI run.
@@ -171,13 +171,67 @@ to revoke at <https://myaccount.google.com/permissions> and authorize again.
 
 ---
 
-## Steps 4–5
+## Step 4 — an OAuth Client ID of type **Desktop app**
 
-Not yet written up. They land with the issues that cover them:
+**Do this:**
+
+1. **APIs & Services → Credentials → Create credentials → OAuth client ID**.
+2. Application type: **Desktop app**. Not *Web application*. Name it whatever
+   you like.
+3. **Download JSON** and save it in the repository root as `credentials.json`.
+4. Confirm git is ignoring it *before* your next commit:
+
+   ```bash
+   git check-ignore -v credentials.json
+   ```
+
+   Silence means it is **not** ignored — stop and fix `.gitignore` first.
+
+**Done when:** `credentials.json` sits in the repository root, the command above
+names the `.gitignore` line that covers it, and `git status` does not mention it.
+
+### Desktop app, and why the wrong choice hurts later
+
+Every client type downloads as a file called `credentials.json` and they all
+look plausible inside. The difference is one key: a Desktop client wraps its
+fields in `"installed"`, a Web client in `"web"`.
+
+Hand `InstalledAppFlow` a Web client and it proceeds normally — browser opens,
+consent appears, you approve — and then dies at the redirect with
+
+```
+Error 400: redirect_uri_mismatch
+```
+
+which names a URI nobody configured. The natural response is an hour of adding
+`http://localhost` to authorised redirect URIs in the console, and none of it
+works, because the client is simply the wrong type.
+[`infra/credentials.py`](../src/thief_agent/infra/credentials.py) says so at load
+time instead.
+
+### The check, not the promise
+
+`.gitignore` containing a line and git actually ignoring a file are two
+different facts. A pattern can be shadowed by a later negation, and a file that
+is **already tracked** stays tracked no matter what the ignore file says.
+
+`TestGitReallyIgnoresTheSecrets` asks git itself, in this repository, on every
+CI run — `check-ignore` for each secret filename and `ls-files` to prove none is
+tracked. It also asserts the rules are not *too* broad: a match log must stay
+visible, since it is the evidence the Replay App verifies.
+
+FR-7.27 is worth restating for the reason behind it. A secret pushed once is
+compromised permanently: it stays in history, these repositories are public, and
+the remedy is rotating the credential in the console rather than a revert.
+
+---
+
+## Step 5
+
+Not yet written up. Lands with the issue that covers it:
 
 | Step | What | Issue |
 |---|---|---|
-| 4 | OAuth Client ID (Desktop Application) → `credentials.json` | #96 |
 | 5 | First authorization flow → `token.json` | #97 |
 
 ---

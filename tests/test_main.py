@@ -5,7 +5,15 @@ from pathlib import Path
 
 import pytest
 
-from thief_agent.__main__ import CONFIG, StartupError, describe, load_private, main, where_we_are
+from thief_agent.__main__ import (
+    CONFIG,
+    StartupError,
+    describe,
+    describe_failure,
+    load_private,
+    main,
+    where_we_are,
+)
 
 REPO = Path(__file__).resolve().parent.parent
 NO_TUNNEL: dict[str, str] = {}
@@ -218,3 +226,57 @@ class TestPlayRefusesWithoutAPublicAddress:
         monkeypatch.chdir(REPO)
         monkeypatch.setattr("thief_agent.__main__.serve", lambda *_: None)
         assert main([], environ=NO_TUNNEL) == 0
+
+
+class TestSayingWhatWentWrong:
+    """A failure that prints nothing after the colon is worse than a traceback.
+
+    The sixth live warm-up ended with `the match did not finish:` and no text,
+    after most of a sub-game had been played. Every fact about the failure was
+    discarded at the last step.
+    """
+
+    def test_a_plain_message_is_passed_through(self) -> None:
+        assert describe_failure(ValueError("the board is the wrong size")) == (
+            "the board is the wrong size (ValueError)"
+        )
+
+    def test_an_exception_group_is_unwrapped(self) -> None:
+        """anyio and the MCP client raise these, often with a blank outer message."""
+        group = ExceptionGroup("", [ConnectionError("tunnel is down"), TimeoutError("no reply")])
+        said = describe_failure(group)
+        assert "tunnel is down" in said
+        assert "no reply" in said
+
+    def test_several_arguments_are_joined_rather_than_shown_as_a_tuple(self) -> None:
+        """`MatchAborted(TechnicalLoss.TIMEOUT, why)` renders as a tuple otherwise."""
+        said = describe_failure(RuntimeError("timeout", "the opponent stopped answering"))
+        assert said.startswith("timeout; the opponent stopped answering")
+        assert "(" not in said.split("(RuntimeError")[0]
+
+    def test_a_silent_exception_names_its_cause(self) -> None:
+        """When there is no message, the chain is the only information left."""
+        try:
+            try:
+                raise ConnectionError("nothing is listening behind the tunnel")
+            except ConnectionError as inner:
+                raise RuntimeError from inner
+        except RuntimeError as exc:
+            said = describe_failure(exc)
+        assert "carried no message" in said
+        assert "nothing is listening behind the tunnel" in said
+
+    def test_a_silent_exception_with_no_cause_still_says_something(self) -> None:
+        said = describe_failure(RuntimeError())
+        assert "RuntimeError" in said
+        assert "nothing recorded why" in said
+
+    def test_the_class_is_not_repeated_when_the_message_already_names_it(self) -> None:
+        """`StartupTimeout: ...` should not become `StartupTimeout: ... (StartupTimeout)`."""
+
+        class StartupTimeout(RuntimeError):
+            pass
+
+        assert describe_failure(StartupTimeout("StartupTimeout while waiting")) == (
+            "StartupTimeout while waiting"
+        )

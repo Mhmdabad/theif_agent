@@ -9,10 +9,18 @@ The order is not arbitrary. Cheapest and most final first:
 
 1. **DOS detector** — if the pipeline is locked, nothing else matters and no
    state should be spent finding that out.
-2. **Quota** — a hard daily ceiling. Reserved *before* the send, so a crash
-   between the call and the response cannot leave an uncounted send.
+2. **Quota** — a hard daily ceiling, *checked* here and **reserved** only once
+   the request is actually going out. Checking early keeps the fail-fast
+   ordering; reserving late is what stops a *wait* from costing a slot. A
+   caller that is told to wait has sent nothing, and charging it would let a
+   correctly-throttled loop drain the whole day's ceiling without a single
+   message leaving — refused, in the end, by the gate that was protecting it.
+   The reservation still happens **before the send**, which is the ordering
+   that matters: a crash between the call and the response cannot leave an
+   uncounted message.
 3. **Token bucket** — the only gate that says "not yet" rather than "no". It
-   comes last because a request that will be refused outright should never have
+   comes before the reservation for the reason above, and after the quota
+   *check* because a request that will be refused outright should never have
    waited for a token first.
 
 **429 is not a transient glitch.** FR-7.22 is explicit: insisting and
@@ -97,7 +105,7 @@ class Gatekeeper:
             raise Rejected(f"DOS detector: {exc}") from exc
 
         try:
-            self.quota.reserve()
+            self.quota.check()
         except Exception as exc:  # noqa: BLE001
             raise Rejected(f"quota: {exc}") from exc
 
@@ -107,6 +115,16 @@ class Gatekeeper:
             raise Rejected(f"rate limiter: {exc}") from exc
         if delay > 0:
             return Wait(delay, "rate limiter: no token available yet")
+
+        # Reserved only now, once the request is actually going out. Reserving
+        # before the bucket ran would charge a slot for every *wait*, and a
+        # waiting caller has sent nothing — a loop that is being throttled
+        # correctly would drain the whole day's ceiling without a single message
+        # leaving, then be refused by the gate that was protecting it.
+        try:
+            self.quota.reserve()
+        except Exception as exc:  # noqa: BLE001
+            raise Rejected(f"quota: {exc}") from exc
         return None
 
     def record_attempt(self) -> None:

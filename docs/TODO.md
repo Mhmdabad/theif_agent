@@ -168,7 +168,7 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done · **🚪 GATE** = milesto
 - [x] 429 handling: honour, back off, wait for next window — never blind retry
 - [x] Report sent as **structured JSON attachment**, never free plaintext
 - [x] Destination hard-coded: `rmisegal+uoh26finalgame@gmail.com`
-- [ ] Send-storm simulation blocked before reaching the API
+- [x] Send-storm simulation blocked before reaching the API
 
 ### JSON artefacts
 - [ ] `declaration_<game_id>.json` — teams, members, **4 repo URLs**, MCP addresses,

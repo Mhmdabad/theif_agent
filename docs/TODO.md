@@ -166,8 +166,8 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done · **🚪 GATE** = milesto
 - [x] **Token Bucket** — 30 rpm, 2 concurrent, 5 s backoff, 3 retries, queue 100
 - [x] **DOS Detector** — anomaly lock (backpressure / circuit breaker)
 - [x] 429 handling: honour, back off, wait for next window — never blind retry
-- [ ] Report sent as **structured JSON attachment**, never free plaintext
-- [ ] Destination hard-coded: `rmisegal+uoh26finalgame@gmail.com`
+- [x] Report sent as **structured JSON attachment**, never free plaintext
+- [x] Destination hard-coded: `rmisegal+uoh26finalgame@gmail.com`
 - [ ] Send-storm simulation blocked before reaching the API
 
 ### JSON artefacts

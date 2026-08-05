@@ -226,13 +226,60 @@ the remedy is rotating the credential in the console rather than a revert.
 
 ---
 
-## Step 5
+## Step 5 — the first authorization flow
 
-Not yet written up. Lands with the issue that covers it:
+**Do this, once, from the repository root:**
 
-| Step | What | Issue |
-|---|---|---|
-| 5 | First authorization flow → `token.json` | #97 |
+```bash
+python -m thief_agent.infra.authorize
+```
+
+A browser opens. Approve the consent screen — including the
+**"Google hasn't verified this app"** interstitial, via *Advanced → Go to … (unsafe)*,
+which is expected for an app in Testing. The command then writes `token_thief.json`
+with mode `600`.
+
+**Done when:** `token_thief.json` exists, a second run refreshes without asking again,
+and `git check-ignore -v token_thief.json` names the `.gitignore` line covering it.
+
+### The token file is named per agent on purpose
+
+Not `token.json` in both repositories. The two agents authorize separately and
+their credentials are not interchangeable — but two files with the same name in
+sibling directories are an invitation to copy one across to skip the flow.
+[`infra/token_store.py`](../src/thief_agent/infra/token_store.py) refuses a token
+minted for a different `client_id` and says that copying is the usual cause.
+
+Override with `GMAIL_TOKEN_PATH` if you want it somewhere else.
+
+### What the command refuses, and why each refusal exists
+
+| Refused | Because |
+|---|---|
+| an **over-scoped** grant | Google returns the scopes *granted*, which can exceed those requested if this client was ever authorized more broadly. Refused rather than trimmed — the file on disk is what an attacker gets, and it does not read our variables. |
+| a grant with **no refresh token** | usable for an hour, then dead at whatever moment that hour ends. Google omits it when the client has been authorized before, so it appears exactly when somebody re-runs the flow to fix something else. Revoke at <https://myaccount.google.com/permissions> and run again. |
+| a token from **another client** | it might work, and it is not ours. Usually a file copied between the two agents. |
+
+Nothing is written when a grant is refused. Checking after the flow is not too
+late: the file is what matters, and it does not get created.
+
+The credentials file is checked **before** the browser opens, so nobody
+approves a consent screen for a client that was never going to work.
+
+### Sharing with a teammate
+
+`credentials.json` identifies the **application**, so the same file works for
+everyone on the team — hand it over directly. It is gitignored, so it is *not*
+in a clone; a teammate who clones the repository gets no credentials at all.
+They also need their address on the **Test Users** list from step 2.
+
+`token_thief.json` is **personal**. Each person runs the flow for themselves.
+
+### It expires after seven days
+
+While the app is in Testing (step 2). Re-run this command if the agent has been
+idle a week. Every error in the mail path ends by naming it, because every one
+of them is fixed the same way.
 
 ---
 

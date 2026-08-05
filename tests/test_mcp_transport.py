@@ -21,7 +21,13 @@ from thief_agent.infra.mcp_client import (
     Transport,
 )
 from thief_agent.infra.mcp_server import ServerSettings, build, serve
-from thief_agent.infra.mcp_transport import UPSTREAM_DEAD, FastMcpTransport, upstream_status
+from thief_agent.infra.mcp_transport import (
+    UPSTREAM_DEAD,
+    FastMcpTransport,
+    from_http_client,
+    upstream_status,
+    why,
+)
 
 
 def free_port() -> int:
@@ -262,3 +268,87 @@ class TestATunnelAnsweringForADeadPeer:
             response = type("R", (), {"status_code": "502"})()
 
         assert upstream_status(Odd()) is None
+
+
+class TestTheHttpClientsOwnFailures:
+    """`httpx.ConnectError` matched nothing, so a turn died on an unhandled exception.
+
+    It is not an `OSError`, not a `RuntimeError`, and carries no response — the
+    three shapes this transport already translated. The retry budget never saw
+    it, the transport log never recorded it, and the run ended with
+    `ConnectError, which carried no message; caused by ConnectError`.
+
+    Third variant of one mistake: every layer between us and the socket invents
+    its own exception hierarchy, and `OpponentClient` classifies by type.
+    """
+
+    class Failing:
+        error: BaseException = RuntimeError("replaced per test")
+
+        def __init__(self, url: str) -> None:
+            self.url = url
+
+        async def __aenter__(self) -> "TestTheHttpClientsOwnFailures.Failing":
+            raise type(self).error
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+    def raising(self, error: BaseException, monkeypatch: pytest.MonkeyPatch) -> None:
+        client = type("C", (self.Failing,), {"error": error})
+        monkeypatch.setattr("thief_agent.infra.mcp_transport.Client", client)
+
+    def test_a_connect_error_becomes_the_vocabulary_the_retry_budget_knows(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import httpx
+
+        self.raising(httpx.ConnectError(""), monkeypatch)
+        with pytest.raises(ConnectionError, match="could not reach"):
+            FastMcpTransport().call("https://x.ngrok-free.app/mcp", "receive_turn", {}, 1.0)
+
+    def test_it_names_the_two_things_that_are_actually_wrong(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A silent ConnectError says nothing. The situation always has a cause."""
+        import httpx
+
+        self.raising(httpx.ConnectError(""), monkeypatch)
+        with pytest.raises(ConnectionError) as raised:
+            FastMcpTransport().call("https://x.ngrok-free.app/mcp", "receive_turn", {}, 1.0)
+        assert "tunnel" in str(raised.value)
+        assert "agent has" in str(raised.value)
+
+    def test_our_own_bugs_are_not_disguised_as_unreachable_opponents(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A KeyError here is ours. Retrying it three times would report the wrong thing."""
+        self.raising(KeyError("a bug of ours"), monkeypatch)
+        with pytest.raises(KeyError):
+            FastMcpTransport().call("https://x.ngrok-free.app/mcp", "receive_turn", {}, 1.0)
+
+
+class TestSayingWhyWhenTheExceptionWillNot:
+    def test_the_first_thing_with_something_to_say_wins(self) -> None:
+        inner = OSError("connection refused")
+        outer = ValueError("")
+        outer.__cause__ = inner
+        assert "connection refused" in why(outer)
+
+    def test_a_cycle_does_not_trap_it(self) -> None:
+        """Same graph shape that already broke one reporter in this project."""
+        first, second = ValueError(""), ValueError("")
+        first.__cause__, second.__cause__ = second, first
+        assert why(first) == "ValueError with no detail"
+
+    def test_a_plain_message_is_used_directly(self) -> None:
+        assert why(OSError("no route to host")).startswith("no route to host")
+
+    def test_the_module_test_is_on_the_top_level_package(self) -> None:
+        """`httpcore._exceptions.ConnectError` must count as the HTTP client too."""
+        import httpcore
+        import httpx
+
+        assert from_http_client(httpx.ConnectError(""))
+        assert from_http_client(httpcore.ConnectError())
+        assert not from_http_client(KeyError("ours"))

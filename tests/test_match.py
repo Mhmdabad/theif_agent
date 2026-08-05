@@ -21,12 +21,20 @@ from thief_agent.infra.inboxes import PeerInboxes
 from thief_agent.infra.match_log import MatchLog
 from thief_agent.infra.mcp_client import ClientSettings, OpponentClient
 from thief_agent.infra.report import Report, SubGameResult
-from thief_agent.runtime.driver import StartupTimeout, _cell, _now, _team, await_opponent
+from thief_agent.runtime.driver import (
+    StartupTimeout,
+    _cell,
+    _now,
+    _them,
+    _us,
+    await_opponent,
+)
 from thief_agent.runtime.match import MatchRunner, SubGameOutcome
 from thief_agent.runtime.orchestrator import PROTOCOL_VERSION, MatchAborted, Orchestrator
 from thief_agent.runtime.subgame import Played
 from thief_agent.strategy.thief_brain import ThiefBrain
 
+REPO = Path(__file__).resolve().parent.parent
 WHEN = "2026-08-05T12:00:00+00:00"
 AXES = AxisConvention()
 
@@ -271,28 +279,67 @@ class TestReadingTheConfigForAMatch:
         """A missing start is a config gap, not a reason to die mid-handshake."""
         assert _cell(bad, (9, 9)) == (9, 9)
 
-    def test_a_team_is_read_from_the_private_config(self) -> None:
-        team = _team(
+    def test_our_side_is_read_from_the_game_section(self) -> None:
+        """Where it already lives. A second copy is a second thing to disagree."""
+        team = _us(
             {
-                "us": {
-                    "name": "uoh26-cops",
+                "game": {
+                    "group_name": "uoh26-cops",
                     "members": ["A", "B"],
-                    "cop_repo": "https://x/cop",
-                    "thief_repo": "https://x/thief",
+                    "repos": {"cop": "https://x/cop", "thief": "https://x/thief"},
                 }
-            },
-            "us",
-            "fallback",
+            }
         )
         assert team.name == "uoh26-cops"
         assert team.members == ("A", "B")
+        assert team.cop_repo == "https://x/cop"
+
+    def test_the_opponent_is_read_from_teams_them(self) -> None:
+        """The one section nothing can derive — their repositories are theirs."""
+        team = _them(
+            {
+                "teams": {
+                    "them": {
+                        "group_name": "uoh26-others",
+                        "members": ["C"],
+                        "repos": {"cop": "https://y/cop", "thief": "https://y/thief"},
+                    }
+                }
+            }
+        )
+        assert team.name == "uoh26-others"
+        assert team.thief_repo == "https://y/thief"
 
     def test_a_team_with_no_repository_links_is_refused(self) -> None:
         """FR-7.28 wants four links; a declaration without them cannot be built."""
         from thief_agent.infra.declaration import DeclarationError
 
         with pytest.raises(DeclarationError, match="four repository links"):
-            _team({"us": {"name": "x", "members": ["A"]}}, "us", "fallback")
+            _us({"game": {"group_name": "x", "members": ["A"]}})
+
+    def test_a_team_with_no_members_is_refused(self) -> None:
+        """An empty roster is the shipped default, and it is not a roster."""
+        from thief_agent.infra.declaration import DeclarationError
+
+        with pytest.raises(DeclarationError, match="declares no members"):
+            _us({"game": {"group_name": "x", "members": [], "repos": {"cop": "c", "thief": "t"}}})
+
+    def test_the_shipped_config_builds_both_teams(self) -> None:
+        """The test that was missing, and the reason a live match died.
+
+        Every part of the declaration was tested against dicts written in the
+        test file. Nothing ever asked whether the config this repository
+        actually ships can produce one — and it could not: the reader looked
+        for ``[teams.us]`` while the repositories sat in ``[game]``, so the
+        handshake succeeded and the declaration then refused to be built.
+        """
+        from thief_agent.__main__ import CONFIG, load_private
+
+        private = load_private(REPO / CONFIG)
+        for side in (_us(private), _them(private)):
+            assert side.name and side.members
+            assert side.cop_repo.startswith("http")
+            assert side.thief_repo.startswith("http")
 
     def test_the_timestamp_is_utc_and_to_the_second(self) -> None:
         """Both sides record times; a local-time one is unreconcilable."""

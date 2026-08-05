@@ -62,15 +62,40 @@ class StartupTimeout(RuntimeError):
     """Raised when the opponent never came up. Not a technical loss — no match began."""
 
 
-def _team(section: dict[str, Any], key: str, fallback: str) -> Team:
-    """One side of the declaration, from the private config's ``[teams]``."""
-    block = section.get(key, {})
+def _side(block: dict[str, Any]) -> Team:
+    """One side of the declaration, from a config block shaped like ``[game]``.
+
+    Both sides are read the same way so the opponent's details can be pasted in
+    the shape ours are already written in. FR-7.28 wants four repository links
+    and :class:`Team` refuses a partial set, which is the right moment to find
+    out — before a match rather than while writing the result nobody can trace.
+    """
+    repos = block.get("repos", {})
     return Team(
-        name=str(block.get("name", fallback)),
-        members=tuple(str(m) for m in block.get("members", ["unnamed"])),
-        cop_repo=str(block.get("cop_repo", "")),
-        thief_repo=str(block.get("thief_repo", "")),
+        name=str(block.get("group_name", "")),
+        members=tuple(str(m) for m in block.get("members", [])),
+        cop_repo=str(repos.get("cop", "")),
+        thief_repo=str(repos.get("thief", "")),
     )
+
+
+def _us(private: dict[str, Any]) -> Team:
+    """Our own side, from ``[game]`` — where it already lives.
+
+    Read from there rather than from a second ``[teams.us]`` block, because two
+    places to state our own repositories is two places to disagree, and the
+    declaration would carry whichever the code happened to read.
+    """
+    return _side(private.get("game", {}))
+
+
+def _them(private: dict[str, Any]) -> Team:
+    """The opponent, from ``[teams.them]`` — agreed with them beforehand.
+
+    Nothing can derive this: their repositories and their members are theirs to
+    state. It is the one section that must be edited per opponent.
+    """
+    return _side(private.get("teams", {}).get("them", {}))
 
 
 def open_match(
@@ -105,8 +130,7 @@ def open_match(
     peering = await_opponent(orchestrator, ours, directory, game_id)
 
     parameters = load_shared(SHARED_CONFIG)
-    teams = private.get("teams", {})
-    us, them = _team(teams, "us", "us"), _team(teams, "them", "them")
+    us, them = _us(private), _them(private)
     hardware = collect(str(private.get("trash_talk", {}).get("model", "template")), environ)
 
     declaration = build(

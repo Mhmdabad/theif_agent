@@ -45,8 +45,6 @@ from .orchestrator import Orchestrator
 from .peer import McpPeer
 from .subgame import Played, SubGame
 
-ROLE = "thief"
-
 
 @dataclass(frozen=True, slots=True)
 class SubGameOutcome:

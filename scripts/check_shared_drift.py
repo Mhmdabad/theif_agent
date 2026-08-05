@@ -67,7 +67,6 @@ SHARED: tuple[str, ...] = (
     "infra/report.py",
     "infra/token_bucket.py",
     "infra/token_store.py",
-    "infra/authorize.py",
     "infra/gmail_auth.py",
     "infra/handshake.py",
     "infra/inboxes.py",
@@ -97,6 +96,7 @@ SHARED: tuple[str, ...] = (
 """Modules that must be identical once the package name is normalised."""
 
 DIVERGENT: dict[str, str] = {
+    "infra/authorize.py": "stamps the role into the token; both agents share one OAuth client",
     "__init__.py": "package docstring names the role this repo implements",
     "domain/outcome.py": "capture-claim framing differs: who is obliged, and to whom",
     "runtime/orchestrator.py": "role default, and the duplicate-role failure differs by side",

@@ -32,6 +32,18 @@ the transport log, and never become the technical loss the rules define — it
 would just crash the turn. So a connection failure is re-raised as a
 ``ConnectionError``, with the original chained.
 
+**Through a tunnel, "not there" is not a connection failure at all.** Locally an
+absent peer refuses the connection and the OS raises ``ECONNREFUSED`` — an
+``OSError``, already the right vocabulary. Through ngrok the connection
+*succeeds*: the tunnel is up and answers ``502`` on the peer's behalf. That
+arrives as an HTTP status error, which is neither ``OSError`` nor
+``RuntimeError``, so it sailed past every retry in the stack and past
+``try_announce``, which only tolerates ``MatchAborted``. The retry logic was
+correct and unreachable — it worked in every localhost test and could not work
+in the one situation it was written for. So :data:`UPSTREAM_DEAD` statuses are
+translated too: a gateway reporting that the thing behind it is not answering
+*is* an unreachable opponent, whatever layer says so.
+
 Nothing else is translated. A tool that answers badly answers with a value, and
 our own ``TypeError`` below is our own bug; neither is a transport failure and
 neither should be retried three times before being reported as an unreachable
@@ -43,6 +55,27 @@ from dataclasses import dataclass
 from typing import Any
 
 from fastmcp import Client
+
+UPSTREAM_DEAD = frozenset({502, 503, 504})
+"""Statuses that mean *the proxy is fine, the peer behind it is not*.
+
+Bad Gateway, Service Unavailable, Gateway Timeout. Deliberately not 4xx: a 404
+or a 401 comes from something that answered, and retrying it three times before
+declaring the opponent unreachable would report the wrong failure.
+"""
+
+
+def upstream_status(error: object) -> int | None:
+    """The HTTP status inside a client library's exception, if there is one.
+
+    Read by shape rather than by importing ``httpx`` and catching its class, for
+    the same reason :func:`~.gatekeeper.status_code_of` is: a rule that only
+    works with one library stops working silently when a dependency changes
+    underneath it, and the first symptom here would be a match lost to an
+    unhandled exception in the middle of a turn.
+    """
+    code = getattr(getattr(error, "response", None), "status_code", None)
+    return code if isinstance(code, int) else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,8 +113,17 @@ class FastMcpTransport:
                 answer = await client.call_tool(tool, payload, timeout=timeout)
         except (TimeoutError, ConnectionError, OSError):
             raise  # already the vocabulary the retry budget understands
-        except RuntimeError as exc:
-            raise ConnectionError(f"could not reach {url}: {exc}") from exc
+        except Exception as exc:
+            status = upstream_status(exc)
+            if status in UPSTREAM_DEAD:
+                raise ConnectionError(
+                    f"could not reach {url}: the tunnel answered {status}, which means "
+                    "it is up but nothing is listening behind it — their agent is not "
+                    "running, or their tunnel points at a different port"
+                ) from exc
+            if isinstance(exc, RuntimeError):
+                raise ConnectionError(f"could not reach {url}: {exc}") from exc
+            raise
         data = answer.data
         if not isinstance(data, dict):
             raise TypeError(

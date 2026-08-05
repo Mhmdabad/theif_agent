@@ -32,6 +32,7 @@ import base64
 import json
 from dataclasses import dataclass, field
 from email.message import EmailMessage
+from pathlib import Path
 from typing import Any
 
 from ..shared.naming import result_filename
@@ -122,6 +123,7 @@ class Report:
     sub_games: tuple[SubGameResult, ...]
     total_tokens: int
     agreed: bool
+    game_uid: str = ""
     started_at: str = ""
     ended_at: str = ""
 
@@ -147,6 +149,7 @@ class Report:
         return {
             "schema_version": SCHEMA_VERSION,
             "game_id": self.game_id,
+            "game_uid": self.game_uid,
             "reported_by": {"role": self.role, "team": self.team},
             "opponent_team": self.opponent_team,
             "repositories": self.repositories.to_dict(),
@@ -169,6 +172,20 @@ class Report:
     @property
     def filename(self) -> str:
         return result_filename(self.game_id)
+
+    def write(self, directory: Path) -> Path:
+        """Write ``result_<game_id>.json`` — the same bytes that get attached.
+
+        The file and the attachment come from one :meth:`to_json`, so the copy
+        committed to the repository and the copy the lecturer receives cannot
+        drift. Writing the report twice, from two serialisations, is how the
+        evidence in the repository ends up disagreeing with the evidence in the
+        mailbox — and the two are meant to be the same document.
+        """
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / self.filename
+        path.write_text(self.to_json())
+        return path
 
 
 @dataclass

@@ -32,18 +32,29 @@ somebody else's match.
 import argparse
 import sys
 import tomllib
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
 from .infra.inboxes import TOOL_NAMES, PeerInboxes
 from .infra.mcp_client import ClientSettings
 from .infra.mcp_server import SERVER_NAME, ServerSettings, build, serve
-from .infra.tunnel import NotPublicError, discover
+from .infra.tunnel import NotPublicError, discover, read_ngrok_api
 
 PACKAGE = "thief_agent"
 ROLE = "thief"
 CONFIG = Path("config/thief/game.toml")
+
+
+_DEFAULT: Any = object()
+"""Stands in for "use the real ngrok probe", resolved at call time.
+
+``reader = read_ngrok_api`` would bind the default **once, at import**, so
+substituting the module attribute afterwards would change nothing — the exact
+defect that made the authorize suite open a real browser and hang (#280). A
+sentinel keeps the resolution where a test can reach it, and ``None`` stays
+available as a meaningful value: *do not probe at all*.
+"""
 
 
 class StartupError(RuntimeError):
@@ -65,8 +76,15 @@ def load_private(path: Path) -> dict[str, Any]:
     return body
 
 
-def where_we_are(environ: dict[str, str]) -> str:
+def where_we_are(
+    environ: dict[str, str], reader: Callable[[], str | bytes] | None = _DEFAULT
+) -> str:
     """The address to advertise, or a sentence explaining that there is none.
+
+    ``reader`` is the ngrok probe, exposed so a test can be hermetic. Without
+    it these checks pass or fail depending on whether the developer happens to
+    have a tunnel running — which is a test that reports the machine rather
+    than the code.
 
     A missing tunnel is not an error — localhost is explicitly permitted while
     developing, and refusing to start without one would make every local run
@@ -74,7 +92,7 @@ def where_we_are(environ: dict[str, str]) -> str:
     somebody set an address and got it wrong, which is worse than not setting it.
     """
     try:
-        endpoint = discover(environ)
+        endpoint = discover(environ, read_ngrok_api if reader is _DEFAULT else reader)
     except NotPublicError as exc:
         raise StartupError(f"the address we would advertise is unusable: {exc}") from exc
     if endpoint is None:
@@ -141,7 +159,11 @@ def main(argv: Sequence[str] | None = None, environ: dict[str, str] | None = Non
     return 0
 
 
-def require_playable(arguments: argparse.Namespace, environ: dict[str, str]) -> None:
+def require_playable(
+    arguments: argparse.Namespace,
+    environ: dict[str, str],
+    reader: Callable[[], str | bytes] | None = _DEFAULT,
+) -> None:
     """Refuse to open a match that cannot succeed, before anything is announced.
 
     ``serve`` is happy without a tunnel — local development is the normal case
@@ -160,7 +182,8 @@ def require_playable(arguments: argparse.Namespace, environ: dict[str, str]) -> 
             "play needs --game-id, agreed with the opponent before either side "
             "starts; both sides' files are named from it and must match"
         )
-    if discover(environ) is None:
+    probe = read_ngrok_api if reader is _DEFAULT else reader
+    if discover(environ, probe) is None:
         raise StartupError(
             "no public address to announce. Start a tunnel and export PUBLIC_URL, "
             "because announcing a loopback address to another team means every call "

@@ -14,11 +14,13 @@ import pytest
 from test_localhost_match import REPOS, build_declaration, parameters  # noqa: E402
 from thief_agent.domain.axes import AxisConvention
 from thief_agent.domain.board import BoardState
+from thief_agent.domain.scoring import Outcome, scores_for
 from thief_agent.infra.ceremony import AuditResult, Verdict
 from thief_agent.infra.inboxes import PeerInboxes
 from thief_agent.infra.match_log import MatchLog
 from thief_agent.infra.mcp_client import ClientSettings, OpponentClient
 from thief_agent.infra.report import Report, SubGameResult
+from thief_agent.runtime.driver import _cell, _now, _team
 from thief_agent.runtime.match import MatchRunner, SubGameOutcome
 from thief_agent.runtime.orchestrator import MatchAborted, Orchestrator
 from thief_agent.runtime.subgame import Played
@@ -63,7 +65,7 @@ def a_runner(tmp_path: Path, reply: dict[str, Any] | None = None) -> MatchRunner
     )
 
 
-def an_outcome(number: int, clean: bool = True) -> SubGameOutcome:
+def an_outcome(number: int, clean: bool = True, captured: bool = False) -> SubGameOutcome:
     log = MatchLog(
         game_id="uoh26-s82kma9e",
         sub_game=number,
@@ -83,7 +85,7 @@ def an_outcome(number: int, clean: bool = True) -> SubGameOutcome:
     board = BoardState(grid_size=8, cop=(0, 0), thief=(6, 5), barriers=frozenset(), step=2)
     return SubGameOutcome(
         number=number,
-        played=Played(2, board, False, "step limit reached", audit),
+        played=Played(2, board, captured, "capture" if captured else "step limit reached", audit),
         audit=audit,
         log=log,
     )
@@ -190,3 +192,112 @@ def result_for_two() -> Report:
         total_tokens=0,
         agreed=True,
     )
+
+
+class TestTheResultIsScoredFromWhatWasPlayed:
+    """The scoreboard, which until now was a placeholder in a fixture."""
+
+    def test_a_capture_scores_the_cop(self, tmp_path: Path) -> None:
+        runner = a_runner(tmp_path)
+        runner.outcomes.append(an_outcome(1, captured=True))
+        result = runner.result("a" * 40, 0, agreed=False, repositories=REPOS)
+        cop, thief = scores_for(Outcome.CAPTURE)
+        assert result.sub_games[0].cop_score == cop
+        assert result.sub_games[0].thief_score == thief
+
+    def test_survival_scores_the_thief(self, tmp_path: Path) -> None:
+        runner = a_runner(tmp_path)
+        runner.outcomes.append(an_outcome(1))
+        result = runner.result("a" * 40, 0, agreed=False, repositories=REPOS)
+        assert (result.sub_games[0].cop_score, result.sub_games[0].thief_score) == scores_for(
+            Outcome.SURVIVAL
+        )
+
+    def test_the_scores_come_from_appendix_f_not_from_here(self, tmp_path: Path) -> None:
+        """They are *fixed* parameters; inventing them is a disqualification."""
+        runner = a_runner(tmp_path)
+        runner.outcomes.append(an_outcome(1, captured=True))
+        result = runner.result("a" * 40, 0, agreed=False, repositories=REPOS)
+        assert (result.cop_total, result.thief_total) == scores_for(Outcome.CAPTURE)
+
+    def test_the_totals_add_up_across_sub_games(self, tmp_path: Path) -> None:
+        runner = a_runner(tmp_path)
+        runner.outcomes.extend([an_outcome(1, captured=True), an_outcome(2)])
+        result = runner.result("a" * 40, 0, agreed=False, repositories=REPOS)
+        capture, survival = scores_for(Outcome.CAPTURE), scores_for(Outcome.SURVIVAL)
+        assert result.cop_total == capture[0] + survival[0]
+        assert result.thief_total == capture[1] + survival[1]
+
+    def test_the_steps_played_are_recorded(self, tmp_path: Path) -> None:
+        runner = a_runner(tmp_path)
+        runner.outcomes.append(an_outcome(1))
+        result = runner.result("a" * 40, 0, agreed=False, repositories=REPOS)
+        assert result.sub_games[0].steps == 2
+
+    def test_agreement_has_no_default(self, tmp_path: Path) -> None:
+        """FR-7.16: only a person can say the other side accepted the result."""
+        import inspect
+
+        signature = inspect.signature(MatchRunner.result)
+        assert signature.parameters["agreed"].default is inspect.Parameter.empty
+
+    def test_a_result_is_not_agreed_just_because_we_played(self, tmp_path: Path) -> None:
+        runner = a_runner(tmp_path)
+        runner.outcomes.append(an_outcome(1))
+        result = runner.result("a" * 40, 0, agreed=False, repositories=REPOS)
+        assert result.to_dict()["result_agreed_with_opponent"] is False
+
+    def test_the_commit_hash_reaches_every_sub_game(self, tmp_path: Path) -> None:
+        """FR-7.28: which code played this game."""
+        runner = a_runner(tmp_path)
+        runner.outcomes.extend([an_outcome(1), an_outcome(2)])
+        result = runner.result("b" * 40, 0, agreed=False, repositories=REPOS)
+        assert {entry.commit_hash for entry in result.sub_games} == {"b" * 40}
+
+
+class TestReadingTheConfigForAMatch:
+    """The driver is uncovered by design; the parts that can be silently wrong are not."""
+
+    def test_a_start_cell_arrives_from_json_as_a_list(self) -> None:
+        """JSON has no tuples, and a board built from a list is a board of the wrong type."""
+        assert _cell([3, 4], (0, 0)) == (3, 4)
+
+    def test_a_tuple_survives_unchanged(self) -> None:
+        assert _cell((1, 2), (0, 0)) == (1, 2)
+
+    @pytest.mark.parametrize("bad", [None, [1], [1, 2, 3], "3,4", 7])
+    def test_anything_unusable_falls_back_rather_than_crashing(self, bad: object) -> None:
+        """A missing start is a config gap, not a reason to die mid-handshake."""
+        assert _cell(bad, (9, 9)) == (9, 9)
+
+    def test_a_team_is_read_from_the_private_config(self) -> None:
+        team = _team(
+            {
+                "us": {
+                    "name": "uoh26-cops",
+                    "members": ["A", "B"],
+                    "cop_repo": "https://x/cop",
+                    "thief_repo": "https://x/thief",
+                }
+            },
+            "us",
+            "fallback",
+        )
+        assert team.name == "uoh26-cops"
+        assert team.members == ("A", "B")
+
+    def test_a_team_with_no_repository_links_is_refused(self) -> None:
+        """FR-7.28 wants four links; a declaration without them cannot be built."""
+        from thief_agent.infra.declaration import DeclarationError
+
+        with pytest.raises(DeclarationError, match="four repository links"):
+            _team({"us": {"name": "x", "members": ["A"]}}, "us", "fallback")
+
+    def test_the_timestamp_is_utc_and_to_the_second(self) -> None:
+        """Both sides record times; a local-time one is unreconcilable."""
+        from datetime import datetime
+
+        stamp = _now()
+        parsed = datetime.fromisoformat(stamp)
+        assert parsed.tzinfo is not None
+        assert parsed.microsecond == 0

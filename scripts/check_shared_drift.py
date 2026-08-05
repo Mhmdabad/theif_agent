@@ -103,6 +103,7 @@ SHARED: tuple[str, ...] = (
 """Modules that must be identical once the package name is normalised."""
 
 DIVERGENT: dict[str, str] = {
+    "runtime/driver.py": "names this role and its private config path",
     "__main__.py": "names this role, its private config path and its default port",
     "infra/authorize.py": "stamps the role into the token; both agents share one OAuth client",
     "__init__.py": "package docstring names the role this repo implements",

@@ -1,5 +1,6 @@
 """The command somebody actually types, and what it tells them before it binds."""
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -58,11 +59,11 @@ class TestWhereWeSayWeAre:
     def test_a_loopback_url_that_was_set_on_purpose_is_an_error(self) -> None:
         """Somebody set an address and got it wrong, which is worse than not setting one."""
         with pytest.raises(StartupError, match="unusable"):
-            where_we_are({"PUBLIC_URL": "http://127.0.0.1:8802"})
+            where_we_are({"PUBLIC_URL": "http://127.0.0.1:8801"})
 
     def test_the_error_explains_the_cost(self) -> None:
         with pytest.raises(StartupError, match="not reachable from another machine"):
-            where_we_are({"PUBLIC_URL": "http://localhost:8802"})
+            where_we_are({"PUBLIC_URL": "http://localhost:8801"})
 
 
 class TestItFailsWithAReasonRatherThanATraceback:
@@ -125,3 +126,74 @@ class TestServing:
         monkeypatch.delenv("PUBLIC_URL", raising=False)
         monkeypatch.setattr("thief_agent.__main__.serve", lambda *_: None)
         assert main([]) == 0
+
+
+def record_play(seen: list[object]) -> Callable[..., int]:
+    def play(*args: object) -> int:
+        seen.append(args)
+        return 0
+
+    return play
+
+
+class TestPlayRefusesWithoutAnAgreedGameId:
+    """Both sides name their files from it; a mismatch is two unrelated sets."""
+
+    def test_play_without_a_game_id_exits_one(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.chdir(REPO)
+        assert main(["play"], environ=NO_TUNNEL) == 1
+
+    def test_the_message_says_it_must_be_agreed_beforehand(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.chdir(REPO)
+        main(["play"], environ=NO_TUNNEL)
+        assert "agreed with the opponent" in capsys.readouterr().err
+
+    def test_a_game_id_gets_it_past_the_check(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """It then tries to reach an opponent, which is where it belongs."""
+        monkeypatch.chdir(REPO)
+        started: list[object] = []
+        monkeypatch.setattr("thief_agent.__main__.play", record_play(started))
+        assert (
+            main(["play", "--game-id", "uoh26-test"], environ={"PUBLIC_URL": "https://a.ngrok.io"})
+            == 0
+        )
+        assert started, "play was never reached"
+
+
+class TestPlayRefusesWithoutAPublicAddress:
+    """`serve` tolerates no tunnel. `play` cannot — it announces to an opponent."""
+
+    def test_no_tunnel_stops_it_before_the_handshake(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.chdir(REPO)
+        assert main(["play", "--game-id", "uoh26-x"], environ=NO_TUNNEL) == 1
+
+    def test_the_message_explains_the_cost_to_both_sides(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Not '' must use one of ['https', 'http'], which helps nobody."""
+        monkeypatch.chdir(REPO)
+        main(["play", "--game-id", "uoh26-x"], environ=NO_TUNNEL)
+        error = capsys.readouterr().err
+        assert "start a tunnel" in error.lower()
+        assert "zero for both sides" in error
+
+    def test_a_public_url_gets_it_through(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.chdir(REPO)
+        started: list[object] = []
+        monkeypatch.setattr("thief_agent.__main__.play", record_play(started))
+        assert (
+            main(
+                ["play", "--game-id", "uoh26-x"],
+                environ={"PUBLIC_URL": "https://abc.ngrok.io"},
+            )
+            == 0
+        )
+        assert started
+
+    def test_serve_still_runs_without_one(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Local development must not be conditional on a tunnel."""
+        monkeypatch.chdir(REPO)
+        monkeypatch.setattr("thief_agent.__main__.serve", lambda *_: None)
+        assert main([], environ=NO_TUNNEL) == 0

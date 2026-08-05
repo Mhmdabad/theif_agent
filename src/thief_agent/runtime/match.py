@@ -17,7 +17,11 @@ match:
 3. **Play** — each sub-game through the four ceremony phases.
 4. **Audit** — re-derive every step the opponent committed to, once their
    nonces arrive. This is the only moment the question is answerable.
-5. **Record** — the four artefacts, checked for coherence before anything is
+5. **Score** — classify the final board through :mod:`..domain.scoring`, whose
+   table comes from Appendix F. The scores are *fixed* parameters: inventing
+   them here, or carrying a placeholder into a result file, is a deviation an
+   audit finds.
+6. **Record** — the four artefacts, checked for coherence before anything is
    written.
 
 **Nothing here mails anybody.** The report is built and written to disk; sending
@@ -33,12 +37,13 @@ from typing import Any
 
 from ..domain.axes import AxisConvention
 from ..domain.board import BoardState
+from ..domain.scoring import Outcome, scores_for
 from ..infra.artefacts import ArtefactSet
 from ..infra.ceremony import AuditResult
 from ..infra.config_file import LockedConfig, lock
 from ..infra.declaration import MatchDeclaration
 from ..infra.match_log import MatchLog
-from ..infra.report import Report
+from ..infra.report import Report, Repositories, SubGameResult
 from ..shared.config import config_sha256
 from ..strategy.base import BrainBase
 from .orchestrator import Orchestrator
@@ -63,6 +68,15 @@ class SubGameOutcome:
     @property
     def clean(self) -> bool:
         return self.audit.clean
+
+    @property
+    def outcome(self) -> Outcome:
+        """How this sub-game finished, in the rulebook's vocabulary."""
+        return Outcome.CAPTURE if self.played.captured else Outcome.SURVIVAL
+
+    def scores(self) -> tuple[int, int]:
+        """``(cop, thief)`` for this sub-game, from the Appendix F table."""
+        return scores_for(self.outcome)
 
 
 @dataclass
@@ -138,6 +152,39 @@ class MatchRunner:
         )
         self.outcomes.append(outcome)
         return outcome
+
+    def result(
+        self, commit_hash: str, total_tokens: int, agreed: bool, repositories: Repositories
+    ) -> Report:
+        """The binding report, scored from what was actually played.
+
+        ``agreed`` is a parameter and has no default. FR-7.16 requires both
+        sides to accept the result *before* either reports one, and a runner
+        that assumed agreement would produce a report claiming something no
+        human had checked. It is the one field only a person can fill in.
+        """
+        return Report(
+            game_id=self.game_id,
+            game_uid=self.declaration.game_uid,
+            role=self.role,
+            team=self.declaration.us.name,
+            opponent_team=self.declaration.them.name,
+            repositories=repositories,
+            sub_games=tuple(
+                SubGameResult(
+                    sub_game=outcome.number,
+                    cop_score=outcome.scores()[0],
+                    thief_score=outcome.scores()[1],
+                    commit_hash=commit_hash,
+                    steps=outcome.played.steps,
+                )
+                for outcome in self.outcomes
+            ),
+            total_tokens=total_tokens,
+            agreed=agreed,
+            started_at=self.declaration.started_at,
+            ended_at=self.now(),
+        )
 
     def artefacts(self, result: Report) -> ArtefactSet:
         """Step 5: the four files, as one set that must agree with itself."""

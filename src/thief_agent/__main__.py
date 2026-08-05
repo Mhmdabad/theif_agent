@@ -11,9 +11,15 @@ tools the server exposes. A command that tried to do both would have to guess at
 the half it does not control, and the guess would be wrong exactly when a real
 opponent behaved slightly differently from the one we imagined.
 
-So: ``serve`` runs the peer. ``check`` answers "would this work?" without
-binding anything, which is the question somebody actually has five minutes
-before a match.
+So: ``serve`` runs the peer and answers. ``check`` answers "would this work?"
+without binding anything, which is the question somebody actually has five
+minutes before a match. ``play`` is the other half — it starts the server *and*
+opens a match against an opponent who has already started theirs.
+
+``play`` writes the four artefacts and stops. **It does not send anything.**
+FR-7.16 requires both sides to agree the result before either reports, so the
+report is written to disk with ``agreed`` false and mailing it is a separate,
+later, human act.
 
 **It prints where it is reachable, and says plainly when that is nowhere.**
 Advertising a loopback address to another team is not a small mistake — every
@@ -97,10 +103,16 @@ def main(argv: Sequence[str] | None = None, environ: dict[str, str] | None = Non
         "command",
         nargs="?",
         default="serve",
-        choices=("serve", "check"),
-        help="serve: run the peer. check: report the configuration and exit.",
+        choices=("serve", "check", "play"),
+        help=(
+            "serve: run the peer and answer. check: report the configuration and exit. "
+            "play: serve and open a match against an opponent who has already started."
+        ),
     )
     parser.add_argument("--config", type=Path, default=CONFIG, help="private per-peer TOML")
+    parser.add_argument("--game-id", default="", help="agreed with the opponent beforehand")
+    parser.add_argument("--out", type=Path, default=Path("artefacts"), help="where to write")
+    parser.add_argument("--sub-games", type=int, default=1)
     arguments = parser.parse_args(argv)
 
     import os  # noqa: PLC0415 - read once, here, so tests can supply their own
@@ -114,12 +126,86 @@ def main(argv: Sequence[str] | None = None, environ: dict[str, str] | None = Non
         if arguments.command == "check":
             return 0
         settings = ServerSettings.from_config(private.get("network", {}))
+        if arguments.command == "play":
+            require_playable(arguments, source)
     except (StartupError, ValueError) as exc:
         print(f"cannot start: {exc}", file=sys.stderr)
         return 1
 
+    inboxes = PeerInboxes()
+    if arguments.command == "play":
+        return play(arguments, private, settings, inboxes, source)
+
     print("serving — stop with Ctrl-C", flush=True)
-    serve(build(PeerInboxes()), settings)
+    serve(build(inboxes), settings)
+    return 0
+
+
+def require_playable(arguments: argparse.Namespace, environ: dict[str, str]) -> None:
+    """Refuse to open a match that cannot succeed, before anything is announced.
+
+    ``serve`` is happy without a tunnel — local development is the normal case
+    and refusing would make every test run conditional on ngrok. ``play`` is
+    not: it *announces our address to an opponent*, and announcing nothing (or
+    a loopback) means every call they make times out, the deadline tracker
+    turns that into a technical loss, and a technical loss scores zero for
+    **both** sides.
+
+    Checked here rather than in the handshake because the handshake's own
+    complaint is ``'' must use one of ['https', 'http']`` — true, and no use at
+    all to somebody who has simply not started a tunnel.
+    """
+    if not arguments.game_id:
+        raise StartupError(
+            "play needs --game-id, agreed with the opponent before either side "
+            "starts; both sides' files are named from it and must match"
+        )
+    if discover(environ) is None:
+        raise StartupError(
+            "no public address to announce. Start a tunnel and export PUBLIC_URL, "
+            "because announcing a loopback address to another team means every call "
+            "they make times out — and a technical loss scores zero for both sides, "
+            "not just for us. Use `check` to confirm before you try again"
+        )
+
+
+def play(
+    arguments: argparse.Namespace,
+    private: dict[str, Any],
+    settings: ServerSettings,
+    inboxes: PeerInboxes,
+    environ: dict[str, str],
+) -> int:  # pragma: no cover - drives a live opponent
+    """Serve, then open a match. Writes artefacts; sends nothing.
+
+    Not covered by tests, and the reason is the same one that keeps
+    ``run_live`` uncovered: the thing under test would be *another team*.
+    Everything it composes — the handshake, the digest exchange, the ceremony,
+    the audit, the artefact set — is covered against a real opponent in
+    ``test_localhost_match``. This function is the part that cannot be.
+    """
+    import threading
+
+    from .runtime.driver import open_match
+
+    threading.Thread(target=serve, args=(build(inboxes), settings), daemon=True).start()
+    print(f"serving on {settings.host}:{settings.port}", flush=True)
+    try:
+        written = open_match(
+            inboxes=inboxes,
+            private=private,
+            environ=environ,
+            game_id=arguments.game_id,
+            sub_games=arguments.sub_games,
+            directory=arguments.out,
+        )
+    except Exception as exc:  # noqa: BLE001 - a match failure is a message, not a traceback
+        print(f"the match did not finish: {exc}", file=sys.stderr)
+        return 1
+    for path in written:
+        print(f"  wrote {path}")
+    print("\nNothing has been emailed. Agree the result with the opponent first,")
+    print("then send it deliberately — FR-7.16.")
     return 0
 
 

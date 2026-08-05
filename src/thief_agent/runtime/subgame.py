@@ -122,6 +122,14 @@ class SubGame:
 
     their_final: FinalReveal | None = field(default=None, init=False)
 
+    play_result: Played | None = field(default=None, init=False)
+    """How this sub-game ended, kept so a caller can ask again later.
+
+    ``play()`` returns it too. Keeping it as well means a match runner that
+    assembles artefacts after the fact does not have to have held on to the
+    return value through a handshake, an audit and a file write.
+    """
+
     def __post_init__(self) -> None:
         self.ceremony = MatchCeremony(role=self.role)
 
@@ -144,9 +152,13 @@ class SubGame:
             self._one_step(step)
             if self._captured():
                 self._disclose()
-                return Played(step, self.state, True, "capture", self.audit())
+                return self._finished(step, captured=True, reason="capture")
         self._disclose()
-        return Played(played, self.state, False, "step limit reached", self.audit())
+        return self._finished(played, captured=False, reason="step limit reached")
+
+    def _finished(self, steps: int, *, captured: bool, reason: str) -> Played:
+        self.play_result = Played(steps, self.state, captured, reason, self.audit())
+        return self.play_result
 
     def _one_step(self, step: int) -> None:
         """Advance the board's own step counter *before* anything is sealed.

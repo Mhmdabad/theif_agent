@@ -40,10 +40,13 @@ from ..domain.outcome import is_capture_by_overlap, is_enclosure_capture, is_tra
 from ..domain.rules import advance_turn
 from ..infra.ceremony import (
     Acknowledgement,
+    AuditResult,
     Commitment,
     FinalReveal,
     MatchCeremony,
     Reveal,
+    Verdict,
+    audit_opponent,
 )
 from ..infra.match_log import MatchLog
 from ..strategy.base import BrainBase
@@ -78,16 +81,21 @@ class Peer(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class Played:
-    """How a sub-game ended, and the board it ended on."""
+    """How a sub-game ended, the board it ended on, and whether they played fair."""
 
     steps: int
     final: BoardState
     captured: bool
     reason: str
+    audit: AuditResult
 
     @property
     def thief_survived(self) -> bool:
         return not self.captured
+
+    @property
+    def opponent_played_fairly(self) -> bool:
+        return self.audit.clean
 
 
 @dataclass
@@ -103,6 +111,16 @@ class SubGame:
     max_steps: int
     ceremony: MatchCeremony = field(init=False)
     now: Callable[[], str] = field(default=lambda: "")
+    sealed_states: dict[int, BoardState] = field(default_factory=dict, init=False)
+    """The board each step was sealed against, kept for the audit.
+
+    Recorded when the step opens, before either side's move is applied. That is
+    the state both peers hashed into their commitments, and without it their
+    reveals cannot be re-derived from anything — the nonces would arrive and
+    prove nothing.
+    """
+
+    their_final: FinalReveal | None = field(default=None, init=False)
 
     def __post_init__(self) -> None:
         self.ceremony = MatchCeremony(role=self.role)
@@ -126,9 +144,9 @@ class SubGame:
             self._one_step(step)
             if self._captured():
                 self._disclose()
-                return Played(step, self.state, captured=True, reason="capture")
+                return Played(step, self.state, True, "capture", self.audit())
         self._disclose()
-        return Played(played, self.state, captured=False, reason="step limit reached")
+        return Played(played, self.state, False, "step limit reached", self.audit())
 
     def _one_step(self, step: int) -> None:
         """Advance the board's own step counter *before* anything is sealed.
@@ -142,6 +160,7 @@ class SubGame:
         counting the same thing.
         """
         self.state = advance_turn(self.state)
+        self.sealed_states[step] = self.state
         record, action, opened = self._commit(step)
         self._acknowledge(step)
         self._reveal(step, record, opened)
@@ -258,4 +277,28 @@ class SubGame:
         for step, secret in disclosed.nonces.items():
             self.log.disclose(step, secret)
         self.peer.send_final(disclosed)
-        self.ceremony.receive_final_reveal(self.peer.await_final())
+        self.their_final = self.ceremony.receive_final_reveal(self.peer.await_final())
+
+    def audit(self) -> AuditResult:
+        """Re-derive every step the opponent committed to.
+
+        The nonces arrive in phase 4 and are the only thing that can open their
+        commitments, so this is the first moment the question is answerable —
+        and it is the last moment anybody asks it. A match that retained all the
+        material and never ran this would be one where the cryptography was
+        decoration.
+
+        Every step is checked rather than stopping at the first failure. The
+        opponent is entitled to the whole list: a dispute settled on one step
+        tends to be reopened on the next.
+        """
+        if self.their_final is None:
+            return AuditResult(
+                verdict=Verdict.FORGED,
+                checked=0,
+                failures=(
+                    f"the {self.opponent} disclosed no nonces, so nothing they committed "
+                    "to can be opened; their play is unverifiable rather than proven",
+                ),
+            )
+        return audit_opponent(self.ceremony, self.their_final, self.sealed_states)

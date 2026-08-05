@@ -7,6 +7,7 @@ actually exchanging messages.
 """
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -22,6 +23,7 @@ from thief_agent.infra.ceremony import (
     FinalReveal,
     MatchCeremony,
     Reveal,
+    Verdict,
 )
 from thief_agent.infra.match_log import MatchLog
 from thief_agent.runtime.subgame import SubGame, UnplayableReveal
@@ -50,9 +52,9 @@ def board(
 def walled_in() -> BoardState:
     """The thief with nowhere to go: the cop on top of it, barriers all round.
 
-    The police repository can force a capture by simply starting the two on one
-    cell, because its brain moves the cop *towards* the thief. Ours flees, so
-    an overlap at step zero is gone by step one — the capture has to be one the
+    The police repository forces a capture by starting the two on one cell,
+    because its brain moves the cop *towards* the thief. Ours flees, so an
+    overlap at step zero is gone by step one — the capture has to be one the
     thief cannot walk out of.
     """
     return BoardState(
@@ -88,6 +90,11 @@ class StandInOpponent:
         self.ceremony.at(commitment.step).receive(Commitment.from_dict(self._wire(commitment)))
 
     def await_commit(self, step: int) -> Commitment:
+        # A real opponent advances its own board in step with ours. One that did
+        # not would seal every commitment against step zero, and our audit would
+        # accuse it of forgery at every step — correctly, because it would be
+        # re-deriving against a board the two sides never agreed on.
+        self.state = replace(self.state, step=step)
         record = step_record(self.state, self.role, self.move, "truth", f"t{step}")
         secret = nonce()
         self.records[step], self.nonces[step] = record, secret
@@ -272,8 +279,7 @@ class TestTheCeremonyIsReal:
 class TestCaptureEndsIt:
     def test_the_loop_stops_on_capture(self, tmp_path: Path) -> None:
         """A log whose later steps describe a finished game is two results."""
-        start = walled_in()
-        game, _, _ = a_subgame(tmp_path, max_steps=6, state=start)
+        game, _, _ = a_subgame(tmp_path, max_steps=6, state=walled_in())
         played = game.play()
         assert played.captured
         assert played.reason == "capture"
@@ -371,3 +377,61 @@ class TestTheEdgesOfTheLoop:
             "intent": "truth",
             "reasoning": "closing the north gap",
         }
+
+
+class TestTheOpponentIsAudited:
+    """The question the nonces exist to answer, asked at last."""
+
+    def test_an_honest_opponent_audits_clean(self, tmp_path: Path) -> None:
+        game, _, _ = a_subgame(tmp_path, max_steps=3)
+        played = game.play()
+        assert played.opponent_played_fairly, str(played.audit)
+        assert played.audit.checked == 3
+
+    def test_a_corrupted_reveal_is_caught_here(self, tmp_path: Path) -> None:
+        """Not at reveal time — the nonce that proves it arrives in phase 4."""
+        game, _, _ = a_subgame(tmp_path, StandInOpponent(corrupt_at=2), max_steps=3)
+        played = game.play()
+        assert not played.opponent_played_fairly
+        assert played.audit.verdict is Verdict.FORGED
+
+    def test_the_finding_names_the_step_and_the_arithmetic(self, tmp_path: Path) -> None:
+        """'You cheated' is not a claim anyone concedes; a digest is."""
+        game, _, _ = a_subgame(tmp_path, StandInOpponent(corrupt_at=2), max_steps=3)
+        failures = game.play().audit.failures
+        assert "step 2" in failures[0]
+        assert "produces" in failures[0]
+
+    def test_a_forgery_does_not_stay_local(self, tmp_path: Path) -> None:
+        """The step after a lie fails too, and that is correct rather than noise.
+
+        A reveal that disagrees with its commitment is a move the two peers
+        then apply differently — so their boards diverge, and every later step
+        is sealed against a state we no longer share. The audit reports the
+        first failure and everything downstream of it, which is what actually
+        happened: not one bad step in an otherwise sound game, but a game that
+        stopped being the same game at step two.
+        """
+        game, _, _ = a_subgame(tmp_path, StandInOpponent(corrupt_at=2), max_steps=3)
+        failures = game.play().audit.failures
+        assert [f.split(":")[0] for f in failures] == ["step 2", "step 3"]
+
+    def test_every_step_is_still_checked(self, tmp_path: Path) -> None:
+        """Stopping at the first would hand them an incomplete accusation."""
+        game, _, _ = a_subgame(tmp_path, StandInOpponent(corrupt_at=2), max_steps=3)
+        assert game.play().audit.checked == 3
+
+    def test_the_board_each_step_was_sealed_against_is_kept(self, tmp_path: Path) -> None:
+        """Without it their nonces arrive and prove nothing."""
+        game, _, _ = a_subgame(tmp_path, max_steps=3)
+        game.play()
+        assert sorted(game.sealed_states) == [1, 2, 3]
+        assert game.sealed_states[2].step == 2
+
+    def test_an_opponent_who_disclosed_nothing_is_unverifiable(self, tmp_path: Path) -> None:
+        """Not 'clean'. Silence is not a defence, and must not read as one."""
+        game, _, _ = a_subgame(tmp_path, max_steps=1)
+        game._one_step(1)  # noqa: SLF001
+        result = game.audit()
+        assert result.verdict is Verdict.FORGED
+        assert "unverifiable rather than proven" in result.failures[0]

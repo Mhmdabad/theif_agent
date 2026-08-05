@@ -15,7 +15,7 @@ from thief_agent.infra.gatekeeper import (
     Wait,
     status_code_of,
 )
-from thief_agent.infra.quota import Quota
+from thief_agent.infra.quota import Quota, QuotaError
 from thief_agent.infra.token_bucket import Limiter, RateLimitError, TokenBucket
 
 
@@ -111,6 +111,50 @@ class TestTheBucketSaysNotYetRatherThanNo:
                 assert "rate limiter" in str(exc)
                 return
         pytest.fail("the queue never filled")
+
+    def test_a_wait_does_not_spend_a_quota_slot(self, tmp_path: Path) -> None:
+        """Found by the send-storm simulation, and it defeated the whole point.
+
+        A caller told to wait has sent nothing. Charging it a slot meant a loop
+        being throttled *correctly* drained the entire day's ceiling without a
+        single message leaving — and was then refused by the gate that had been
+        protecting it.
+        """
+        gate = gatekeeper(tmp_path, limit=50)
+        gate.admit()
+        gate.admit()
+        for _ in range(200):
+            assert isinstance(gate.admit(), Wait)
+            gate.release()
+        assert gate.quota.used() == 2, "only the two that actually went out"
+
+    def test_the_reservation_still_happens_before_the_send(self, tmp_path: Path) -> None:
+        """Moving it later must not turn it into record-on-success."""
+        gate = gatekeeper(tmp_path)
+        assert gate.admit() is None
+        assert gate.quota.used() == 1, "reserved by the time admit() returns"
+
+    def test_a_reservation_that_fails_after_the_check_is_still_a_refusal(
+        self, tmp_path: Path
+    ) -> None:
+        """The check and the reservation are two reads of a file on disk.
+
+        Nothing single-threaded gets between them, but the second agent, a
+        second process, or a ledger damaged mid-flight all can. The guard is
+        not redundant just because the happy path never reaches it.
+        """
+        gate = gatekeeper(tmp_path)
+
+        class Vanishing(Quota):
+            def check(self) -> None:
+                return
+
+            def reserve(self, count: int = 1) -> int:
+                raise QuotaError("the ledger changed under us")
+
+        gate.quota = Vanishing(path=tmp_path / ".quota_thief.json", limit=10)
+        with pytest.raises(Rejected, match="quota: the ledger changed"):
+            gate.admit()
 
     def test_release_frees_a_queue_slot(self, tmp_path: Path) -> None:
         gate = gatekeeper(tmp_path)

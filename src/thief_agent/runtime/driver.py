@@ -118,8 +118,9 @@ def open_match(
     are covered.
     """
     network = private.get("network", {})
+    transport = FastMcpTransport()
     client = OpponentClient(
-        transport=FastMcpTransport(), settings=ClientSettings.from_config(network, environ)
+        transport=transport, settings=ClientSettings.from_config(network, environ)
     )
     orchestrator = Orchestrator(inboxes=inboxes, client=client, role=ROLE)
 
@@ -177,9 +178,12 @@ def open_match(
         now=_now,
     )
 
-    runner.agree()
-    for number in range(1, sub_games + 1):
-        runner.play_sub_game(number)
+    try:
+        runner.agree()
+        for number in range(1, sub_games + 1):
+            runner.play_sub_game(number)
+    finally:
+        transport.close()
 
     if not runner.opponent_played_fairly:
         for failure in runner.failures():

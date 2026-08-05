@@ -162,7 +162,9 @@ class TestHandshakeChecks:
         orch, transport = orchestrator()
         orch.announce(orch.greeting(OUR_URL, "s82kma9e"))
         assert transport.calls[0]["tool"] == "negotiate"
-        assert transport.calls[0]["payload"]["greeting"]["public_url"] == f"{OUR_URL}/mcp"
+        assert (
+            transport.calls[0]["payload"]["message"]["greeting"]["public_url"] == f"{OUR_URL}/mcp"
+        )
 
     def test_a_matching_protocol_and_opposite_role_passes(self) -> None:
         orch, _ = orchestrator()
@@ -397,7 +399,7 @@ class TestConfigAgreement:
         config = shipped()
         orch, transport = orchestrator({"ok": True})
         assert orch.agree_config(config) == config_sha256(config)
-        assert transport.calls[0]["payload"]["config_sha256"] == config_sha256(config)
+        assert transport.calls[0]["payload"]["message"]["config_sha256"] == config_sha256(config)
 
     def test_it_negotiates_over_the_wire_tool(self) -> None:
         orch, transport = orchestrator({"ok": True})

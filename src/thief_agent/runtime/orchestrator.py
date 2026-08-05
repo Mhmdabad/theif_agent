@@ -150,7 +150,7 @@ class Orchestrator:
     def announce(self, ours: Greeting) -> dict[str, Any]:
         """Push our address to the opponent through ``negotiate``."""
         self.beat("announce")
-        return self.call_opponent("negotiate", {"greeting": ours.to_dict()})
+        return self.call_opponent("negotiate", {"message": {"greeting": ours.to_dict()}})
 
     def latest_agreement(self, timeout: float) -> dict[str, Any]:
         """Take the **newest** greeting waiting in the mailbox, not the oldest.
@@ -368,7 +368,7 @@ class Orchestrator:
         """
         ours = config_sha256(config)
         self.beat("negotiate_config")
-        reply = self.call_opponent("negotiate", {"config_sha256": ours})
+        reply = self.call_opponent("negotiate", {"message": {"config_sha256": ours}})
         if not reply.get("ok", False):
             raise MatchAborted(TechnicalLoss.ILLEGAL_ACTION, str(reply.get("detail", "")))
         return ours

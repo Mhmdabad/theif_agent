@@ -163,7 +163,7 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done · **🚪 GATE** = milesto
 - [ ] OAuth Client ID (Desktop Application) → `credentials.json` **(gitignored)**
 - [ ] First authorization flow → `token.json` **(gitignored)**
 - [x] **Quota Manager** — daily safety threshold
-- [ ] **Token Bucket** — 30 rpm, 2 concurrent, 5 s backoff, 3 retries, queue 100
+- [x] **Token Bucket** — 30 rpm, 2 concurrent, 5 s backoff, 3 retries, queue 100
 - [ ] **DOS Detector** — anomaly lock (backpressure / circuit breaker)
 - [ ] 429 handling: honour, back off, wait for next window — never blind retry
 - [ ] Report sent as **structured JSON attachment**, never free plaintext

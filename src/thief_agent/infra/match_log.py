@@ -32,11 +32,33 @@ from ..domain.actions import ROLES
 from ..shared.naming import log_filename
 
 SLOTS = ("commit", "reveal", "nonce")
-"""The three things recorded per step, in the only order they may arrive."""
+"""The three things recorded per step, in the only order they may arrive.
+
+``discussion`` is a fourth slot but not one of these: it is written alongside
+the reveal rather than in sequence with it, and it is **not covered by the
+commitment**. Keeping it out of ``SLOTS`` is what stops it being treated as
+evidence — see :meth:`MatchLog.discuss`.
+"""
 
 
 class MatchLogError(ValueError):
     """Raised on any attempt to write a slot that is already written."""
+
+
+@dataclass(frozen=True, slots=True)
+class Completeness:
+    """Whether a log can be fully re-verified, and what is absent if not."""
+
+    missing: tuple[str, ...] = ()
+
+    @property
+    def complete(self) -> bool:
+        return not self.missing
+
+    def __str__(self) -> str:
+        if self.complete:
+            return "a third party can fully re-verify this sub-game"
+        return "cannot be fully re-verified without " + "; ".join(self.missing)
 
 
 @dataclass
@@ -47,6 +69,7 @@ class StepEntry:
     commit: str | None = None
     reveal: dict[str, Any] | None = None
     nonce: str | None = None
+    discussion: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -54,6 +77,7 @@ class StepEntry:
             "commit": self.commit,
             "reveal": self.reveal,
             "nonce": self.nonce,
+            "discussion": self.discussion,
         }
 
 
@@ -64,6 +88,8 @@ class MatchLog:
     game_id: str
     sub_game: int
     role: str
+    game_uid: str = ""
+    config_sha256: str = ""
     entries: dict[int, StepEntry] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -127,16 +153,71 @@ class MatchLog:
             )
         entry.nonce = nonce
 
+    def discuss(self, step: int, fields: dict[str, Any]) -> None:
+        """Record the LLM discussion fields for a step. Write-once, like the rest.
+
+        **Not covered by the commitment, and deliberately so.** What we said to
+        our own model is not something the opponent can check, and sealing an
+        unverifiable value would let a team write anything here afterwards and
+        point at a digest that never described it. The rulebook asks for these
+        fields because they show *how* a decision was reached; they are context
+        for a reader, not evidence for an auditor, and the log should not blur
+        the two.
+
+        Raises:
+            MatchLogError: if the step has no commitment yet. Discussion
+                recorded before a commitment is a note about a move that had
+                not been fixed, which is the ordering the log exists to refute.
+        """
+        entry = self._slot(step, "discussion")
+        if entry.commit is None:
+            raise MatchLogError(
+                f"step {step} has discussion recorded before any commitment; the order "
+                "is the evidence, and reasoning that precedes a sealed move proves nothing"
+            )
+        entry.discussion = fields
+
     def unopened(self) -> list[int]:
         """Steps with no nonce yet. Empty is the only acceptable end state."""
         return sorted(step for step, entry in self.entries.items() if entry.nonce is None)
+
+    def verifiable(self) -> "Completeness":
+        """Whether a third party could fully re-verify this sub-game from this file.
+
+        The question the rulebook actually asks of a log, and it is not the same
+        as "was it written correctly". A log can be perfectly well-formed and
+        still leave an auditor unable to finish: without ``config_sha256`` they
+        cannot say which physics applied, without ``game_uid`` they cannot tie
+        it to the declaration, and without every nonce they cannot open every
+        commitment.
+
+        Reported rather than raised. A mid-match log is legitimately incomplete,
+        and refusing to describe it would make this useless at exactly the
+        moment somebody wants to know how far along it is.
+        """
+        missing: list[str] = []
+        if not self.game_uid:
+            missing.append("game_uid (nothing ties this log to the declaration)")
+        if not self.config_sha256:
+            missing.append("config_sha256 (nobody can say which physics applied)")
+        if not self.entries:
+            missing.append("steps (a log of nothing verifies nothing)")
+        unopened = self.unopened()
+        if unopened:
+            missing.append(f"nonces for steps {unopened}")
+        unrevealed = sorted(step for step, entry in self.entries.items() if entry.reveal is None)
+        if unrevealed:
+            missing.append(f"reveals for steps {unrevealed}")
+        return Completeness(tuple(missing))
 
     def to_dict(self) -> dict[str, Any]:
         """The file's contents, sorted by step so identical histories agree."""
         return {
             "game_id": self.game_id,
+            "game_uid": self.game_uid,
             "sub_game": self.sub_game,
             "role": self.role,
+            "config_sha256": self.config_sha256,
             "steps": [self.entries[step].to_dict() for step in sorted(self.entries)],
         }
 

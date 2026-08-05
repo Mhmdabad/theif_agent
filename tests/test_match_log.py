@@ -29,7 +29,8 @@ def played(steps: int = 2) -> MatchLog:
 
 class TestTheOrderIsTheEvidence:
     def test_a_full_step_records_all_three_slots(self) -> None:
-        assert tuple(played(1).entries[1].to_dict()) == ("step", *SLOTS)
+        """Plus discussion, which is written beside them and is not one of them."""
+        assert tuple(played(1).entries[1].to_dict()) == ("step", *SLOTS, "discussion")
 
     def test_a_reveal_before_a_commitment_is_refused(self) -> None:
         """The exact shape of a move decided after seeing the opponent's.
@@ -131,3 +132,99 @@ class TestTheFile:
     def test_a_role_the_wire_does_not_name_is_refused(self) -> None:
         with pytest.raises(MatchLogError, match="role must be one of"):
             MatchLog(game_id="g1", sub_game=1, role="cop")
+
+
+class TestTheDiscussionFields:
+    """The rulebook asks for them; the log must not treat them as evidence."""
+
+    def test_they_are_recorded(self) -> None:
+        log = MatchLog(game_id="uoh26-s82kma9e", sub_game=1, role="thief")
+        log.commit(1, "a" * 64)
+        log.discuss(1, {"prompt_tokens": 120, "reasoning": "close the north gap"})
+        assert log.entries[1].discussion == {
+            "prompt_tokens": 120,
+            "reasoning": "close the north gap",
+        }
+
+    def test_they_are_write_once_like_everything_else(self) -> None:
+        log = MatchLog(game_id="uoh26-s82kma9e", sub_game=1, role="thief")
+        log.commit(1, "a" * 64)
+        log.discuss(1, {"reasoning": "first"})
+        with pytest.raises(MatchLogError, match="already has a discussion"):
+            log.discuss(1, {"reasoning": "second"})
+
+    def test_they_cannot_precede_the_commitment(self) -> None:
+        """Reasoning recorded before a sealed move proves nothing about it."""
+        log = MatchLog(game_id="uoh26-s82kma9e", sub_game=1, role="thief")
+        with pytest.raises(MatchLogError, match="before any commitment"):
+            log.discuss(1, {"reasoning": "I intend to"})
+
+    def test_they_are_not_one_of_the_committed_slots(self) -> None:
+        """What we told our own model is not something the opponent can check."""
+        assert "discussion" not in SLOTS
+
+    def test_a_log_is_verifiable_without_them(self) -> None:
+        """They are context for a reader, not evidence for an auditor."""
+        log = sealed_log()
+        assert log.verifiable().complete
+        assert log.entries[1].discussion is None
+
+
+def sealed_log(steps: int = 2, disclose: bool = True) -> MatchLog:
+    """A log with everything an auditor needs, or all but the nonces."""
+    log = MatchLog(
+        game_id="uoh26-s82kma9e",
+        sub_game=1,
+        role="thief",
+        game_uid="u-0001",
+        config_sha256="c" * 64,
+    )
+    for step in range(1, steps + 1):
+        log.commit(step, f"{step:064x}")
+        log.reveal(step, {"move": "N"})
+        if disclose:
+            log.disclose(step, f"{step:032x}")
+    return log
+
+
+class TestWhetherAThirdPartyCanReVerify:
+    def test_a_finished_log_can_be(self) -> None:
+        result = sealed_log().verifiable()
+        assert result.complete
+        assert "fully re-verify" in str(result)
+
+    def test_a_log_with_no_config_hash_cannot(self) -> None:
+        """Without it nobody can say which physics the moves were legal under."""
+        log = sealed_log()
+        log.config_sha256 = ""
+        assert not log.verifiable().complete
+        assert "which physics applied" in str(log.verifiable())
+
+    def test_a_log_with_no_game_uid_cannot(self) -> None:
+        log = sealed_log()
+        log.game_uid = ""
+        assert "ties this log to the declaration" in str(log.verifiable())
+
+    def test_a_log_with_no_steps_cannot(self) -> None:
+        assert "a log of nothing verifies nothing" in str(sealed_log(steps=0).verifiable())
+
+    def test_a_mid_match_log_cannot_yet(self) -> None:
+        """Legitimately incomplete — reported, not raised."""
+        result = sealed_log(disclose=False).verifiable()
+        assert not result.complete
+        assert "nonces for steps [1, 2]" in str(result)
+
+    def test_a_step_with_no_reveal_is_named(self) -> None:
+        log = sealed_log()
+        log.entries[2].reveal = None
+        assert "reveals for steps [2]" in str(log.verifiable())
+
+    def test_it_names_everything_missing_at_once(self) -> None:
+        """An auditor should not have to fix one thing to discover the next."""
+        log = MatchLog(game_id="uoh26-s82kma9e", sub_game=1, role="thief")
+        assert len(log.verifiable().missing) == 3
+
+    def test_the_header_reaches_the_file(self, tmp_path: Path) -> None:
+        body = json.loads(sealed_log().write(tmp_path).read_text())
+        assert body["game_uid"] == "u-0001"
+        assert body["config_sha256"] == "c" * 64

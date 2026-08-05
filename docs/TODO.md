@@ -162,7 +162,7 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done · **🚪 GATE** = milesto
 - [x] Scope restricted to `https://www.googleapis.com/auth/gmail.send` **only**
 - [ ] OAuth Client ID (Desktop Application) → `credentials.json` **(gitignored)**
 - [ ] First authorization flow → `token.json` **(gitignored)**
-- [ ] **Quota Manager** — daily safety threshold
+- [x] **Quota Manager** — daily safety threshold
 - [ ] **Token Bucket** — 30 rpm, 2 concurrent, 5 s backoff, 3 retries, queue 100
 - [ ] **DOS Detector** — anomaly lock (backpressure / circuit breaker)
 - [ ] 429 handling: honour, back off, wait for next window — never blind retry

@@ -58,6 +58,7 @@ SHARED: tuple[str, ...] = (
     "domain/budgeting.py",
     "infra/artefacts.py",
     "infra/ceremony.py",
+    "runtime/peer.py",
     "runtime/subgame.py",
     "infra/mcp_transport.py",
     "infra/config_file.py",
@@ -98,6 +99,7 @@ SHARED: tuple[str, ...] = (
 """Modules that must be identical once the package name is normalised."""
 
 DIVERGENT: dict[str, str] = {
+    "__main__.py": "names this role, its private config path and its default port",
     "infra/authorize.py": "stamps the role into the token; both agents share one OAuth client",
     "__init__.py": "package docstring names the role this repo implements",
     "domain/outcome.py": "capture-claim framing differs: who is obliged, and to whom",

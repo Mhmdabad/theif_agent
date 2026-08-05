@@ -49,19 +49,37 @@ must answer a capture claim truthfully under cryptographic obligation.
 
 ## Status
 
-Under development. Progress is tracked as one GitHub issue per task, labelled by
-build stage (`stage-0` … `stage-7`, `league`, `submission`, `final-checklist`).
+Stages 0–7 are complete: both agents run, expose the four MCP tools over a
+tunnel, play a full Commit-Reveal match against each other, audit the
+opponent's every step, and write the four mandatory artefacts. What remains is
+league play and submission — matches against other teams, screenshots, and the
+Moodle paperwork.
+
+Progress is tracked as one GitHub issue per task, labelled by build stage
+(`stage-0` … `stage-7`, `league`, `submission`, `final-checklist`).
 
 | Stage | Scope | State |
 | --- | --- | --- |
-| 0 | Repository setup | in progress |
-| 1 | Base logic | not started |
-| 2 | FastMCP infrastructure | not started |
-| 3 | Strategy module | not started |
-| 4 | Language and scent | not started |
-| 5 | Cloud exposure | not started |
-| 6 | Cryptography | not started |
-| 7 | Reporting, GUI, replay | not started |
+| 0 | Repository setup | complete |
+| 1 | Base logic | complete |
+| 2 | FastMCP infrastructure | complete |
+| 3 | Strategy module | complete |
+| 4 | Language and scent | complete |
+| 5 | Cloud exposure | complete |
+| 6 | Cryptography | complete |
+| 7 | Reporting, GUI, replay | complete |
+| — | League play and submission | in progress |
+
+Every merge is gated on `ruff`, `ruff format`, `mypy --strict`, a 100 %-covered
+test suite, and a cross-repository drift check that fails if a module shared
+with the companion agent has diverged.
+
+**Known limits, stated rather than discovered.** The Step-0 declaration reads
+`"unsigned"` until the course issues the signing key. The verbal layer runs in
+zero-token `template` mode by default, so `total_tokens` is 0 until the
+`claude_api` provider is enabled. Neither is a defect; both are choices with a
+reason, and the reasons are in [`docs/SECRETS.md`](docs/SECRETS.md) and
+[`docs/prd/PRD-4-language-and-scent.md`](docs/prd/PRD-4-language-and-scent.md).
 
 Planning documents: [`docs/PLAN.md`](docs/PLAN.md),
 [`docs/TODO.md`](docs/TODO.md), [`docs/prd/`](docs/prd/README.md).
@@ -73,9 +91,61 @@ A transcription of the rulebook is in [`project-book/`](project-book/README.md).
 uv sync
 ```
 
-<!-- TODO: expand once the peer entry point exists (PRD-2). Target shape:
-     uv run python -m thief_agent peer --role thief
-     uv run python -m thief_agent replay --log logs/thief_match.json         -->
+### Serve — answer an opponent
+
+```bash
+python -m thief_agent serve
+```
+
+Binds `0.0.0.0` and exposes the four MCP tools. Runs happily without a tunnel,
+because local development must not be conditional on ngrok.
+
+### Check — before you commit to a match
+
+```bash
+PUBLIC_URL=https://ours.ngrok.io OPPONENT_URL=https://theirs.ngrok.io/mcp \
+    python -m thief_agent check
+```
+
+Prints the port, the address we would advertise, the opponent, and the tool
+names — and binds nothing. If it says *not publicly reachable*, **stop**:
+announcing a loopback address means every call the opponent makes times out,
+and a technical loss scores zero for *both* sides.
+
+### Play — a whole match
+
+```bash
+PUBLIC_URL=https://ours.ngrok.io OPPONENT_URL=https://theirs.ngrok.io/mcp \
+    python -m thief_agent play --game-id AGREED_ID --out artefacts
+```
+
+Handshake → agree the config digest → play the sub-games → audit the opponent →
+write `declaration_`, `config_`, `log_` and `result_`. The `game_id` is agreed
+with the opponent beforehand: both sides name their files from it.
+
+**It sends nothing.** FR-7.16 requires both teams to agree the result before
+either reports it, so the report is written with `result_agreed_with_opponent`
+false and mailing it is a separate, deliberate act.
+
+### The two windows
+
+```bash
+python -m thief_agent.ui.app live
+python -m thief_agent.ui.app replay artefacts/log_<game_id>_g01.json
+```
+
+The live board never receives the opponent's true cell — `render()` has no
+parameter for it. The Replay App stamps the log `Verified OK` or `TAMPERED`,
+computed over the whole file rather than the step on screen.
+
+### Authorising Gmail, once
+
+```bash
+python -m thief_agent.infra.authorize
+```
+
+See [`docs/GMAIL_SETUP.md`](docs/GMAIL_SETUP.md). A Testing-mode refresh token
+expires after seven days; re-run this if the agent has been idle a week.
 
 Quality gates run on every push and pull request: `ruff check`, `ruff format`,
 `mypy`, and `pytest` with a coverage floor defined in `pyproject.toml`.

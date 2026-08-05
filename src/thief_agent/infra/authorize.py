@@ -28,9 +28,15 @@ from typing import Any
 
 from .credentials import CREDENTIALS_FILE, CredentialsError, load
 from .gmail_auth import SCOPES, ScopeError, check_granted
-from .token_store import TokenError, save, token_path
+from .token_store import ROLE_FIELD, TokenError, save, token_path
 
 PACKAGE = "thief_agent"
+ROLE = "thief"
+"""Stamped into the token, so a copy to the other agent is detectable.
+
+Both agents share one OAuth client, so ``client_id`` proves nothing about
+*which* agent authorized. This is the field that does.
+"""
 
 Runner = Callable[[dict[str, Any], Sequence[str]], dict[str, Any]]
 """Takes the client config and the scopes, returns the credential as a dict."""
@@ -71,6 +77,11 @@ def authorize(
     Returns:
         The path the credential was written to.
 
+    The role is stamped into the written credential. Both agents share one
+    OAuth client — one project, one downloaded ``credentials.json`` — so the
+    ``client_id`` in a token says nothing about which agent obtained it, and a
+    file copied from the other one would otherwise pass every check.
+
     Raises:
         CredentialsError: if the client file is missing or the wrong type.
             Raised **before** the browser opens, so nobody approves a consent
@@ -99,6 +110,7 @@ def authorize(
             "this again"
         )
 
+    body[ROLE_FIELD] = ROLE
     written = save(destination, body)
     print(f"wrote {written} (mode 600). Re-run within seven days if the app is in Testing.")
     return written

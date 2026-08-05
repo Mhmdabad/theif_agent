@@ -5,12 +5,17 @@ and a long-lived **refresh token**, and it is the reason the agent can report
 without a human present — the access token expires in an hour, the refresh
 token mints a new one silently.
 
-**This module does no network I/O and imports no Google library.** Refreshing is
-one HTTP call that the vendor's client already makes correctly; what it does not
-do is decide whether a stored credential should be used at all, and that
-decision is the part with consequences. Keeping it separate means the rules can
-be tested against every awkward case — expired, over-scoped, no refresh token,
-written by a different client — without a network, a browser or a real account.
+**The network call is a seam, not the module.** :func:`refresh` takes an
+``exchange`` and calls it; :func:`google_refresh` is the real one and is the
+only code here that imports a Google library. Everything with consequences —
+whether a stored credential may be used at all, what a refreshed one must still
+satisfy, what gets written back — is decided here and testable against every
+awkward case without a network, a browser or a real account.
+
+That split is also why :func:`refresh` resolves its default *inside the
+function* rather than in the signature. A default argument binds once at import,
+and the same mistake in :mod:`.authorize` produced a test suite that opened a
+real browser and hung forever with no output.
 
 Three refusals, and each exists because the failure it prevents is silent:
 
@@ -20,7 +25,12 @@ Three refusals, and each exists because the failure it prevents is silent:
   that hour ends. Google omits it when the client has been authorised before,
   so this arrives exactly when somebody re-runs the flow to fix something else.
 * **Wrong client** — a token minted for a different ``client_id`` may work and
-  is not ours. Usually it means a file was copied between the two agents.
+  is not ours.
+* **Wrong role** — the check that actually catches a cop/thief swap. The two
+  agents share one OAuth client (one Google Cloud project, one downloaded
+  ``credentials.json``), so a token copied between them has an entirely valid
+  ``client_id`` and the previous check waves it through. The role is therefore
+  written into the file at authorization time and compared on load.
 
 The seven-day expiry that comes with an app in Testing (see
 ``docs/GMAIL_SETUP.md`` step 2) is not something code can prevent. What it can
@@ -30,12 +40,13 @@ re-runs the flow instead of debugging the mail path.
 
 import json
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .gmail_auth import ScopeError, check_granted
+from .gmail_auth import SCOPES, ScopeError, check_granted
 
 TOKEN_FILE = "token.json"
 """Default name. Overridden per agent — see :func:`token_path`."""
@@ -79,6 +90,7 @@ class StoredToken:
     refresh_token: str
     scopes: tuple[str, ...]
     expiry: datetime | None = None
+    role: str = ""
 
     @property
     def expired(self) -> bool:
@@ -93,7 +105,11 @@ class StoredToken:
         )
 
 
-def read(path: Path, client_id: str, package: str = "thief_agent") -> StoredToken:
+ROLE_FIELD = "declared_role"
+"""Which agent authorized. Ours, not Google's — see the module docstring."""
+
+
+def read(path: Path, client_id: str, package: str = "thief_agent", role: str = "") -> StoredToken:
     """Load a stored credential, refusing any that should not be used.
 
     Args:
@@ -142,11 +158,20 @@ def read(path: Path, client_id: str, package: str = "thief_agent") -> StoredToke
             f"agents is the usual cause; each authorises for itself. {hint}"
         )
 
+    declared = str(body.get(ROLE_FIELD, ""))
+    if role and declared and declared != role:
+        raise TokenError(
+            f"{path.name} was authorized by the {declared} agent, not the {role} agent. "
+            "Both agents share one OAuth client, so the client_id matches and proves "
+            f"nothing here — this is a copied token. {hint}"
+        )
+
     return StoredToken(
         client_id=stored,
         refresh_token=refresh,
         scopes=scopes,
         expiry=_expiry(body.get("expiry")),
+        role=declared,
     )
 
 
@@ -164,6 +189,79 @@ def _expiry(value: object) -> datetime | None:
     except ValueError:
         return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+Exchange = Callable[[str, dict[str, Any]], dict[str, Any]]
+"""Takes the refresh token and the client section; returns the refreshed body."""
+
+
+def google_refresh(refresh_token: str, client: dict[str, Any]) -> dict[str, Any]:
+    """Exchange a refresh token for a fresh access token. The only network call.
+
+    Imported inside the function so the rest of the mail path does not depend
+    on the Google library being installed or importable.
+    """
+    from google.auth.transport.requests import Request  # noqa: PLC0415
+    from google.oauth2.credentials import Credentials  # noqa: PLC0415
+
+    # The Google library's own functions are untyped, so strict mode objects to
+    # calling them. Ignored here, on three lines, rather than relaxing the rule
+    # for a module that also holds the decisions worth type-checking.
+    credentials = Credentials(  # type: ignore[no-untyped-call]
+        token=None,
+        refresh_token=refresh_token,
+        token_uri=client["token_uri"],
+        client_id=client["client_id"],
+        client_secret=client["client_secret"],
+        scopes=list(SCOPES),
+    )
+    credentials.refresh(Request())  # type: ignore[no-untyped-call]
+    parsed = json.loads(credentials.to_json())  # type: ignore[no-untyped-call]
+    return dict(parsed)
+
+
+def refresh(
+    path: Path,
+    stored: StoredToken,
+    client: dict[str, Any],
+    exchange: Exchange | None = None,
+) -> StoredToken:
+    """Mint a fresh access token from the refresh token, and write it back.
+
+    This is what makes the agent able to report unattended: the access token
+    lasts an hour, the refresh token replaces it silently, and the file on disk
+    is updated so the next process starts from the new one.
+
+    The result is judged before it is written — same scope rules, same refresh
+    token requirement. A refresh that came back over-scoped, or without a
+    refresh token to use next time, is not an improvement on what we had, and
+    writing it would replace a good credential with a worse one.
+
+    Raises:
+        TokenError: if the exchange returns something unusable. Nothing is
+            written in that case, so the existing token survives a bad refresh.
+    """
+    body = (exchange or google_refresh)(stored.refresh_token, client)
+    if not isinstance(body, dict):
+        raise TokenError(f"the refresh returned {type(body).__name__}, not a credential")
+
+    body.setdefault(ROLE_FIELD, stored.role)
+    body.setdefault("refresh_token", stored.refresh_token)
+    body.setdefault("client_id", stored.client_id)
+
+    try:
+        check_granted(body.get("scopes", body.get("scope")))
+    except ScopeError as exc:
+        raise TokenError(f"the refreshed credential is not one we may hold: {exc}") from exc
+    if not body.get("refresh_token"):
+        raise TokenError(
+            "the refresh returned no refresh token, so the next one would have nothing "
+            "to use; keeping the existing credential rather than replacing it with a "
+            "worse one"
+        )
+
+    save(path, body)
+    return read(path, stored.client_id, role=stored.role)
 
 
 def save(path: Path, body: dict[str, Any]) -> Path:

@@ -177,6 +177,30 @@ def read_ngrok_api(url: str = NGROK_API, timeout: float = 2.0) -> bytes:
         return bytes(response.read())
 
 
+def rehearsal_url(environ: Mapping[str, str], port: int = 8801, path: str = MCP_PATH) -> str:
+    """The address to advertise during a **solo rehearsal**, loopback allowed.
+
+    :class:`PublicEndpoint` refuses a loopback host, which is right: announcing
+    ``127.0.0.1`` to another team means every call they make times out. It also
+    makes it impossible to run this project's two agents against each other on
+    one machine, and the rulebook permits localhost during early coding.
+
+    That matters more than it sounds. A rehearsal over a public tunnel opens a
+    fresh TLS connection per tool call, and a free tunnel stops accepting them
+    long before a sub-game finishes — so the network, not the game, decides how
+    far a practice run gets. Over loopback there is no tunnel to exhaust.
+
+    Separate from :func:`discover` on purpose: a caller has to name the
+    rehearsal to get the relaxed rule, so nothing on the league path can reach
+    it by forgetting a flag.
+
+    Raises:
+        NotPublicError: on a malformed address. Being a rehearsal excuses a
+            private host, not a typo.
+    """
+    return normalise(environ.get(PUBLIC_URL_ENV, "").strip() or f"http://127.0.0.1:{port}", path)
+
+
 def discover(
     environ: Mapping[str, str],
     ngrok_reader: Callable[[], str | bytes] | None = read_ngrok_api,

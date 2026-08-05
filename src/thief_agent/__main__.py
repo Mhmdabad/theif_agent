@@ -131,6 +131,12 @@ def main(argv: Sequence[str] | None = None, environ: dict[str, str] | None = Non
     parser.add_argument("--game-id", default="", help="agreed with the opponent beforehand")
     parser.add_argument("--out", type=Path, default=Path("artefacts"), help="where to write")
     parser.add_argument("--sub-games", type=int, default=1)
+    parser.add_argument(
+        "--rehearse",
+        action="store_true",
+        help="play this project's other agent over loopback, no tunnel — practice only, "
+        "never against another team",
+    )
     arguments = parser.parse_args(argv)
 
     import os  # noqa: PLC0415 - read once, here, so tests can supply their own
@@ -182,6 +188,8 @@ def require_playable(
             "play needs --game-id, agreed with the opponent before either side "
             "starts; both sides' files are named from it and must match"
         )
+    if getattr(arguments, "rehearse", False):
+        return
     probe = read_ngrok_api if reader is _DEFAULT else reader
     if discover(environ, probe) is None:
         raise StartupError(
@@ -299,6 +307,7 @@ def play(
             game_id=arguments.game_id,
             sub_games=arguments.sub_games,
             directory=arguments.out,
+            rehearsal=arguments.rehearse,
         )
     except Exception as exc:  # noqa: BLE001 - a match failure is a message, not a traceback
         print(f"the match did not finish: {safely_describe(exc)}", file=sys.stderr)

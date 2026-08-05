@@ -12,7 +12,7 @@ discovered at the point of first contact with another team.
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Protocol, TypeVar
+from typing import Any, Literal, Protocol, TypeVar
 
 from fastmcp import FastMCP
 
@@ -23,7 +23,17 @@ F = TypeVar("F", bound=Callable[..., object])
 BIND_HOST = "0.0.0.0"  # noqa: S104 - deliberate: a tunnel must be able to reach us
 """Bound so a tunnel can expose this server. See module docstring."""
 
-DEFAULT_TRANSPORT = "http"
+Wire = Literal["stdio", "http", "sse", "streamable-http"]
+"""The transports FastMCP will run.
+
+Spelled out rather than left as ``str`` because :class:`ToolHost` claims
+``FastMCP`` satisfies it, and with a plain ``str`` that claim was false — the
+library narrows this argument, so nothing could actually be passed to
+:func:`serve` without a type error. The Protocol now describes the object it
+was written for.
+"""
+
+DEFAULT_TRANSPORT: Wire = "http"
 
 
 SERVER_NAME = __name__.split(".")[0].replace("_", "-")
@@ -43,7 +53,7 @@ class ToolHost(Protocol):
     """
 
     def tool(self, fn: F) -> F: ...
-    def run(self, *, transport: str, host: str, port: int) -> None: ...
+    def run(self, *, transport: Wire, host: str, port: int) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +62,7 @@ class ServerSettings:
 
     port: int
     host: str = BIND_HOST
-    transport: str = DEFAULT_TRANSPORT
+    transport: Wire = DEFAULT_TRANSPORT
 
     def __post_init__(self) -> None:
         if not 1 <= self.port <= 65535:

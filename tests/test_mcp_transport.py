@@ -352,3 +352,98 @@ class TestSayingWhyWhenTheExceptionWillNot:
         assert from_http_client(httpx.ConnectError(""))
         assert from_http_client(httpcore.ConnectError())
         assert not from_http_client(KeyError("ours"))
+
+
+class TestOneSessionForTheWholeMatch:
+    """The change that makes a tunnelled match survivable.
+
+    Opening a session per tool call means a fresh TLS handshake per call, and a
+    35-step sub-game makes a few hundred of them. Free tunnels cap new
+    connections, and four consecutive live matches died partway through — as
+    502, as ConnectError, and as a failed `start_tls` — for that reason alone.
+    """
+
+    def test_a_second_call_reuses_the_first_session(
+        self, opponent: tuple[str, PeerInboxes]
+    ) -> None:
+        live, _ = opponent
+        transport = FastMcpTransport()
+        try:
+            transport.call(
+                live, "receive_control", {"message": {"kind": "status", "sender": "thief"}}, 5.0
+            )
+            first = transport._client
+            transport.call(
+                live, "receive_control", {"message": {"kind": "status", "sender": "thief"}}, 5.0
+            )
+            assert transport._client is first, "reconnected when it did not need to"
+        finally:
+            transport.close()
+
+    def test_a_new_address_reconnects(self, opponent: tuple[str, PeerInboxes]) -> None:
+        """Tunnels rotate mid-series; the re-handshake exists because they do."""
+        live, _ = opponent
+        transport = FastMcpTransport()
+        try:
+            transport.call(
+                live, "receive_control", {"message": {"kind": "status", "sender": "thief"}}, 5.0
+            )
+            first = transport._client
+            transport._connected_to = "http://127.0.0.1:1/mcp"  # pretend we moved
+            transport.call(
+                live, "receive_control", {"message": {"kind": "status", "sender": "thief"}}, 5.0
+            )
+            assert transport._client is not first
+        finally:
+            transport.close()
+
+    def test_a_failed_call_does_not_leave_a_broken_session_behind(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One blip must not become a match-ending run of them."""
+
+        class Refusing:
+            def __init__(self, url: str) -> None:
+                self.url = url
+
+            async def __aenter__(self) -> "Refusing":
+                raise OSError("no route to host")
+
+            async def __aexit__(self, *exc: object) -> None:
+                return None
+
+        monkeypatch.setattr("thief_agent.infra.mcp_transport.Client", Refusing)
+        transport = FastMcpTransport()
+        try:
+            with pytest.raises(OSError, match="no route to host"):
+                transport.call("http://127.0.0.1:1/mcp", "receive_turn", {}, 1.0)
+            assert transport._client is None, "kept a session that had already failed"
+        finally:
+            transport.close()
+
+    def test_closing_twice_is_harmless(self, opponent: tuple[str, PeerInboxes]) -> None:
+        """`close` is a courtesy; nothing should depend on calling it exactly once."""
+        live, _ = opponent
+        transport = FastMcpTransport()
+        transport.call(
+            live, "receive_control", {"message": {"kind": "status", "sender": "thief"}}, 5.0
+        )
+        transport.close()
+        transport.close()
+
+    def test_closing_without_ever_calling_is_harmless(self) -> None:
+        FastMcpTransport().close()
+
+    def test_a_close_that_fails_does_not_replace_the_real_error(self) -> None:
+        """Tidying a broken socket must never outrank why the run was ending."""
+
+        class Hostile:
+            async def __aexit__(self, *exc: object) -> None:
+                raise RuntimeError("the close itself failed")
+
+        transport = FastMcpTransport()
+        transport._running_loop()
+        transport._client = Hostile()
+        transport.drop()
+        assert transport._client is None
+        transport.close()

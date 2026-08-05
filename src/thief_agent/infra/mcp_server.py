@@ -14,6 +14,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, TypeVar
 
+from fastmcp import FastMCP
+
+from .inboxes import PeerInboxes, register
+
 F = TypeVar("F", bound=Callable[..., object])
 
 BIND_HOST = "0.0.0.0"  # noqa: S104 - deliberate: a tunnel must be able to reach us
@@ -22,12 +26,20 @@ BIND_HOST = "0.0.0.0"  # noqa: S104 - deliberate: a tunnel must be able to reach
 DEFAULT_TRANSPORT = "http"
 
 
+SERVER_NAME = __name__.split(".")[0].replace("_", "-")
+"""Names this peer in the MCP handshake. Derived, so the two agents differ."""
+
+
 class ToolHost(Protocol):
     """The slice of ``FastMCP`` this module depends on.
 
     Declared as a protocol so the server can be assembled and inspected in
     tests without binding a socket. Starting a real listener to assert that a
     tool was registered would make the suite slow and flaky for no gain.
+
+    :class:`FastMCP` satisfies it. The protocol stays because it is the seam
+    the retry and deadline tests need, and because a concrete class in a
+    signature would make every one of them start a server.
     """
 
     def tool(self, fn: F) -> F: ...
@@ -58,6 +70,25 @@ class ServerSettings:
         return cls(port=int(network["my_port"]))
 
 
+def build(inboxes: PeerInboxes, name: str = SERVER_NAME) -> FastMCP:
+    """A real FastMCP server with this peer's four tools registered.
+
+    Assembling and running are separate on purpose. Everything worth checking
+    about the server — that all four tools exist, under the names and parameter
+    names the opponent will use, and that they route to our inboxes — is true
+    before a socket is bound, and can be checked with FastMCP's in-memory
+    client. A test that had to start a listener to learn any of it would be
+    slower, flakier, and no more convincing.
+    """
+    host = FastMCP(name)
+    register(host, inboxes)
+    return host
+
+
 def serve(host: ToolHost, settings: ServerSettings) -> None:
-    """Run the server until it is stopped."""
+    """Run the server until it is stopped.
+
+    Blocks. The caller owns the thread this runs on, because an agent that
+    started its own is an agent whose shutdown nobody can reason about.
+    """
     host.run(transport=settings.transport, host=settings.host, port=settings.port)

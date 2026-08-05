@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastmcp>=3.4.5",
+    "google-api-python-client>=2.100",
     "google-auth-oauthlib>=1.2",
 ]
 
@@ -56,5 +57,5 @@ fail_under = 85
 show_missing = true
 
 [[tool.mypy.overrides]]
-module = ["google_auth_oauthlib.*"]
+module = ["google_auth_oauthlib.*", "googleapiclient.*"]
 ignore_missing_imports = true

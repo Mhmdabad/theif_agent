@@ -37,6 +37,8 @@ from thief_agent.infra.mcp_server import ServerSettings, build, serve
 from thief_agent.infra.mcp_transport import FastMcpTransport
 from thief_agent.infra.report import Report, Repositories, SubGameResult
 from thief_agent.infra.step_zero import Hardware, Provenance
+from thief_agent.runtime.match import MatchRunner, SubGameOutcome
+from thief_agent.runtime.orchestrator import Orchestrator
 from thief_agent.runtime.peer import McpPeer
 from thief_agent.runtime.subgame import SubGame
 from thief_agent.strategy.base import Decision
@@ -153,6 +155,17 @@ class PlaysItsOwnPiece:
         return Decision(action=MoveAction(move=options[0]), hint="", intent="truth")
 
 
+def played_game(side: "Side") -> SubGame:
+    """The sub-game the runner actually played, once the fixture has run."""
+    game = side.runner.outcomes[0].game
+    assert game is not None
+    return game
+
+
+def played_log(side: "Side") -> MatchLog:
+    return side.runner.outcomes[0].log
+
+
 @dataclass
 class Side:
     """One agent: its server, its inboxes, its log and its sub-game."""
@@ -162,6 +175,8 @@ class Side:
     inboxes: PeerInboxes
     log: MatchLog
     game: SubGame
+    client: OpponentClient
+    runner: MatchRunner
 
 
 def a_side(role: str, port: int, opponent_port: int) -> Side:
@@ -192,7 +207,21 @@ def a_side(role: str, port: int, opponent_port: int) -> Side:
         max_steps=STEPS,
         now=lambda: WHEN,
     )
-    return Side(role=role, port=port, inboxes=inboxes, log=log, game=game)
+    runner = MatchRunner(
+        orchestrator=Orchestrator(inboxes=inboxes, client=client, role=role),
+        declaration=build_declaration(role, "uoh26-s82kma9e", "u-0001"),
+        parameters=parameters(),
+        brain=PlaysItsOwnPiece("cop" if role == "police" else "thief"),  # type: ignore[arg-type]
+        axes=AXES,
+        start=BoardState(grid_size=8, cop=(0, 0), thief=(6, 5), barriers=frozenset(), step=0),
+        sub_games=1,
+        max_steps=STEPS,
+        directory=Path("/tmp") / f"unused-{role}",
+        now=lambda: WHEN,
+    )
+    return Side(
+        role=role, port=port, inboxes=inboxes, log=log, game=game, client=client, runner=runner
+    )
 
 
 @pytest.fixture(scope="module")
@@ -217,7 +246,7 @@ def played(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[Side, Sid
 
     def run(side: Side) -> None:
         try:
-            side.game.play()
+            side.runner.play_sub_game(1, timeout=25.0)
         except BaseException as exc:  # noqa: BLE001 - reported below, not swallowed
             failures[side.role] = exc
 
@@ -238,8 +267,8 @@ def played(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[Side, Sid
 class TestTheMatchActuallyHappened:
     def test_both_sides_played_every_step(self, played: tuple[Side, Side, Path]) -> None:
         cop, thief, _ = played
-        assert sorted(cop.log.entries) == [1, 2, 3]
-        assert sorted(thief.log.entries) == [1, 2, 3]
+        assert sorted(cop.runner.outcomes[0].log.entries) == [1, 2, 3]
+        assert sorted(thief.runner.outcomes[0].log.entries) == [1, 2, 3]
 
     def test_nothing_was_rejected(self, played: tuple[Side, Side, Path]) -> None:
         """A refusal here is two peers disagreeing about the protocol."""
@@ -250,15 +279,15 @@ class TestTheMatchActuallyHappened:
     def test_each_side_holds_the_others_commitments(self, played: tuple[Side, Side, Path]) -> None:
         cop, thief, _ = played
         for step in (1, 2, 3):
-            assert cop.game.ceremony.at(step).theirs is not None
-            assert thief.game.ceremony.at(step).theirs is not None
+            assert played_game(cop).ceremony.at(step).theirs is not None
+            assert played_game(thief).ceremony.at(step).theirs is not None
 
     def test_the_digests_match_across_the_wire(self, played: tuple[Side, Side, Path]) -> None:
         """What the cop committed is what the thief received, byte for byte."""
         cop, thief, _ = played
         for step in (1, 2, 3):
-            ours = cop.game.ceremony.at(step).ours
-            theirs = thief.game.ceremony.at(step).theirs
+            ours = played_game(cop).ceremony.at(step).ours
+            theirs = played_game(thief).ceremony.at(step).theirs
             assert ours is not None and theirs is not None
             assert ours.commit == theirs.commit
 
@@ -266,23 +295,23 @@ class TestTheMatchActuallyHappened:
 class TestBothLogsVerify:
     def test_the_cops_log_stamps_verified_ok(self, played: tuple[Side, Side, Path]) -> None:
         cop, _, where = played
-        result = walk(load(cop.log.write(where / "cop")))
+        result = walk(load(played_log(cop).write(where / "cop")))
         assert result.stamp is Stamp.VERIFIED_OK, str(result)
 
     def test_the_thiefs_log_stamps_verified_ok(self, played: tuple[Side, Side, Path]) -> None:
         _, thief, where = played
-        result = walk(load(thief.log.write(where / "police")))
+        result = walk(load(played_log(thief).write(where / "police")))
         assert result.stamp is Stamp.VERIFIED_OK, str(result)
 
     def test_both_are_fully_re_verifiable(self, played: tuple[Side, Side, Path]) -> None:
         cop, thief, _ = played
-        assert cop.log.verifiable().complete
-        assert thief.log.verifiable().complete
+        assert played_log(cop).verifiable().complete
+        assert played_log(thief).verifiable().complete
 
     def test_no_nonce_left_early(self, played: tuple[Side, Side, Path]) -> None:
         cop, thief, _ = played
-        assert cop.log.unopened() == []
-        assert thief.log.unopened() == []
+        assert played_log(cop).unopened() == []
+        assert played_log(thief).unopened() == []
 
 
 class TestTheAcknowledgementLimitIsVisible:
@@ -294,7 +323,7 @@ class TestTheAcknowledgementLimitIsVisible:
         is the limit the peer module documents, observed against a real server.
         """
         cop, _, _ = played
-        peer = cop.game.peer
+        peer = played_game(cop).peer
         assert isinstance(peer, McpPeer)
         assert peer.reference_acks == [1, 2, 3]
 
@@ -304,13 +333,13 @@ class TestEachSideAuditsTheOther:
 
     def test_the_cop_finds_the_thief_honest(self, played: tuple[Side, Side, Path]) -> None:
         cop, _, _ = played
-        result = cop.game.audit()
+        result = played_game(cop).audit()
         assert result.clean, str(result)
         assert result.checked == STEPS
 
     def test_the_thief_finds_the_cop_honest(self, played: tuple[Side, Side, Path]) -> None:
         _, thief, _ = played
-        result = thief.game.audit()
+        result = played_game(thief).audit()
         assert result.clean, str(result)
         assert result.checked == STEPS
 
@@ -320,13 +349,15 @@ class TestEachSideAuditsTheOther:
         """Two peers who disagreed about the board could not audit each other."""
         cop, thief, _ = played
         for step in range(1, STEPS + 1):
-            assert cop.game.sealed_states[step] == thief.game.sealed_states[step]
+            assert played_game(cop).sealed_states[step] == played_game(thief).sealed_states[step]
 
     def test_each_received_the_others_nonces(self, played: tuple[Side, Side, Path]) -> None:
         cop, thief, _ = played
-        assert cop.game.their_final is not None
-        assert thief.game.their_final is not None
-        assert sorted(cop.game.their_final.nonces) == [1, 2, 3]
+        assert played_game(cop).their_final is not None
+        assert played_game(thief).their_final is not None
+        theirs = played_game(cop).their_final
+        assert theirs is not None
+        assert sorted(theirs.nonces) == [1, 2, 3]
 
 
 class TestTheMatchProducesItsOwnEvidence:
@@ -334,7 +365,7 @@ class TestTheMatchProducesItsOwnEvidence:
 
     @staticmethod
     def artefacts_for(side: Side) -> ArtefactSet:
-        uid, game_id = side.log.game_uid, side.log.game_id
+        uid, game_id = played_log(side).game_uid, played_log(side).game_id
         return ArtefactSet(
             declaration=build_declaration(side.role, game_id, uid),
             configs=(
@@ -346,7 +377,7 @@ class TestTheMatchProducesItsOwnEvidence:
                     agreed_between=("uoh26-cops", "uoh26-others"),
                 ),
             ),
-            logs=(side.log,),
+            logs=(played_log(side),),
             result=result_for(side, game_id, uid),
         )
 
@@ -393,3 +424,77 @@ class TestTheMatchProducesItsOwnEvidence:
         assert ours.game_uid == theirs.game_uid
         assert ours.game_id == theirs.game_id
         assert ours.check().coherent and theirs.check().coherent
+
+
+class TestAWholeMatchRunsThroughTheRunner:
+    """`MatchRunner` composing the steps, over the same real sockets."""
+
+    @staticmethod
+    def runner_for(side: Side, where: Path) -> MatchRunner:
+        return MatchRunner(
+            orchestrator=Orchestrator(inboxes=side.inboxes, client=side.client, role=side.role),
+            declaration=build_declaration(side.role, "uoh26-s82kma9e", "u-0001"),
+            parameters=parameters(),
+            brain=PlaysItsOwnPiece("cop" if side.role == "police" else "thief"),  # type: ignore[arg-type]
+            axes=AXES,
+            start=BoardState(grid_size=8, cop=(0, 0), thief=(6, 5), barriers=frozenset(), step=0),
+            sub_games=1,
+            max_steps=STEPS,
+            directory=where,
+            now=lambda: WHEN,
+        )
+
+    def outcome_from(self, side: Side) -> SubGameOutcome:
+        """The sub-game the module fixture already played, as the runner sees it."""
+        result = played_game(side).play_result
+        assert result is not None, "the fixture should have played the sub-game"
+        return SubGameOutcome(
+            number=1, played=result, audit=played_game(side).audit(), log=played_log(side)
+        )
+
+    def test_the_played_sub_game_audits_clean(self, played: tuple[Side, Side, Path]) -> None:
+        cop, _, where = played
+        runner = self.runner_for(cop, where / "runner")
+        runner.outcomes.append(self.outcome_from(cop))
+        assert runner.opponent_played_fairly
+        assert runner.failures() == []
+
+    def test_it_writes_a_coherent_set_of_artefacts(self, played: tuple[Side, Side, Path]) -> None:
+        """Handshake, agreement and play are behind us; this is the evidence."""
+        cop, _, where = played
+        runner = self.runner_for(cop, where / "runner-write")
+        runner.outcomes.append(self.outcome_from(cop))
+        written = runner.write(result_for(cop, "uoh26-s82kma9e", "u-0001"))
+        assert {path.name for path in written} == {
+            "declaration_uoh26-s82kma9e.json",
+            "config_uoh26-s82kma9e_g01.json",
+            "log_uoh26-s82kma9e_g01.json",
+            "result_uoh26-s82kma9e.json",
+        }
+
+    def test_the_config_it_locks_carries_the_agreed_digest(
+        self, played: tuple[Side, Side, Path]
+    ) -> None:
+        """Both peers lock the same parameters, so both digests match."""
+        cop, thief, where = played
+        ours = self.runner_for(cop, where / "a").config_for(1)
+        theirs = self.runner_for(thief, where / "b").config_for(1)
+        assert ours.agrees_with(theirs.sha256)
+
+    def test_the_log_in_the_set_still_stamps_verified_ok(
+        self, played: tuple[Side, Side, Path]
+    ) -> None:
+        cop, _, where = played
+        runner = self.runner_for(cop, where / "runner-stamp")
+        runner.outcomes.append(self.outcome_from(cop))
+        written = runner.write(result_for(cop, "uoh26-s82kma9e", "u-0001"))
+        log = next(path for path in written if path.name.startswith("log_"))
+        assert walk(load(log)).stamp is Stamp.VERIFIED_OK
+
+    def test_nothing_in_the_runner_sends_mail(self) -> None:
+        """FR-7.16: both sides agree the result *before* either reports."""
+        source = (
+            Path(__file__).resolve().parent.parent / "src/thief_agent/runtime/match.py"
+        ).read_text()
+        assert "Mailer" not in source
+        assert "send_report" not in source

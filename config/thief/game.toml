@@ -19,7 +19,7 @@ version = "1.10"
 group_name = "s82kma9e"
 group_id   = "s82kma9e"                # 8 characters, no spaces
 sub_game_number = 1
-members = []                       # issue #7
+members = ["Mohammed Abad"]        # EDIT: add every team member
 repos = { cop = "https://github.com/Mhmdabad/police_agent", thief = "https://github.com/Mhmdabad/theif_agent" }
 
 [network]
@@ -56,3 +56,16 @@ step_deadline_seconds = 30         # hard cap on thinking per step
 [email]
 recipient = "rmisegal+uoh26finalgame@gmail.com"   # mandatory, fixed reporting target
 mode = "draft"                                    # switch to "send" once verified
+
+# --- WHO IS PLAYING -------------------------------------------------------
+# FR-7.28 wants four repository links in the result: our cop, our thief, their
+# cop, their thief. Ours are in [game] above. Theirs go here, and nothing can
+# derive them — swap these with the other team before the match, along with
+# their group name and members.
+#
+# For a solo warm-up (this project's cop against its own thief) the values
+# below are already correct: you are the opponent.
+[teams.them]
+group_name = "s82kma9e"
+members = ["Mohammed Abad"]          # EDIT for a real opponent
+repos = { cop = "https://github.com/Mhmdabad/police_agent", thief = "https://github.com/Mhmdabad/theif_agent" }

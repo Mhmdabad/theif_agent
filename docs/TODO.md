@@ -160,7 +160,7 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done · **🚪 GATE** = milesto
 - [ ] Google Cloud project + Gmail API enabled
 - [ ] OAuth Consent Screen configured, team members added as Test Users
 - [x] Scope restricted to `https://www.googleapis.com/auth/gmail.send` **only**
-- [ ] OAuth Client ID (Desktop Application) → `credentials.json` **(gitignored)**
+- [x] OAuth Client ID (Desktop Application) → `credentials.json` **(gitignored)**
 - [ ] First authorization flow → `token.json` **(gitignored)**
 - [x] **Quota Manager** — daily safety threshold
 - [x] **Token Bucket** — 30 rpm, 2 concurrent, 5 s backoff, 3 retries, queue 100

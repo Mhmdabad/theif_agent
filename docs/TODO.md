@@ -177,7 +177,7 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done · **🚪 GATE** = milesto
 - [x] `log_<game_id>_g<NN>.json` — full step record
 - [x] `result_<game_id>.json` — per-sub-game and aggregate scores, commit hashes,
       total tokens
-- [ ] Shared `game_uid`, names derived from `game_id`
+- [x] Shared `game_uid`, names derived from `game_id`
 - **🚪 GATE:** match summary sent via Gmail; GUI displays state; Replay App
   reconstructs a recorded round with `Verified OK`
 

@@ -21,7 +21,7 @@ from thief_agent.infra.mcp_client import (
     Transport,
 )
 from thief_agent.infra.mcp_server import ServerSettings, build, serve
-from thief_agent.infra.mcp_transport import FastMcpTransport
+from thief_agent.infra.mcp_transport import UPSTREAM_DEAD, FastMcpTransport, upstream_status
 
 
 def free_port() -> int:
@@ -62,7 +62,7 @@ class TestARealCall:
     def test_it_reaches_the_opponents_inboxes(self, opponent: tuple[str, PeerInboxes]) -> None:
         url, _ = opponent
         answer = FastMcpTransport().call(
-            url, "receive_control", {"message": {"kind": "status", "sender": "police"}}, 10.0
+            url, "receive_control", {"message": {"kind": "status", "sender": "thief"}}, 10.0
         )
         assert answer["ok"] is True
 
@@ -70,7 +70,7 @@ class TestARealCall:
         """Not just a well-formed reply — the payload lands in the queue."""
         url, inboxes = opponent
         FastMcpTransport().call(
-            url, "receive_control", {"message": {"kind": "enable", "sender": "police"}}, 10.0
+            url, "receive_control", {"message": {"kind": "enable", "sender": "thief"}}, 10.0
         )
         assert not inboxes.controls.empty()
 
@@ -84,7 +84,7 @@ class TestARealCall:
     def test_submit_audit_uses_payload(self, opponent: tuple[str, PeerInboxes]) -> None:
         url, _ = opponent
         answer = FastMcpTransport().call(
-            url, "submit_audit", {"payload": {"sender": "police", "nonces": {}}}, 10.0
+            url, "submit_audit", {"payload": {"sender": "thief", "nonces": {}}}, 10.0
         )
         assert "ok" in answer
 
@@ -105,7 +105,7 @@ class TestItSatisfiesTheProtocol:
         client = OpponentClient(
             transport=FastMcpTransport(), settings=ClientSettings(opponent_url=url)
         )
-        answer = client.call("receive_control", {"message": {"kind": "status", "sender": "police"}})
+        answer = client.call("receive_control", {"message": {"kind": "status", "sender": "thief"}})
         assert answer["ok"] is True
         assert client.sent, "the transport log recorded nothing about a real call"
 
@@ -181,3 +181,84 @@ class TestANonMappingResultIsAProtocolViolation:
         with pytest.raises(OSError, match="no route to host") as raised:
             FastMcpTransport().call("http://x/mcp", "receive_control", {}, 1.0)
         assert type(raised.value) is OSError, "an OSError became something else"
+
+
+class TestATunnelAnsweringForADeadPeer:
+    """The failure that ended the first live warm-up.
+
+    Locally an absent opponent refuses the connection and the OS says
+    ``ECONNREFUSED`` — an ``OSError``, which every retry in the stack already
+    understands. Through ngrok the connection *succeeds* and the tunnel answers
+    ``502`` on the peer's behalf. Nothing in the retry vocabulary matched, so
+    the announcement crashed instead of being retried, and the peer who started
+    first always lost.
+    """
+
+    class Answering:
+        """A client whose context manager fails the way httpx does."""
+
+        status = 502
+
+        def __init__(self, url: str) -> None:
+            self.url = url
+
+        async def __aenter__(self) -> "TestATunnelAnsweringForADeadPeer.Answering":
+            raise self.error(type(self).status)
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+        @staticmethod
+        def error(status: int) -> Exception:
+            class Response:
+                status_code = status
+
+            class HTTPStatusError(Exception):
+                response = Response()
+
+            return HTTPStatusError(
+                f"Server error '{status}' for url 'https://x.ngrok-free.app/mcp'"
+            )
+
+    def transport_raising(self, status: int, monkeypatch: pytest.MonkeyPatch) -> None:
+        client = type("C", (self.Answering,), {"status": status})
+        monkeypatch.setattr("thief_agent.infra.mcp_transport.Client", client)
+
+    @pytest.mark.parametrize("status", sorted(UPSTREAM_DEAD))
+    def test_a_gateway_reporting_a_dead_peer_is_an_unreachable_peer(
+        self, status: int, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Whatever layer says so, the opponent is not answering."""
+        self.transport_raising(status, monkeypatch)
+        with pytest.raises(ConnectionError, match=str(status)):
+            FastMcpTransport().call("https://x.ngrok-free.app/mcp", "negotiate", {}, 1.0)
+
+    def test_it_says_what_to_check_rather_than_quoting_the_proxy(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """'502 Bad Gateway' describes a gateway. It does not describe the problem."""
+        self.transport_raising(502, monkeypatch)
+        with pytest.raises(ConnectionError) as raised:
+            FastMcpTransport().call("https://x.ngrok-free.app/mcp", "negotiate", {}, 1.0)
+        assert "nothing is listening behind it" in str(raised.value)
+        assert "different port" in str(raised.value)
+
+    def test_a_peer_that_answered_is_not_an_unreachable_peer(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A 404 came from something that is running. Retrying it reports the wrong failure."""
+        self.transport_raising(404, monkeypatch)
+        with pytest.raises(Exception) as raised:
+            FastMcpTransport().call("https://x.ngrok-free.app/mcp", "negotiate", {}, 1.0)
+        assert not isinstance(raised.value, ConnectionError)
+
+    def test_an_exception_carrying_no_status_is_left_alone(self) -> None:
+        assert upstream_status(ValueError("nothing http about this")) is None
+
+    def test_a_non_numeric_status_is_not_trusted(self) -> None:
+        """Read by shape, so the shape has to be checked rather than assumed."""
+
+        class Odd(Exception):
+            response = type("R", (), {"status_code": "502"})()
+
+        assert upstream_status(Odd()) is None

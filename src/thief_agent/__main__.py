@@ -192,6 +192,44 @@ def require_playable(
         )
 
 
+def describe_failure(exc: BaseException) -> str:
+    """Say what went wrong, even when the exception itself says nothing.
+
+    ``f"{exc}"`` is empty for a surprising number of real failures, and a match
+    that ends with ``the match did not finish:`` and nothing after the colon is
+    worse than a traceback — it reports that something happened and withholds
+    every fact about it. That is not hypothetical: it is how the sixth live
+    warm-up ended, after the run had played most of a sub-game.
+
+    Three shapes get in the way and each is unwrapped here:
+
+    * **Exception groups.** ``anyio`` and the MCP client raise them, and the
+      group's own message is often blank while the exceptions inside it are the
+      whole story.
+    * **Multi-argument exceptions.** ``MatchAborted(TechnicalLoss.TIMEOUT, why)``
+      renders as a bare tuple with an enum ``repr`` in it. Joining the arguments
+      says the same thing in words.
+    * **Genuinely silent exceptions.** Some carry no message at all; then the
+      class name and the cause are all there is, so both are printed rather
+      than an empty string.
+    """
+    inner = getattr(exc, "exceptions", None)
+    if isinstance(inner, (list, tuple)) and inner:
+        return "; ".join(describe_failure(one) for one in inner)
+
+    said = "; ".join(part for part in (str(a).strip() for a in exc.args) if part)
+    if not said:
+        said = str(exc).strip()
+    label = type(exc).__name__
+    if said:
+        return said if label in said else f"{said} ({label})"
+
+    because = exc.__cause__ or exc.__context__
+    if because is not None:
+        return f"{label}, which carried no message; caused by {describe_failure(because)}"
+    return f"{label} with no message — nothing recorded why, which is itself the bug"
+
+
 def play(
     arguments: argparse.Namespace,
     private: dict[str, Any],
@@ -223,7 +261,7 @@ def play(
             directory=arguments.out,
         )
     except Exception as exc:  # noqa: BLE001 - a match failure is a message, not a traceback
-        print(f"the match did not finish: {exc}", file=sys.stderr)
+        print(f"the match did not finish: {describe_failure(exc)}", file=sys.stderr)
         return 1
     for path in written:
         print(f"  wrote {path}")

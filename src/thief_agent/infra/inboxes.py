@@ -49,6 +49,20 @@ class PeerInboxes:
     """Thread-safe mailboxes filled by the MCP tools, drained by the runtime."""
 
     agreements: "queue.Queue[dict[str, Any]]" = field(default_factory=queue.Queue)
+    """Greetings only. Digests go to :attr:`digests`; see :meth:`negotiate`."""
+
+    digests: "queue.Queue[dict[str, Any]]" = field(default_factory=queue.Queue)
+    """Config digests, kept apart from greetings even though one tool carries both.
+
+    ``negotiate`` is the protocol's single negotiation channel and it carries
+    two unrelated messages: *here is where I am* and *here is the digest of the
+    parameters I am playing by*. Draining both into one mailbox meant
+    ``latest_agreement`` — which takes the newest item, correctly, because a
+    newer greeting supersedes an older one — could hand a digest to
+    ``accept_greeting``, which then failed with ``greeting must be an object,
+    got NoneType``. Whether it did depended on the order two peers happened to
+    call each other in.
+    """
     turns: "queue.Queue[TurnMessage]" = field(default_factory=queue.Queue)
     audits: "queue.Queue[AuditPayload]" = field(default_factory=queue.Queue)
     controls: "queue.Queue[ControlMessage]" = field(default_factory=queue.Queue)
@@ -74,9 +88,17 @@ class PeerInboxes:
         return {"ok": False, "detail": detail}
 
     def negotiate(self, message: object) -> dict[str, Any]:
-        """Receive the opponent's signed game agreement."""
+        """Receive a greeting or a config digest, and file it by what it is.
+
+        Routed on content because the wire cannot distinguish them: both arrive
+        as ``negotiate``. A message carrying ``config_sha256`` is a digest;
+        anything else is treated as a greeting and validated as one downstream,
+        so a malformed message still fails where greetings are understood
+        rather than being silently filed as a digest nobody reads.
+        """
         try:
-            self.agreements.put(require_mapping(message, "agreement"))
+            body = require_mapping(message, "agreement")
+            (self.digests if "config_sha256" in body else self.agreements).put(body)
         except InvalidPayloadError as exc:
             return self._refuse("negotiate", exc)
         return ACK

@@ -11,11 +11,22 @@ This module chooses none of it — it puts the arguments in the right order, whi
 is exactly the thing that had no home and is where every defect in this project
 has been.
 
+**Somebody has to start first, and it must not be punished for it.** Two peers
+opening a match are each other's prerequisite: the first one up announces to a
+server that does not exist yet. ``open_series`` announces unforgivingly, which
+is right *during* a match — an unreachable opponent is a technical loss and
+should stay one — and wrong at startup, where it means whoever types the command
+first always fails. :func:`await_opponent` retries the announcement until the
+other side appears or the patience runs out, so the two commands only have to be
+started within a couple of minutes of each other rather than simultaneously.
+
 **It writes and stops.** No mail. FR-7.16 requires both sides to agree the
 result before either reports one, so the report goes to disk with ``agreed``
 false and a person sends it later, having actually agreed.
 """
 
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -23,6 +34,7 @@ from typing import Any
 from ..domain.axes import AxisConvention
 from ..domain.board import BoardState
 from ..infra.declaration import Endpoints, Team, build
+from ..infra.handshake import Greeting, Peering
 from ..infra.inboxes import PeerInboxes
 from ..infra.mcp_client import ClientSettings, OpponentClient
 from ..infra.mcp_transport import FastMcpTransport
@@ -36,6 +48,18 @@ from .orchestrator import Orchestrator
 
 ROLE = "thief"
 SHARED_CONFIG = Path("config/game.json")
+
+DEFAULT_PATIENCE = 180.0
+"""Seconds to wait for the opponent's agent to appear before giving up.
+
+Three minutes: long enough that two people starting their commands from a chat
+message do not have to synchronise watches, short enough that a genuinely
+absent opponent is reported while somebody is still looking at the terminal.
+"""
+
+
+class StartupTimeout(RuntimeError):
+    """Raised when the opponent never came up. Not a technical loss — no match began."""
 
 
 def _team(section: dict[str, Any], key: str, fallback: str) -> Team:
@@ -78,7 +102,7 @@ def open_match(
         endpoint.url if endpoint else "", str(private.get("game", {}).get("group_id", ""))
     )
     directory.mkdir(parents=True, exist_ok=True)
-    peering = orchestrator.open_series(ours, directory, game_id)
+    peering = await_opponent(orchestrator, ours, directory, game_id)
 
     parameters = load_shared(SHARED_CONFIG)
     teams = private.get("teams", {})
@@ -147,6 +171,49 @@ def open_match(
             ),
         )
     )
+
+
+def await_opponent(
+    orchestrator: Orchestrator,
+    ours: Greeting,
+    directory: Path,
+    game_id: str,
+    patience: float = DEFAULT_PATIENCE,
+    pause: float = 3.0,
+    now: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> Peering:
+    """Keep announcing until the opponent is listening, then trade greetings.
+
+    Args:
+        patience: seconds to keep trying. Generous on purpose — the two people
+            running these commands are typing them in different rooms.
+
+    Raises:
+        StartupTimeout: when the opponent never appeared. Named rather than
+            surfacing the transport's own ``502 Bad Gateway``, which describes
+            a proxy and not the situation.
+
+    Only the *announcement* is retried. Once it lands, the handshake proceeds
+    normally and a failure there is a real failure — an opponent who accepted
+    our greeting and then went quiet is a different problem from one who had
+    not started yet, and collapsing the two would hide the first.
+    """
+    deadline = now() + patience
+    attempts = 0
+    while not orchestrator.try_announce(ours):
+        attempts += 1
+        if now() >= deadline:
+            raise StartupTimeout(
+                f"the opponent never came up: {attempts} attempts over {patience:g}s. "
+                "Their agent has to be running and their tunnel forwarding to it — "
+                "ask them to run `check`, and confirm the port their tunnel points at "
+                "matches the one their agent listens on"
+            )
+        if attempts == 1:
+            print("  waiting for the opponent to come up…", flush=True)
+        sleep(pause)
+    return orchestrator.open_series(ours, directory, game_id)
 
 
 def _cell(value: object, fallback: tuple[int, int]) -> tuple[int, int]:

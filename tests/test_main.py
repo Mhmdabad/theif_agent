@@ -11,6 +11,20 @@ REPO = Path(__file__).resolve().parent.parent
 NO_TUNNEL: dict[str, str] = {}
 
 
+NO_NGROK = None
+"""No ngrok probe at all.
+
+Passing ``None`` is how :func:`~thief_agent.infra.tunnel.discover` is told not to
+look. Left at the default, these checks probe the real ngrok API on this
+machine and pass or fail depending on whether a tunnel happens to be running —
+a test that reports the developer's desktop rather than the code.
+"""
+
+
+def where_we_are_url(environ: dict[str, str]) -> str:
+    return where_we_are(environ, NO_NGROK)
+
+
 def private() -> dict[str, object]:
     return load_private(REPO / CONFIG)
 
@@ -48,22 +62,24 @@ class TestCheckReportsWithoutBinding:
 class TestWhereWeSayWeAre:
     def test_no_tunnel_is_reported_rather_than_refused(self) -> None:
         """Localhost is permitted while developing; refusing would block every run."""
-        assert "not publicly reachable" in where_we_are(NO_TUNNEL)
+        assert "not publicly reachable" in where_we_are(NO_TUNNEL, NO_NGROK)
 
     def test_the_warning_names_what_it_is_not_good_enough_for(self) -> None:
-        assert "league match" in where_we_are(NO_TUNNEL)
+        assert "league match" in where_we_are(NO_TUNNEL, NO_NGROK)
 
     def test_a_public_url_is_used(self) -> None:
-        assert where_we_are({"PUBLIC_URL": "https://abc.ngrok.io"}) == "https://abc.ngrok.io/mcp"
+        assert (
+            where_we_are_url({"PUBLIC_URL": "https://abc.ngrok.io"}) == "https://abc.ngrok.io/mcp"
+        )
 
     def test_a_loopback_url_that_was_set_on_purpose_is_an_error(self) -> None:
         """Somebody set an address and got it wrong, which is worse than not setting one."""
         with pytest.raises(StartupError, match="unusable"):
-            where_we_are({"PUBLIC_URL": "http://127.0.0.1:8801"})
+            where_we_are_url({"PUBLIC_URL": "http://127.0.0.1:8801"})
 
     def test_the_error_explains_the_cost(self) -> None:
         with pytest.raises(StartupError, match="not reachable from another machine"):
-            where_we_are({"PUBLIC_URL": "http://localhost:8801"})
+            where_we_are_url({"PUBLIC_URL": "http://localhost:8801"})
 
 
 class TestItFailsWithAReasonRatherThanATraceback:
@@ -163,7 +179,11 @@ class TestPlayRefusesWithoutAnAgreedGameId:
 
 
 class TestPlayRefusesWithoutAPublicAddress:
-    """`serve` tolerates no tunnel. `play` cannot — it announces to an opponent."""
+    """`serve` tolerates no tunnel. `play` cannot — it announces to an opponent.
+
+    Every check here passes ``NO_NGROK`` so the result describes the code
+    rather than whether a tunnel happens to be running on this machine.
+    """
 
     def test_no_tunnel_stops_it_before_the_handshake(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.chdir(REPO)
@@ -174,6 +194,7 @@ class TestPlayRefusesWithoutAPublicAddress:
     ) -> None:
         """Not '' must use one of ['https', 'http'], which helps nobody."""
         monkeypatch.chdir(REPO)
+        monkeypatch.setattr("thief_agent.__main__.read_ngrok_api", None)
         main(["play", "--game-id", "uoh26-x"], environ=NO_TUNNEL)
         error = capsys.readouterr().err
         assert "start a tunnel" in error.lower()

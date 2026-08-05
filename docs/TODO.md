@@ -146,13 +146,13 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done · **🚪 GATE** = milesto
 ## Stage 7 — Reporting & Visualization → [PRD-7](prd/PRD-7-reporting-and-gui.md)
 
 ### GUI
-- [ ] Live GUI (Tkinter/PyQt) showing **local truth only** — no bird's-eye view
-- [ ] Belief heatmap bound to the real belief object (deeper red = higher probability)
-- [ ] Turn banner: green `YOUR TURN` / grey `LOCKED`, with input lock after Commit
+- [x] Live GUI (Tkinter/PyQt) showing **local truth only** — no bird's-eye view
+- [x] Belief heatmap bound to the real belief object (deeper red = higher probability)
+- [x] Turn banner: green `YOUR TURN` / grey `LOCKED`, with input lock after Commit
 
 ### Replay
-- [ ] Replay App loading `log_<game_id>_g<NN>.json`, step forward/backward
-- [ ] Per-step SHA-256 re-computation vs stored commitment
+- [x] Replay App loading `log_<game_id>_g<NN>.json`, step forward/backward
+- [x] Per-step SHA-256 re-computation vs stored commitment
 - [x] Green `Verified OK` / red `TAMPERED`; abort and void on first failure
 - [x] Hand-tampered log test triggers `TAMPERED`
 

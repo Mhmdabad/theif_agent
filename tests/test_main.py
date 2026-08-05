@@ -7,11 +7,13 @@ import pytest
 
 from thief_agent.__main__ import (
     CONFIG,
+    MAX_DEPTH,
     StartupError,
     describe,
     describe_failure,
     load_private,
     main,
+    safely_describe,
     where_we_are,
 )
 
@@ -280,3 +282,54 @@ class TestSayingWhatWentWrong:
         assert describe_failure(StartupTimeout("StartupTimeout while waiting")) == (
             "StartupTimeout while waiting"
         )
+
+
+class TestTheReporterCannotBecomeTheFailure:
+    """The walk is over a graph, not a tree, and the first version assumed a tree.
+
+    `anyio` re-raises across task boundaries, which produces groups holding
+    exceptions whose `__context__` is the group. Walking that without a guard
+    recursed until the interpreter gave up — in the error handler, so the real
+    failure was replaced by a `RecursionError` traceback and lost.
+    """
+
+    def cyclic(self) -> BaseException:
+        """A group whose member points back at it, as the live failure did."""
+        leaf = RuntimeError()
+        group = ExceptionGroup("", [leaf])
+        leaf.__context__ = group
+        return group
+
+    def test_a_cycle_terminates(self) -> None:
+        assert "RuntimeError" in describe_failure(self.cyclic())
+
+    def test_a_cycle_terminates_through_the_safe_wrapper_too(self) -> None:
+        assert safely_describe(self.cyclic())
+
+    def test_a_long_chain_stops_before_it_becomes_noise(self) -> None:
+        """Depth is bounded even when every link is distinct, so no cycle exists."""
+        deepest = ValueError("the bottom")
+        current: BaseException = deepest
+        for _ in range(MAX_DEPTH * 3):
+            nxt = RuntimeError()
+            nxt.__cause__ = current
+            current = nxt
+        said = describe_failure(current)
+        assert "the bottom" not in said, "walked further than the depth bound"
+
+    def test_the_same_leaf_twice_is_said_once(self) -> None:
+        """A group often carries one failure duplicated per task. Repeating it is noise."""
+        one = ConnectionError("nothing is listening behind the tunnel")
+        said = describe_failure(ExceptionGroup("", [one, ConnectionError(str(one))]))
+        assert said.count("nothing is listening") == 1
+
+    def test_a_reporter_that_explodes_still_reports(self) -> None:
+        """The property that was missing: diagnostics may not take the run down."""
+
+        class Hostile(Exception):
+            def __str__(self) -> str:
+                raise RecursionError("boom")
+
+        said = safely_describe(Hostile())
+        assert "the failure description itself failed" in said
+        assert "Hostile" in said

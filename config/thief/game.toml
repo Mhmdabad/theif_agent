@@ -66,6 +66,6 @@ mode = "draft"                                    # switch to "send" once verifi
 # For a solo warm-up (this project's cop against its own thief) the values
 # below are already correct: you are the opponent.
 [teams.them]
-group_name = "s82kma9e"
+group_name = "warmup-opp"
 members = ["Mohammed Abad"]          # EDIT for a real opponent
 repos = { cop = "https://github.com/Mhmdabad/police_agent", thief = "https://github.com/Mhmdabad/theif_agent" }

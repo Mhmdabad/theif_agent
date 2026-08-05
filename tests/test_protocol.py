@@ -282,3 +282,62 @@ class TestARetriedTurnIsNotASecondTurn:
         inboxes.negotiate({"greeting": {"public_url": "https://a"}})
         inboxes.negotiate({"greeting": {"public_url": "https://a"}})
         assert inboxes.agreements.qsize() == 2
+
+
+class TestNegotiateCarriesTwoKindsOfMessage:
+    """One tool, two unrelated payloads, and they must not share a mailbox.
+
+    ``negotiate`` is the protocol's single negotiation channel: it carries both
+    *here is where I am* and *here is the digest of the parameters I play by*.
+    Filed together, ``latest_agreement`` — which takes the newest item, rightly,
+    because a newer greeting supersedes an older one — would hand a digest to
+    ``accept_greeting``. That is what ended the fourth live warm-up with
+    ``greeting must be an object, got NoneType``, and whether it happened at all
+    depended on the order the two peers called each other in.
+    """
+
+    def greeting(self) -> dict[str, object]:
+        return {
+            "greeting": {
+                "role": "police",
+                "group_id": "them",
+                "public_url": "https://x/mcp",
+                "protocol_version": "1.0",
+            }
+        }
+
+    def test_a_greeting_goes_to_agreements(self) -> None:
+        inboxes = PeerInboxes()
+        assert inboxes.negotiate(self.greeting())["ok"] is True
+        assert inboxes.agreements.get_nowait() == self.greeting()
+        assert inboxes.digests.empty()
+
+    def test_a_digest_goes_to_digests(self) -> None:
+        inboxes = PeerInboxes()
+        assert inboxes.negotiate({"config_sha256": "a" * 64})["ok"] is True
+        assert inboxes.digests.get_nowait()["config_sha256"] == "a" * 64
+        assert inboxes.agreements.empty()
+
+    def test_a_digest_cannot_be_mistaken_for_the_newest_greeting(self) -> None:
+        """The live failure, in order: greeting first, digest second."""
+        inboxes = PeerInboxes()
+        inboxes.negotiate(self.greeting())
+        inboxes.negotiate({"config_sha256": "a" * 64})
+        assert inboxes.agreements.get_nowait() == self.greeting()
+
+    def test_an_unrecognised_message_is_treated_as_a_greeting(self) -> None:
+        """So it fails where greetings are understood, not filed where nobody looks.
+
+        Routing the unknown to ``digests`` would make a malformed greeting
+        disappear quietly, and the peer would wait out its handshake window for
+        a message it had already received and misfiled.
+        """
+        inboxes = PeerInboxes()
+        inboxes.negotiate({"something": "unexpected"})
+        assert inboxes.agreements.get_nowait() == {"something": "unexpected"}
+
+    def test_a_non_mapping_is_still_refused(self) -> None:
+        inboxes = PeerInboxes()
+        assert inboxes.negotiate("not an object")["ok"] is False
+        assert inboxes.agreements.empty()
+        assert inboxes.digests.empty()

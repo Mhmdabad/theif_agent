@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastmcp>=3.4.5",
+    "google-auth-oauthlib>=1.2",
 ]
 
 [dependency-groups]
@@ -53,3 +54,7 @@ branch = true
 # Single source of truth for the coverage gate (CI carries no hard-coded number).
 fail_under = 85
 show_missing = true
+
+[[tool.mypy.overrides]]
+module = ["google_auth_oauthlib.*"]
+ignore_missing_imports = true

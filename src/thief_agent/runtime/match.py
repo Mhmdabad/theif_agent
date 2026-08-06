@@ -123,6 +123,7 @@ class MatchRunner:
 
     def play_sub_game(self, number: int, timeout: float = 30.0) -> SubGameOutcome:
         """Steps 3 and 4 for one sub-game."""
+        self.orchestrator.inboxes.accepted_turns.clear()
         log = MatchLog(
             game_id=self.game_id,
             sub_game=number,

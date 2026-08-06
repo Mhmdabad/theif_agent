@@ -98,7 +98,11 @@ class PeerInboxes:
         """
         try:
             body = require_mapping(message, "agreement")
-            (self.digests if "config_sha256" in body else self.agreements).put(body)
+            if "config_sha256" in body:
+                self.digests.put(body)
+            else:
+                self.accepted_turns.clear()
+                self.agreements.put(body)
         except InvalidPayloadError as exc:
             return self._refuse("negotiate", exc)
         return ACK

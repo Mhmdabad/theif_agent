@@ -186,6 +186,7 @@ class SubGame:
         self.ceremony = MatchCeremony(role=self.role)
         self.start = self.state
         self.belief = Belief.uniform(self.state)
+        self.belief.exclude(position_of(self.state, self._agent(self.role)))
 
     @property
     def opponent(self) -> str:
@@ -298,6 +299,7 @@ class SubGame:
         ``uncertainty``.
         """
         self.belief.apply_barriers(self.state)
+        self.belief.exclude(position_of(self.state, self._agent(self.role)))
         peak = self.belief.most_likely()
         if peak is None:
             raise StrategyContextError("opponent belief has no possible cell")
@@ -368,6 +370,28 @@ class SubGame:
         try:
             check_field(opened.scent, self.state.grid_size)
         except ScentFieldError:
+            return
+        plays = [
+            StepPlay(
+                step=played_step,
+                ours=action,
+                theirs=self.peer_move(played_step),
+                disclosed=reveal.scent if (reveal := self._peer_reveals.get(played_step)) else None,
+            )
+            for played_step, action in sorted(self._our_actions.items())
+            if played_step <= step
+        ]
+        failures = audit_scent(
+            self.start,
+            self.axes,
+            self.role,
+            plays,
+            require_bound=self.require_bound_scent,
+        )
+        if any(
+            failure.startswith(f"step {step}:") or "revealed move cannot be replayed" in failure
+            for failure in failures
+        ):
             return
         self.scent.absorb(opened.scent, self.state.grid_size)
         absorb_evidence(self.belief, self.scent.opponent.values)

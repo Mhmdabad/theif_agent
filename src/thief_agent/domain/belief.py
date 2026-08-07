@@ -86,6 +86,12 @@ class Belief:
         self.mass = {cell: value for cell, value in self.mass.items() if not state.is_barrier(cell)}
         self.normalise()
 
+    def exclude(self, cell: Position) -> None:
+        """Remove one physically impossible opponent cell and renormalise."""
+        if cell in self.mass:
+            self.mass[cell] = 0.0
+            self.normalise()
+
     def update(self, likelihood: dict[Position, float]) -> None:
         """Multiply by a likelihood and renormalise: one Bayes step.
 
@@ -128,12 +134,13 @@ class Belief:
         curve spends against: a wall placed on a diffuse belief is a permanent
         cost paid for a guess.
         """
-        if not self.mass:
+        possible = [value for value in self.mass.values() if value > 0.0]
+        if not possible:
             return 0.0
-        if len(self.mass) == 1:
+        if len(possible) == 1:
             return 1.0
-        peak = max(self.mass.values())
-        floor = 1.0 / len(self.mass)
+        peak = max(possible)
+        floor = 1.0 / len(possible)
         if peak <= floor:
             return 0.0
         return (peak - floor) / (1.0 - floor)

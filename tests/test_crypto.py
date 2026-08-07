@@ -320,8 +320,17 @@ class TestTheFullStepRecord:
     def test_it_carries_the_four_named_fields_and_the_four_implied_ones(self) -> None:
         """The rulebook names State, Move, Intent, Nonce and then says the real
         record also holds the hint, the intent classification, the step and the
-        role. The nonce joins at commit time."""
-        assert set(self.record()) == {"state", "role", "move", "intent", "hint", "barrier_placed"}
+        role. The nonce joins at commit time, and the scent field joins because
+        it is disclosed a phase later than the commitment that fixes it."""
+        assert set(self.record()) == {
+            "state",
+            "role",
+            "move",
+            "intent",
+            "hint",
+            "barrier_placed",
+            "scent",
+        }
         assert self.record()["state"]["step"] == 4  # type: ignore[index]
 
     def test_a_barrier_placement_is_sealed(self) -> None:

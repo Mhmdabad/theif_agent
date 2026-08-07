@@ -82,13 +82,25 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done · **🚪 GATE** = milesto
 
 ## Stage 4 — Language & Scent → [PRD-4](prd/PRD-4-language-and-scent.md)
 
-- [ ] 5×5 radial scent emission, centre τ = 0.9
-- [ ] Decay `τ(t+1) = max(0, (1−ρ)τ(t) + Δτ)`, ρ = 0.10, at end of each **full** turn
-- [ ] Sample **opponent's** field only; never our own
-- [ ] Fixture test against hand-computed decay values
+- [x] 5×5 radial scent emission, centre τ = 0.9 — emitted by the live match loop
+      on **every** action, `STAY` and barrier turns included
+- [x] Decay `τ(t+1) = max(0, (1−ρ)τ(t) + Δτ)`, ρ = 0.10, at end of each **full** turn
+- [x] Sample **opponent's** field only; never our own
+- [x] Fixture test against hand-computed decay values
 - [ ] **Pre-series lock**: exchange emission/decay model + numeric example, hash it
+      *(`domain/lock.py` builds and hashes the agreement, including the scent
+      binding term; nothing in the negotiation path calls it yet)*
 - [ ] Offer our scent-engine code to the opponent (permitted and recommended)
-- [ ] Belief map `b(s)` over the grid; zero belief on barriers
+      *(the offer text is built; it is not sent by any runtime path yet)*
+- [x] Belief map `b(s)` over the grid; zero belief on barriers, updated from the
+      opponent's field at the full-turn boundary
+- [x] Scent snapshot transmitted in **phase 3** and sealed into the **phase-1**
+      SHA-256 commitment; a field edited after the commit fails verification
+- [x] Final audit re-derives the opponent's trail from the agreed start and the
+      revealed movement history; an impossible, malformed, non-finite, negative,
+      out-of-range or over-limit field is an audit failure
+- [x] Fail-closed: a peer that cannot bind its scent is refused rather than
+      believed — unverified scent is never absorbed
 - [ ] Bayes update combining scent evidence + hint, with reliability coefficient
 - [ ] Adaptive reliability: lower on each detected contradiction
 - [ ] Lie detector: expected-vs-measured scent contradiction (reproduce book example)

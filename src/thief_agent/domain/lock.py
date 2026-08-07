@@ -20,6 +20,14 @@ failure the lock exists to prevent. The digest covers the model parameters and
 the worked example together, canonicalised the same way the config digest is,
 so a hash match means the fields will match.
 
+**The agreement covers how the field travels, not only what it contains.**
+:data:`~.fixture.BINDING` is one of the hashed terms, so a peer that ships its
+field unbound in the phase-1 turn message — as the reference dialect does —
+fails the lock at negotiation rather than surprising us mid-series. That is the
+fail-closed half of the design: the runtime refuses to *absorb* scent it cannot
+verify, and this refuses to *open a series* on a model that cannot produce
+verifiable scent, so the two failures cannot be reached by accident.
+
 **Disagreement is reported, not resolved.** :func:`compare` says which terms
 differ and stops. A module that quietly adopted the opponent's model on
 mismatch would be conceding an agreement nobody made, and the rulebook's
@@ -34,10 +42,13 @@ from .scent import DEFAULT_FALLOFF, Falloff
 
 SOURCE_OFFER = (
     "Our scent engine is offered in full: domain/scent.py (emission), "
-    "domain/trail.py (merge and decay), domain/fixture.py (this example). "
+    "domain/trail.py (merge and decay), domain/fixture.py (this example), "
+    "domain/scent_audit.py (the reconstruction we will audit you with). "
     "The rulebook permits and recommends sharing it, and the physics are "
     "public and symmetric, so it costs nothing strategically and removes the "
-    "last room for an interpretation difference."
+    "last room for an interpretation difference. The auditor is included "
+    "deliberately: a check the other side cannot run against itself first is "
+    "a trap rather than an agreement."
 )
 """Accompanies the proposal. The rulebook explicitly recommends this.
 

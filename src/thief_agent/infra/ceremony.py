@@ -39,6 +39,7 @@ from ..domain.crypto import NONCE_BYTES, commit_of, step_record
 from .validation import (
     InvalidPayloadError,
     optional_cell,
+    optional_scent,
     require_int,
     require_mapping,
     require_str,
@@ -185,8 +186,27 @@ class Acknowledgement:
             raise CeremonyError(str(exc)) from exc
 
 
-REVEAL_FIELDS = ("step", "sender", "move", "intent", "hint", "barrier_placed", "timestamp")
-"""Everything phase 3 may carry. Conspicuously not the nonce."""
+REVEAL_FIELDS = (
+    "step",
+    "sender",
+    "move",
+    "intent",
+    "hint",
+    "barrier_placed",
+    "scent",
+    "timestamp",
+)
+"""Everything phase 3 may carry. Conspicuously not the nonce.
+
+``scent`` is here and **not** in :data:`COMMIT_FIELDS`, which is the one
+placement decision in this module that is about the pheromone layer rather than
+about the ceremony. A fresh emission peaks on the emitter's own cell, so a
+field sent alongside the commitment would disclose the exact position the
+commitment exists to conceal — the reference dialect's ``TurnMessage`` bundles
+the two and gives that away every turn. Held to phase 3, the field arrives only
+once both sides are locked, and it is still bound by the phase-1 digest, so
+nothing about it is chosen after hearing what the opponent said.
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,6 +235,17 @@ class Reveal:
     hint: str
     timestamp: str
     barrier_placed: list[int] | None = None
+    scent: dict[str, float] | None = None
+    """The trail this step laid, as ``{"row,col": intensity}``.
+
+    Optional on the wire and **not** optional at the audit. A peer that omits
+    it has disclosed nothing checkable, which
+    :func:`~..domain.scent_audit.audit_scent` treats as a failure unless the
+    series was explicitly negotiated without scent binding. Parsing it as
+    absent rather than refusing the message is deliberate: refusing would let
+    any opponent end our match by leaving out a key, and the correct place to
+    lose a match over unverifiable scent is the verdict, not the parser.
+    """
 
     def __post_init__(self) -> None:
         if self.sender not in ROLES:
@@ -233,6 +264,7 @@ class Reveal:
             "intent": self.intent,
             "hint": self.hint,
             "barrier_placed": self.barrier_placed,
+            "scent": self.scent,
             "timestamp": self.timestamp,
         }
 
@@ -265,6 +297,7 @@ class Reveal:
                 hint=body.get("hint", "") if isinstance(body.get("hint", ""), str) else "",
                 timestamp=require_str(body, "timestamp"),
                 barrier_placed=optional_cell(body, "barrier_placed"),
+                scent=optional_scent(body, "scent"),
             )
         except InvalidPayloadError as exc:
             raise CeremonyError(str(exc)) from exc
@@ -735,6 +768,7 @@ def audit_opponent(
                 if opened.barrier_placed
                 else None
             ),
+            scent=opened.scent,
         )
         if not verify_step(record, nonce, ceremony.theirs.commit):
             failures.append(

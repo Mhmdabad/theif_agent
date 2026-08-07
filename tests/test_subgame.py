@@ -17,6 +17,7 @@ from thief_agent.domain.actions import MoveAction, PlaceBarrier
 from thief_agent.domain.axes import AxisConvention
 from thief_agent.domain.board import BoardState
 from thief_agent.domain.crypto import commit_of, nonce, step_record
+from thief_agent.domain.memory import ScentMemory
 from thief_agent.infra.ceremony import (
     Acknowledgement,
     Commitment,
@@ -81,6 +82,8 @@ class StandInOpponent:
         self.ceremony = MatchCeremony(role=self.role)
         self.records: dict[int, dict[str, object]] = {}
         self.nonces: dict[int, str] = {}
+        self.fields: dict[int, dict[str, float]] = {}
+        self.scent = ScentMemory()
         self.seen: list[str] = []
         self.state = board()
 
@@ -95,7 +98,15 @@ class StandInOpponent:
         # accuse it of forgery at every step — correctly, because it would be
         # re-deriving against a board the two sides never agreed on.
         self.state = replace(self.state, step=step)
-        record = step_record(self.state, self.role, self.move, "truth", f"t{step}")
+        # This cop stands still, so its emission centre never moves. Decay
+        # fires once per full turn, at the boundary we have just crossed.
+        if step > 1:
+            self.scent.decay()
+        self.scent.emit(self.state.cop, self.state.grid_size)
+        self.fields[step] = self.scent.outgoing()
+        record = step_record(
+            self.state, self.role, self.move, "truth", f"t{step}", scent=self.fields[step]
+        )
         secret = nonce()
         self.records[step], self.nonces[step] = record, secret
         mine = Commitment(
@@ -124,6 +135,7 @@ class StandInOpponent:
             intent="truth",
             hint=f"t{step}",
             timestamp=WHEN,
+            scent=self.fields[step],
         )
         self.ceremony.at(step).reveal(mine)
         return Reveal.from_dict(self._wire(mine))
@@ -411,10 +423,22 @@ class TestTheOpponentIsAudited:
         first failure and everything downstream of it, which is what actually
         happened: not one bad step in an otherwise sound game, but a game that
         stopped being the same game at step two.
+
+        Each divergent step now draws **two** accusations, and they are
+        different accusations rather than a duplicate: the digest does not open
+        to the move that was spoken, *and* the trail the cop disclosed is not
+        the one that move would have laid. The second is the interesting one —
+        a cheat can always tell a consistent story about its own hash, and
+        cannot tell one about the environment it walked through.
         """
         game, _, _ = a_subgame(tmp_path, StandInOpponent(corrupt_at=2), max_steps=3)
         failures = game.play().audit.failures
-        assert [f.split(":")[0] for f in failures] == ["step 2", "step 3"]
+        assert sorted(f.split(":")[0] for f in failures) == [
+            "step 2",
+            "step 2",
+            "step 3",
+            "step 3",
+        ]
 
     def test_every_step_is_still_checked(self, tmp_path: Path) -> None:
         """Stopping at the first would hand them an incomplete accusation."""

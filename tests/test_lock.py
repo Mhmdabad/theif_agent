@@ -1,7 +1,9 @@
 """Tests for the pre-series scent lock (#55) and the code offer (#56)."""
 
+import dataclasses
 import json
 
+from thief_agent.domain.fixture import BINDING, build
 from thief_agent.domain.lock import SOURCE_OFFER, ScentLock, agreed, compare, propose
 from thief_agent.domain.scent import CHEBYSHEV
 
@@ -84,6 +86,51 @@ class TestDisagreementIsReportedNotResolved:
     def test_every_disagreement_is_listed_at_once(self) -> None:
         """One message rather than one round trip per differing term."""
         assert len(compare(propose(), propose(CHEBYSHEV).terms())) >= 2
+
+
+class TestTheBindingIsPartOfTheAgreement:
+    """How the field travels is an agreement term, not an implementation choice.
+
+    Two peers can compute byte-identical fields and still be playing different
+    games: one sealing the field into its phase-1 commitment, the other
+    shipping it unbound alongside the commitment as the reference dialect does.
+    The second is not a weaker version of the first — it discloses the emitter's
+    exact cell a phase early *and* leaves the field free to be chosen after
+    hearing the opponent. So it is settled before the series, in the same
+    digest as the physics, rather than discovered inside one.
+    """
+
+    def test_the_proposal_names_how_the_field_is_bound(self) -> None:
+        model = propose().terms()["scent_model"]
+        assert isinstance(model, dict)
+        assert model["binding"] == BINDING
+
+    def test_the_binding_names_the_phase_and_the_commitment(self) -> None:
+        """A term nobody can read is a term nobody can disagree with."""
+        assert "commit" in BINDING and "reveal" in BINDING
+
+    def test_it_is_covered_by_the_digest(self) -> None:
+        """Outside the digest it would be a courtesy rather than a lock."""
+        theirs = dataclasses.replace(build(), binding="turn-message-unbound")
+        assert ScentLock(fixture=theirs).digest() != propose().digest()
+
+    def test_a_peer_that_cannot_bind_its_scent_is_named(self) -> None:
+        theirs = propose().terms()
+        model = theirs["scent_model"]
+        assert isinstance(model, dict)
+        model["binding"] = "turn-message-unbound"
+        problems = compare(propose(), theirs)
+        assert len(problems) == 1
+        assert problems[0].startswith("binding:")
+        assert not agreed(propose(), theirs)
+
+    def test_a_peer_that_omits_it_entirely_is_named(self) -> None:
+        """Silence about the binding is refused, not read as consent."""
+        theirs = propose().terms()
+        model = theirs["scent_model"]
+        assert isinstance(model, dict)
+        del model["binding"]
+        assert compare(propose(), theirs) == ["binding: absent from their proposal"]
 
 
 class TestTheCodeOffer:

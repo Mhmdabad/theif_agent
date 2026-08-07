@@ -41,13 +41,13 @@ from ..infra.mcp_transport import FastMcpTransport
 from ..infra.report import Repositories
 from ..infra.step_zero import SIGNING_KEY_ENV, collect, provenance
 from ..infra.tunnel import discover, rehearsal_url
+from ..shared.config import SHARED_CONFIG
 from ..shared.config import load as load_shared
 from ..strategy.loader import load_brain
 from .match import MatchRunner
 from .orchestrator import Orchestrator
 
 ROLE = "thief"
-SHARED_CONFIG = Path("config/game.json")
 
 DEFAULT_PATIENCE = 180.0
 """Seconds to wait for the opponent's agent to appear before giving up.
@@ -104,7 +104,6 @@ def open_match(
     private: dict[str, Any],
     environ: dict[str, str],
     game_id: str,
-    sub_games: int,
     directory: Path,
     rehearsal: bool = False,
 ) -> tuple[Path, ...]:  # pragma: no cover - the other side of this is another team
@@ -116,7 +115,13 @@ def open_match(
     order, which no test short of a second team can exercise. The pure helpers
     below — the ones that parse config and can silently produce a wrong board —
     are covered.
+
+    **How many sub-games is not an argument.** It comes from the configuration
+    both peers sign, which is loaded and validated before the first packet, so
+    a deviation from Appendix F table 18 row 1 costs a startup message rather
+    than a disqualification.
     """
+    parameters = load_shared(SHARED_CONFIG)
     network = private.get("network", {})
     transport = FastMcpTransport()
     client = OpponentClient(
@@ -133,7 +138,6 @@ def open_match(
     directory.mkdir(parents=True, exist_ok=True)
     peering = await_opponent(orchestrator, ours, directory, game_id)
 
-    parameters = load_shared(SHARED_CONFIG)
     us, them = _us(private), _them(private)
     hardware = collect(str(private.get("trash_talk", {}).get("model", "template")), environ)
 
@@ -172,7 +176,6 @@ def open_match(
             barriers=frozenset(),
             step=0,
         ),
-        sub_games=sub_games,
         max_steps=int(parameters.get("movement_and_barriers", {}).get("max_moves", 40)),
         directory=directory,
         now=_now,
@@ -180,8 +183,7 @@ def open_match(
 
     try:
         runner.agree()
-        for number in range(1, sub_games + 1):
-            runner.play_sub_game(number)
+        runner.play_series()
     finally:
         transport.close()
 

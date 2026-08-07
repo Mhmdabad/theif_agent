@@ -30,6 +30,7 @@ somebody else's match.
 """
 
 import argparse
+import json
 import sys
 import tomllib
 from collections.abc import Callable, Sequence
@@ -40,6 +41,8 @@ from .infra.inboxes import TOOL_NAMES, PeerInboxes
 from .infra.mcp_client import ClientSettings
 from .infra.mcp_server import SERVER_NAME, ServerSettings, build, serve
 from .infra.tunnel import NotPublicError, discover, read_ngrok_api
+from .shared.config import SHARED_CONFIG, series_length
+from .shared.config import load as load_shared
 
 PACKAGE = "thief_agent"
 ROLE = "thief"
@@ -74,6 +77,39 @@ def load_private(path: Path) -> dict[str, Any]:
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise StartupError(f"cannot read {path}: {exc}") from exc
     return body
+
+
+def resolve_series_length(requested: int | None, path: Path) -> int:
+    """How many sub-games this peer will play, from the file both peers sign.
+
+    Read here — before the server thread, before the announcement, before any
+    address reaches an opponent — because a series of the wrong length is not a
+    badly played match, it is a disqualified one (Appendix F table 18 row 1,
+    status *fixed*). The cheapest place to learn that is our own terminal, and
+    the most expensive is the opponent's audit after six sub-games that were
+    only ever going to be one.
+
+    Args:
+        requested: the value typed after ``--sub-games``, or ``None`` for the
+            book length. Any other number is refused rather than honoured; the
+            flag exists so that somebody who deviates on purpose is told the
+            rule, not so that the deviation is available.
+
+    Raises:
+        StartupError: if the shared configuration cannot be read at all.
+        ConfigError: if it deviates, or if ``requested`` does.
+    """
+    try:
+        config = load_shared(path)
+    except OSError as exc:
+        raise StartupError(
+            f"cannot read the shared configuration at {path}: {exc}; it is committed to "
+            "this repository, so a missing one means the command is being run from "
+            "somewhere other than the repository root"
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise StartupError(f"{path} is not valid JSON: {exc}") from exc
+    return series_length(config, requested)
 
 
 def where_we_are(
@@ -130,7 +166,14 @@ def main(argv: Sequence[str] | None = None, environ: dict[str, str] | None = Non
     parser.add_argument("--config", type=Path, default=CONFIG, help="private per-peer TOML")
     parser.add_argument("--game-id", default="", help="agreed with the opponent beforehand")
     parser.add_argument("--out", type=Path, default=Path("artefacts"), help="where to write")
-    parser.add_argument("--sub-games", type=int, default=1)
+    parser.add_argument(
+        "--sub-games",
+        type=int,
+        default=None,
+        help="sub-games in the series. Appendix F table 18 row 1 fixes this at six and "
+        "deviating disqualifies the team, so the length comes from the shared config; "
+        "the flag exists only so that asking for another is refused out loud",
+    )
     parser.add_argument(
         "--rehearse",
         action="store_true",
@@ -147,6 +190,8 @@ def main(argv: Sequence[str] | None = None, environ: dict[str, str] | None = Non
         private = load_private(arguments.config)
         for line in describe(private, source):
             print(line)
+        sub_games = resolve_series_length(arguments.sub_games, SHARED_CONFIG)
+        print(f"  series         {sub_games} sub-games (Appendix F table 18 row 1, fixed)")
         if arguments.command == "check":
             return 0
         settings = ServerSettings.from_config(private.get("network", {}))
@@ -305,7 +350,6 @@ def play(
             private=private,
             environ=environ,
             game_id=arguments.game_id,
-            sub_games=arguments.sub_games,
             directory=arguments.out,
             rehearsal=arguments.rehearse,
         )

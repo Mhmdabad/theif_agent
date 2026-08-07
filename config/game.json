@@ -35,7 +35,7 @@
   "network_and_league": {
     "response_timeout_sec": 30,
     "watchdog_timeout_sec": 60,
-    "num_games": 1,
+    "num_games": 6,
     "diversity_reward": 10,
     "min_games_to_pass": 2,
     "max_games_per_team": 10,

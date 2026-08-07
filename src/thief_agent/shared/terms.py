@@ -19,6 +19,8 @@ different game from the opponent.
 
 from typing import Any
 
+from .appendix_f import book_int
+
 REQUIRED_TERMS: tuple[str, ...] = (
     "board_size",
     "smell_grid_size",
@@ -65,7 +67,12 @@ def to_terms(config: dict[str, Any]) -> dict[str, Any]:
         "hint_max_words": config.get("world", {}).get("hint_max_words", 15),
         "axis_origin_corner": board.get("axis_origin_corner", "top-left"),
         "axis_start_index": board.get("axis_start_index", 0),
-        "num_games": config.get("network_and_league", {}).get("num_games", 1),
+        # Appendix F table 18 row 1 is fixed at six, so the fallback is the book
+        # value and not a demo-sized one. A term that quietly announces a series
+        # of one to the opponent is a deviation they audit us on.
+        "num_games": config.get("network_and_league", {}).get(
+            "num_games", book_int("network_and_league", "num_games")
+        ),
     }
     missing = [name for name in REQUIRED_TERMS if terms.get(name) is None]
     if missing:

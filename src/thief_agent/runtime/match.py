@@ -44,7 +44,7 @@ from ..infra.config_file import LockedConfig, lock
 from ..infra.declaration import MatchDeclaration
 from ..infra.match_log import MatchLog
 from ..infra.report import Report, Repositories, SubGameResult
-from ..shared.config import config_sha256
+from ..shared.config import config_sha256, series_length
 from ..strategy.base import BrainBase
 from .orchestrator import CONFIG_TIMEOUT_SEC, Orchestrator
 from .peer import McpPeer
@@ -89,7 +89,6 @@ class MatchRunner:
     brain: BrainBase
     axes: AxisConvention
     start: BoardState
-    sub_games: int
     max_steps: int
     directory: Path
     now: Callable[[], str] = field(default=lambda: "")
@@ -98,6 +97,18 @@ class MatchRunner:
     @property
     def game_id(self) -> str:
         return self.declaration.game_id
+
+    @property
+    def sub_games(self) -> int:
+        """How long this series is, from the parameters both sides signed.
+
+        Derived rather than accepted, because it used to be accepted: the count
+        travelled in from ``--sub-games``, which defaulted to ``1``, and a
+        series of one is not a short match — Appendix F table 18 row 1 fixes it
+        at six and deviating disqualifies the team. A runner that cannot be
+        *told* how long its series is cannot be told wrong.
+        """
+        return series_length(self.parameters)
 
     @property
     def role(self) -> str:
@@ -128,6 +139,15 @@ class MatchRunner:
             parameters=self.parameters,
             agreed_between=(self.declaration.us.name, self.declaration.them.name),
         )
+
+    def play_series(self, timeout: float = 30.0) -> list[SubGameOutcome]:
+        """Step 3 for the whole series: every numbered sub-game, in order.
+
+        The length is resolved *before* the first sub-game, so a configuration
+        that deviates costs nothing — no board is played under it, and the
+        opponent never sees a series that stops short of the book.
+        """
+        return [self.play_sub_game(number, timeout) for number in range(1, self.sub_games + 1)]
 
     def play_sub_game(self, number: int, timeout: float = 30.0) -> SubGameOutcome:
         """Steps 3 and 4 for one sub-game."""

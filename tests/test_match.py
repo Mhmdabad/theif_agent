@@ -71,7 +71,6 @@ def a_runner(
         brain=ThiefBrain(),
         axes=AXES,
         start=BoardState(grid_size=8, cop=(0, 0), thief=(6, 5), barriers=frozenset(), step=0),
-        sub_games=1,
         max_steps=2,
         directory=tmp_path,
         now=lambda: WHEN,

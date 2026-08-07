@@ -216,6 +216,8 @@ def plays(after: Callable[[int], None] = lambda _: None) -> Callable[..., SubGam
             role=self.role,
             client=self.orchestrator.client,
             inboxes=self.orchestrator.inboxes,
+            game_uid=self.declaration.game_uid,
+            sub_game=number,
             now=WHEN,
             timeout=timeout,
         ).send_commit(Commitment(step=1, sender=self.role, commit=COMMIT, timestamp=WHEN))

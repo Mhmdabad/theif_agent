@@ -46,6 +46,8 @@ def a_peer(
         inboxes=inboxes,
         now=WHEN,
         timeout=timeout,
+        game_uid="series-123",
+        sub_game=2,
     )
     return peer, transport, inboxes
 
@@ -126,6 +128,27 @@ class TestWhatCrossesTheWire:
 
 
 class TestRecordsArriveOutOfOrder:
+    def test_stale_reveal_cannot_mask_current_reveal_in_same_payload(self) -> None:
+        peer, _, inboxes = a_peer()
+        stale = Reveal(
+            step=1, sender="police", move="S", intent="truth", hint="old", timestamp=WHEN
+        )
+        current = Reveal(
+            step=2, sender="police", move="N", intent="truth", hint="now", timestamp=WHEN
+        )
+        inboxes.audits.put(
+            AuditPayload(
+                sender="police",
+                records=[stale.to_dict(), current.to_dict()],
+                result_claim=UNDECIDED,
+                game_uid="series-123",
+                sub_game=2,
+            )
+        )
+
+        assert peer.await_reveal(2) == current
+        assert stale.to_dict() not in peer._held
+
     def test_a_record_we_are_not_waiting_for_is_kept(self) -> None:
         """A discarded message is a deadlock nobody can diagnose."""
         peer, _, inboxes = a_peer()
@@ -136,6 +159,8 @@ class TestRecordsArriveOutOfOrder:
                 sender="police",
                 records=[early.to_dict(), wanted.to_dict()],
                 result_claim=UNDECIDED,
+                game_uid="series-123",
+                sub_game=2,
             )
         )
         assert peer.await_reveal(1).move == "S"
@@ -150,6 +175,8 @@ class TestRecordsArriveOutOfOrder:
                 sender="police",
                 records=[second.to_dict(), first.to_dict()],
                 result_claim=UNDECIDED,
+                game_uid="series-123",
+                sub_game=2,
             )
         )
         assert peer.await_reveal(1).move == "S"
@@ -214,10 +241,18 @@ class TestReceivingACommitment:
                 sender="police",
                 records=[other.to_dict(), spare.to_dict()],
                 result_claim=UNDECIDED,
+                game_uid="series-123",
+                sub_game=2,
             )
         )
         inboxes.audits.put(
-            AuditPayload(sender="police", records=[wanted.to_dict()], result_claim=UNDECIDED)
+            AuditPayload(
+                sender="police",
+                records=[wanted.to_dict()],
+                result_claim=UNDECIDED,
+                game_uid="series-123",
+                sub_game=2,
+            )
         )
         assert peer.await_reveal(1).move == "S"
         assert peer.await_reveal(8).move == "W", "held records are searched, not just the first"

@@ -39,6 +39,15 @@ NUMERIC = re.compile(
 )
 """Shapes that constitute a coordinate protocol rather than a hint."""
 
+FUTURE_ACTION = re.compile(
+    r"\b(?:next\s+(?:turn|move)|future\s+(?:turn|move)|"
+    r"(?:i|we)\s+(?:will|shall|am\s+going\s+to|plan\s+to))\b"
+    r"[^.!?]*\b(?:move|go|head|travel|stay|wait|place|build|"
+    r"north|south|east|west|up|down|left|right|barrier)\b",
+    re.IGNORECASE,
+)
+"""Explicit disclosures of a not-yet-committed action."""
+
 DIRECTIONS: dict[str, tuple[int, int]] = {
     "north": (-1, 0),
     "up": (-1, 0),

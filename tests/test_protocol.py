@@ -100,6 +100,8 @@ class TestAuditPayload:
             "sender": "thief",
             "records": [{"payload": {"step": 0}, "nonce": "n", "commit": "c"}],
             "result_claim": "survival",
+            "game_uid": "series-123",
+            "sub_game": 2,
         }
         assert AuditPayload.from_dict(payload).to_dict() == payload
 
@@ -114,6 +116,13 @@ class TestAuditPayload:
     def test_result_claim_is_required(self) -> None:
         with pytest.raises(InvalidPayloadError):
             AuditPayload.from_dict({"sender": "thief", "records": []})
+
+    def test_series_and_sub_game_binding_are_required(self) -> None:
+        base = {"sender": "thief", "records": [], "result_claim": "survival"}
+        with pytest.raises(InvalidPayloadError, match="game_uid"):
+            AuditPayload.from_dict(base)
+        with pytest.raises(InvalidPayloadError, match="sub_game"):
+            AuditPayload.from_dict({**base, "game_uid": "series-123"})
 
 
 class TestControlMessage:
@@ -171,9 +180,17 @@ class TestInboxes:
             assert boxes.receive_control(hostile)["ok"] is False
 
     def test_agreements_audits_and_controls_queue_separately(self) -> None:
-        boxes = PeerInboxes()
+        boxes = PeerInboxes(game_uid="series-123", sub_game=1)
         boxes.negotiate({"terms": {}})
-        boxes.submit_audit({"sender": "police", "records": [], "result_claim": "capture"})
+        boxes.submit_audit(
+            {
+                "sender": "police",
+                "records": [],
+                "result_claim": "capture",
+                "game_uid": "series-123",
+                "sub_game": 1,
+            }
+        )
         boxes.receive_control({"kind": "enable", "sender": "police"})
         assert boxes.agreements.qsize() == 1
         assert boxes.audits.qsize() == 1

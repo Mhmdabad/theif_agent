@@ -131,8 +131,10 @@ class PeerInboxes:
     controls: "queue.Queue[ControlMessage]" = field(default_factory=queue.Queue)
     rejected: list[str] = field(default_factory=list)
     accepted_turns: dict[tuple[str, int], str] = field(default_factory=dict)
-    accepted_reveals: dict[tuple[str, int], str] = field(default_factory=dict)
+    accepted_reveals: dict[tuple[str, int, str, int], str] = field(default_factory=dict)
     hint_max_words: int = 15
+    game_uid: str = ""
+    sub_game: int = 0
     """``(sender, step) -> digest`` of every turn taken. The duplicate detector."""
 
     duplicates: list[str] = field(default_factory=list)
@@ -261,15 +263,23 @@ class PeerInboxes:
         """Receive the opponent's end-of-game reveal: records and nonces."""
         try:
             audit = AuditPayload.from_dict(payload)
+            if audit.game_uid != self.game_uid or audit.sub_game != self.sub_game:
+                return self._reject(
+                    "submit_audit",
+                    "audit payload is bound to "
+                    f"{audit.game_uid!r} sub-game {audit.sub_game}, expected "
+                    f"{self.game_uid!r} sub-game {self.sub_game}",
+                )
             fresh: list[dict[str, Any]] = []
+            pending: dict[tuple[str, int, str, int], str] = {}
             for record in audit.records:
                 if "move" not in record:
                     fresh.append(record)
                     continue
                 opened = Reveal.from_dict(record, hint_max_words=self.hint_max_words)
-                key = (opened.sender, opened.step)
+                key = (opened.sender, opened.step, audit.game_uid, audit.sub_game)
                 digest = hashlib.sha256(canonical_bytes(opened.to_dict())).hexdigest()
-                taken = self.accepted_reveals.get(key)
+                taken = pending.get(key, self.accepted_reveals.get(key))
                 if taken == digest:
                     self.duplicates.append(
                         f"submit_audit: {opened.sender} step {opened.step} re-sent"
@@ -280,10 +290,19 @@ class PeerInboxes:
                         "submit_audit",
                         f"{opened.sender} already revealed step {opened.step} differently",
                     )
-                self.accepted_reveals[key] = digest
+                pending[key] = digest
                 fresh.append(record)
+            self.accepted_reveals.update(pending)
             if fresh or not audit.records:
-                self.audits.put(AuditPayload(audit.sender, fresh, audit.result_claim))
+                self.audits.put(
+                    AuditPayload(
+                        audit.sender,
+                        fresh,
+                        audit.result_claim,
+                        audit.game_uid,
+                        audit.sub_game,
+                    )
+                )
         except (InvalidPayloadError, CeremonyError) as exc:
             return self._refuse("submit_audit", exc)
         return ACK

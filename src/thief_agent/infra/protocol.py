@@ -97,6 +97,8 @@ class AuditPayload:
     sender: str
     records: list[dict[str, Any]] = field(default_factory=list)
     result_claim: str = ""
+    game_uid: str = ""
+    sub_game: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -111,6 +113,8 @@ class AuditPayload:
             sender=_require_role(body),
             records=[require_mapping(r, "audit record") for r in records],
             result_claim=require_str(body, "result_claim"),
+            game_uid=require_str(body, "game_uid"),
+            sub_game=require_int(body, "sub_game", minimum=1, maximum=6),
         )
 
 

@@ -47,6 +47,7 @@ def reveal(**changes: object) -> dict[str, object]:
     [
         ({"hint": None}, "must be a string"),
         ({"hint": ""}, "must not be empty"),
+        ({"hint": "   \t"}, "must not be blank"),
         (
             {
                 "hint": "one two three four five six seven eight "
@@ -56,6 +57,9 @@ def reveal(**changes: object) -> dict[str, object]:
         ),
         ({"hint": "safe\nlooking"}, "control character"),
         ({"hint": "bad\ud800text"}, "Unicode scalar"),
+        ({"hint": "safe\u202elooking"}, "format character"),
+        ({"hint": "I am at 3,4"}, "numeric coordinates"),
+        ({"hint": "Next turn I will move north"}, "future action"),
     ],
 )
 def test_wire_refuses_malformed_or_oversized_hints(changes: dict[str, object], detail: str) -> None:
@@ -71,8 +75,13 @@ def test_wire_preserves_unicode_hint_exactly_and_does_not_confuse_it_with_scent(
     assert opened.scent == {"3,3": 0.9}
 
 
+def test_wire_accepts_exactly_the_word_limit() -> None:
+    text = " ".join(["שלום"] * 15)
+    assert Reveal.from_dict(reveal(hint=text)).hint == text
+
+
 def test_reveal_retry_is_idempotent_but_cannot_mask_a_conflicting_hint() -> None:
-    inboxes = PeerInboxes()
+    inboxes = PeerInboxes(game_uid="series-123", sub_game=2)
     committed = {
         "step": 1,
         "sender": "police",
@@ -86,15 +95,40 @@ def test_reveal_retry_is_idempotent_but_cannot_mask_a_conflicting_hint() -> None
         "win_claim": None,
     }
     assert inboxes.receive_turn(committed) == {"ok": True}
-    payload = {"sender": "police", "records": [reveal()], "result_claim": "in_progress"}
+    payload = {
+        "sender": "police",
+        "records": [reveal()],
+        "result_claim": "in_progress",
+        "game_uid": "series-123",
+        "sub_game": 2,
+    }
     assert inboxes.submit_audit(payload) == {"ok": True}
     assert inboxes.submit_audit(payload) == {"ok": True}
     conflicting = {
         "sender": "police",
         "records": [reveal(hint="a different story")],
         "result_claim": "in_progress",
+        "game_uid": "series-123",
+        "sub_game": 2,
     }
     answer = inboxes.submit_audit(conflicting)
     assert answer["ok"] is False
     assert "revealed step 1 differently" in answer["detail"]
     assert inboxes.audits.qsize() == 1
+
+
+def test_reveal_from_prior_sub_game_is_rejected_before_current_one_is_queued() -> None:
+    inboxes = PeerInboxes(game_uid="series-123", sub_game=2)
+    old = {
+        "sender": "police",
+        "records": [reveal()],
+        "result_claim": "in_progress",
+        "game_uid": "series-123",
+        "sub_game": 1,
+    }
+    current = {**old, "sub_game": 2}
+
+    assert inboxes.submit_audit(old)["ok"] is False
+    assert inboxes.audits.empty()
+    assert inboxes.submit_audit(current) == {"ok": True}
+    assert inboxes.audits.get_nowait().sub_game == 2

@@ -288,6 +288,8 @@ class MatchRunner:
         locked = self.locked_scent()
         self.orchestrator.inboxes.accepted_turns.clear()
         self.orchestrator.inboxes.accepted_reveals.clear()
+        self.orchestrator.inboxes.game_uid = self.declaration.game_uid
+        self.orchestrator.inboxes.sub_game = number
         hint_max_words = int(self.parameters.get("hint_max_words", 15))
         self.orchestrator.inboxes.hint_max_words = hint_max_words
         log = MatchLog(
@@ -307,6 +309,8 @@ class MatchRunner:
                 now=self.now(),
                 timeout=timeout,
                 hint_max_words=hint_max_words,
+                game_uid=self.declaration.game_uid,
+                sub_game=number,
             ),
             log=log,
             state=self.start,

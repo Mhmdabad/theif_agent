@@ -77,6 +77,8 @@ class McpPeer:
     role: str
     client: OpponentClient
     inboxes: PeerInboxes
+    game_uid: str
+    sub_game: int
     now: str = ""
     timeout: float = 30.0
     hint_max_words: int = 15
@@ -152,13 +154,9 @@ class McpPeer:
 
     def await_reveal(self, step: int) -> Reveal:
         opened = Reveal.from_dict(
-            self._await_record(
-                lambda r: "move" in r and isinstance(r.get("step"), int) and r["step"] <= step
-            ),
+            self._await_reveal_record(step),
             hint_max_words=self.hint_max_words,
         )
-        if opened.step != step:
-            raise CeremonyError(f"reveal is for stale step {opened.step}, expected step {step}")
         return opened
 
     # --- phase 4: final reveal ----------------------------------------------
@@ -170,10 +168,47 @@ class McpPeer:
 
     # --- plumbing -----------------------------------------------------------
     def _submit(self, records: list[Record], result_claim: str) -> None:
-        payload = AuditPayload(sender=self.role, records=records, result_claim=result_claim)
+        payload = AuditPayload(
+            sender=self.role,
+            records=records,
+            result_claim=result_claim,
+            game_uid=self.game_uid,
+            sub_game=self.sub_game,
+        )
         self.client.call("submit_audit", {"payload": payload.to_dict()})
 
     _held: list[Record] = field(default_factory=list, init=False)
+    quarantined: list[Record] = field(default_factory=list, init=False)
+
+    def _await_reveal_record(self, step: int) -> Record:
+        """Return the one reveal for ``step`` after classifying every sibling."""
+        while True:
+            current: list[Record] = []
+            kept: list[Record] = []
+            for record in self._held:
+                record_step = record.get("step")
+                if "move" not in record or not isinstance(record_step, int) or record_step > step:
+                    kept.append(record)
+                elif record_step < step:
+                    self.quarantined.append(record)
+                else:
+                    current.append(record)
+            self._held = kept
+            if current:
+                canonical = current[0]
+                if any(record != canonical for record in current[1:]):
+                    raise CeremonyError(f"conflicting reveals for step {step}")
+                return canonical
+            self._hold_payload()
+
+    def _hold_payload(self) -> None:
+        payload = self._drain(self.inboxes.audits, None, "audit record")
+        if payload.game_uid != self.game_uid or payload.sub_game != self.sub_game:
+            raise CeremonyError(
+                "audit payload binding does not match current sub-game: "
+                f"{payload.game_uid!r}/{payload.sub_game} != {self.game_uid!r}/{self.sub_game}"
+            )
+        self._held.extend(dict(entry) for entry in payload.records)
 
     def _await_record(self, wanted: Wanted) -> Record:
         """Find a record we are waiting for, keeping the ones we are not.
@@ -189,12 +224,11 @@ class McpPeer:
                 self._held.remove(kept)
                 return kept
         while True:
-            payload = self._drain(self.inboxes.audits, None, "audit record")
-            for entry in payload.records:
-                record: Record = dict(entry)
-                if wanted(record):
-                    return record
-                self._held.append(record)
+            self._hold_payload()
+            for kept in list(self._held):
+                if wanted(kept):
+                    self._held.remove(kept)
+                    return kept
 
     def _drain(self, inbox: "queue.Queue[Any]", step: int | None, what: str) -> Any:  # noqa: ANN401
         """Take the next message off an inbox, or say who stopped talking.

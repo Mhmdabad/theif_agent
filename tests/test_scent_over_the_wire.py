@@ -120,7 +120,7 @@ class Side:
 
 
 def a_side(role: str, port: int, opponent_port: int) -> Side:
-    inboxes = PeerInboxes()
+    inboxes = PeerInboxes(game_uid="u-0001", sub_game=1)
     client = OpponentClient(
         transport=FastMcpTransport(),
         settings=ClientSettings(
@@ -133,7 +133,15 @@ def a_side(role: str, port: int, opponent_port: int) -> Side:
     game = SubGame(
         role=role,
         brain=Marches(SCRIPT[role]),  # type: ignore[arg-type]
-        peer=McpPeer(role=role, client=client, inboxes=inboxes, now=WHEN, timeout=25.0),
+        peer=McpPeer(
+            role=role,
+            client=client,
+            inboxes=inboxes,
+            game_uid="u-0001",
+            sub_game=1,
+            now=WHEN,
+            timeout=25.0,
+        ),
         log=MatchLog(
             game_id="uoh26-s82kma9e",
             sub_game=1,
@@ -245,6 +253,8 @@ class TestNothingIsGivenAwayInPhaseOne:
                 Recorder(), ClientSettings(opponent_url="http://127.0.0.1:1/mcp")
             ),
             inboxes=PeerInboxes(),
+            game_uid="u-0001",
+            sub_game=1,
             now=WHEN,
         )
         peer.send_commit(Commitment(step=1, sender="police", commit="a" * 64, timestamp=WHEN))

@@ -326,7 +326,6 @@ class SubGame:
             focus: peak,
             "concentration": concentration,
             "uncertainty": 1.0 - concentration,
-            "opponent_hint": self.received_hints.get(self.state.step - 1),
         }
 
     def _emit(self, action: Action) -> dict[str, float]:

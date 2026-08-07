@@ -14,6 +14,7 @@ import pytest
 from test_localhost_match import REPOS, build_declaration, parameters  # noqa: E402
 from thief_agent.domain.axes import AxisConvention
 from thief_agent.domain.board import BoardState
+from thief_agent.domain.outcome import TechnicalLoss
 from thief_agent.domain.scoring import Outcome, scores_for
 from thief_agent.infra.ceremony import AuditResult, Verdict
 from thief_agent.infra.handshake import Greeting, Peering
@@ -32,6 +33,7 @@ from thief_agent.runtime.driver import (
 from thief_agent.runtime.match import MatchRunner, SubGameOutcome
 from thief_agent.runtime.orchestrator import PROTOCOL_VERSION, MatchAborted, Orchestrator
 from thief_agent.runtime.subgame import Played
+from thief_agent.shared.config import config_sha256
 from thief_agent.strategy.thief_brain import ThiefBrain
 
 REPO = Path(__file__).resolve().parent.parent
@@ -51,8 +53,10 @@ class Answering:
         return self.reply
 
 
-def a_runner(tmp_path: Path, reply: dict[str, Any] | None = None) -> MatchRunner:
-    transport = Answering(reply if reply is not None else {"ok": True})
+def a_runner(
+    tmp_path: Path, reply: dict[str, Any] | None = None, transport: Answering | None = None
+) -> MatchRunner:
+    transport = transport or Answering(reply if reply is not None else {"ok": True})
     return MatchRunner(
         orchestrator=Orchestrator(
             inboxes=PeerInboxes(),
@@ -100,15 +104,29 @@ def an_outcome(number: int, clean: bool = True, captured: bool = False) -> SubGa
     )
 
 
+def answered(runner: MatchRunner, digest: str | None = None) -> MatchRunner:
+    """File the digest the opponent's peer would have pushed at us.
+
+    The gate consumes what they send rather than trusting the ``ok`` they
+    answered our own push with, so a runner whose digest mailbox is empty is a
+    runner whose opponent never negotiated — which is a timeout, correctly.
+    """
+    runner.orchestrator.inboxes.negotiate(
+        {
+            "config_sha256": digest if digest is not None else config_sha256(runner.parameters),
+            "game_uid": runner.declaration.game_uid,
+        }
+    )
+    return runner
+
+
 class TestAgreeingTheConfigComesFirst:
     def test_a_matching_digest_lets_the_match_start(self, tmp_path: Path) -> None:
-        assert len(a_runner(tmp_path).agree()) == 64
+        assert len(answered(a_runner(tmp_path)).agree()) == 64
 
     def test_the_digest_is_of_the_parameters_we_are_actually_playing(self, tmp_path: Path) -> None:
         """Advertising one we are not enforcing is indistinguishable from cheating."""
-        from thief_agent.shared.config import config_sha256
-
-        runner = a_runner(tmp_path)
+        runner = answered(a_runner(tmp_path))
         assert runner.agree() == config_sha256(runner.parameters)
 
     def test_a_refusal_aborts_before_a_single_move(self, tmp_path: Path) -> None:
@@ -122,6 +140,39 @@ class TestAgreeingTheConfigComesFirst:
         with pytest.raises(MatchAborted):
             runner.agree()
         assert runner.outcomes == []
+
+    def test_an_opponent_on_other_parameters_aborts_the_series(self, tmp_path: Path) -> None:
+        """They acknowledged us. What they sent back says they are elsewhere."""
+        runner = answered(a_runner(tmp_path), digest="b" * 64)
+        with pytest.raises(MatchAborted) as excinfo:
+            runner.agree()
+        assert excinfo.value.cause is TechnicalLoss.ILLEGAL_ACTION
+        assert runner.outcomes == []
+
+    def test_an_opponent_that_never_negotiates_times_out(self, tmp_path: Path) -> None:
+        runner = a_runner(tmp_path)
+        with pytest.raises(MatchAborted) as excinfo:
+            runner.agree(timeout=0.0)
+        assert excinfo.value.cause is TechnicalLoss.TIMEOUT
+        assert runner.outcomes == []
+
+    def test_the_digest_is_bound_to_this_runners_series(self, tmp_path: Path) -> None:
+        """The series the declaration names is the series we negotiated."""
+        transport = Answering({"ok": True})
+        runner = answered(a_runner(tmp_path, transport=transport))
+        runner.agree()
+        assert transport.calls[0][1]["message"]["game_uid"] == runner.declaration.game_uid
+
+    def test_a_digest_agreed_for_another_series_does_not_open_this_one(
+        self, tmp_path: Path
+    ) -> None:
+        runner = a_runner(tmp_path)
+        runner.orchestrator.inboxes.negotiate(
+            {"config_sha256": config_sha256(runner.parameters), "game_uid": "u-9999"}
+        )
+        with pytest.raises(MatchAborted) as excinfo:
+            runner.agree(timeout=0.0)
+        assert excinfo.value.cause is TechnicalLoss.TIMEOUT
 
 
 class TestTheConfigItLocks:

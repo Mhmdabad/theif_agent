@@ -30,6 +30,7 @@ from thief_agent.infra.mcp_server import build
 from thief_agent.infra.protocol import AuditPayload
 from thief_agent.runtime.orchestrator import Orchestrator
 from thief_agent.runtime.peer import McpPeer
+from thief_agent.shared.config import config_sha256
 
 WHEN = "2026-08-05T12:00:00+00:00"
 SETTINGS = ClientSettings(opponent_url="http://127.0.0.1:8801/mcp", retry_backoff_sec=0.0)
@@ -56,9 +57,14 @@ def outbound() -> list[tuple[str, dict[str, Any]]]:
     recorder = Recorder()
     client = OpponentClient(recorder, SETTINGS)
     orchestrator = Orchestrator(PeerInboxes(), client)
+    parameters = {"board_and_agents": {"grid_size": 8}}
 
     orchestrator.announce(orchestrator.greeting("https://x.ngrok-free.app", "g1"))
-    orchestrator.agree_config({"board_and_agents": {"grid_size": 8}})
+    # The gate consumes the opponent's digest before it returns, so this stands
+    # in for the peer that agreed. Answering through the real ``negotiate`` door
+    # rather than by seeding the queue keeps the recorded call the honest one.
+    orchestrator.inboxes.negotiate({"config_sha256": config_sha256(parameters)})
+    orchestrator.agree_config(parameters)
 
     peer = McpPeer(role="thief", client=client, inboxes=PeerInboxes(), now=WHEN)
     peer.send_commit(Commitment(step=1, sender="thief", commit="a" * 64, timestamp=WHEN))

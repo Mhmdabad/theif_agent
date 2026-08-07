@@ -46,7 +46,7 @@ from ..infra.match_log import MatchLog
 from ..infra.report import Report, Repositories, SubGameResult
 from ..shared.config import config_sha256
 from ..strategy.base import BrainBase
-from .orchestrator import Orchestrator
+from .orchestrator import CONFIG_TIMEOUT_SEC, Orchestrator
 from .peer import McpPeer
 from .subgame import Played, SubGame
 
@@ -103,14 +103,22 @@ class MatchRunner:
     def role(self) -> str:
         return self.orchestrator.role
 
-    def agree(self) -> str:
+    def agree(self, timeout: float = CONFIG_TIMEOUT_SEC) -> str:
         """Step 2: refuse to start unless both sides hold the same parameters.
 
         Before any move, because a mismatch discovered mid-match is a match
         already spoiled — the steps played under the wrong physics cannot be
         un-played, and both sides have logs nobody can reconcile.
+
+        The digest is bound to this runner's ``game_uid``, so the series the
+        declaration names and the series we negotiated are provably the same
+        one. Without it an agreement reached for an earlier series could be
+        replayed to open this one, and the declaration would record a
+        negotiation that never happened.
         """
-        return self.orchestrator.agree_config(self.parameters)
+        return self.orchestrator.agree_config(
+            self.parameters, game_uid=self.declaration.game_uid, timeout=timeout
+        )
 
     def config_for(self, number: int) -> LockedConfig:
         return lock(

@@ -15,10 +15,16 @@ would otherwise index row 1.
 """
 
 import math
+import re
 from typing import Any
 
 MAX_STRING = 4096
 """Longest accepted string field. Bounded so a peer cannot be exhausted."""
+
+SHA256_HEX_CHARS = 64
+"""Length of a SHA-256 digest written as hexadecimal."""
+
+_SHA256_HEX = re.compile(f"[0-9a-fA-F]{{{SHA256_HEX_CHARS}}}")
 
 MAX_SCENT_CELLS = 10_000
 """Most cells an inbound scent field may name.
@@ -59,6 +65,30 @@ def require_str(payload: dict[str, Any], key: str, *, max_length: int = MAX_STRI
     if len(value) > max_length:
         raise InvalidPayloadError(f"{key!r} exceeds {max_length} characters")
     return value
+
+
+def require_digest(payload: dict[str, Any], key: str) -> str:
+    """A SHA-256 digest, returned in the one spelling both peers hash to.
+
+    Shape *and* spelling, because a digest is only ever used by comparing it.
+    Anything that is not sixty-four hexadecimal characters cannot be a digest
+    anyone computed, so letting it through would mean a consumer deciding
+    mid-negotiation what to do with ``"unknown"`` — and the only safe answer
+    there is the refusal that belongs at the door.
+
+    Case is normalised rather than rejected. ``hexdigest()`` produces lowercase
+    and that is the canonical form every comparison in this system is made
+    against, but an opponent that upper-cases the same digest has not disagreed
+    with us about anything, and refusing them would be a lost match over a
+    spelling. Normalising here means the comparison downstream only ever sees
+    canonical forms, so it never has to know this happened.
+    """
+    value = require_str(payload, key, max_length=SHA256_HEX_CHARS)
+    if not _SHA256_HEX.fullmatch(value):
+        raise InvalidPayloadError(
+            f"{key!r} must be {SHA256_HEX_CHARS} hexadecimal characters, got {value!r}"
+        )
+    return value.lower()
 
 
 def require_int(payload: dict[str, Any], key: str, *, minimum: int, maximum: int) -> int:

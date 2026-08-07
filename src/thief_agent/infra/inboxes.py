@@ -23,7 +23,7 @@ from typing import Any, Protocol
 
 from ..shared.config import canonical_bytes
 from .protocol import AuditPayload, ControlMessage, TurnMessage
-from .validation import InvalidPayloadError, require_mapping
+from .validation import InvalidPayloadError, require_digest, require_mapping, require_str
 
 
 def fingerprint(turn: TurnMessage) -> str:
@@ -37,8 +37,28 @@ def fingerprint(turn: TurnMessage) -> str:
     return hashlib.sha256(canonical_bytes(turn.to_dict())).hexdigest()
 
 
+DIGEST_KEY = "config_sha256"
+"""What makes a negotiation message a config digest rather than a greeting."""
+
+SERIES_KEY = "game_uid"
+"""Which series a digest is about. Optional: the reference sends the digest alone.
+
+Carried when the sender offers it so a digest agreed for one series cannot be
+replayed to open another. Absence is not suspicious — it is what a reference
+implementation looks like — so it is treated as *unbound* rather than as stale;
+only a message naming a **different** series is refused downstream.
+"""
+
 ACK: dict[str, Any] = {"ok": True}
-"""What every tool returns on acceptance. The reference expects exactly this."""
+"""What every tool returns on acceptance. The reference expects exactly this.
+
+Worth being explicit about what it does **not** mean. It is an acknowledgement
+of receipt and nothing more: it says a well-formed message reached a mailbox,
+not that anybody has agreed with its contents. A peer reading its own ``ok`` as
+consent would be reading its opponent's politeness as physics — which is exactly
+how a series once started with two different configurations. Agreement is
+decided by comparing the digest the opponent pushes at *us*.
+"""
 
 TOOL_NAMES: tuple[str, ...] = ("negotiate", "receive_turn", "submit_audit", "receive_control")
 """The complete inbound surface, exactly as the reference names it."""
@@ -98,14 +118,30 @@ class PeerInboxes:
         """
         try:
             body = require_mapping(message, "agreement")
-            if "config_sha256" in body:
-                self.digests.put(body)
+            if DIGEST_KEY in body:
+                self.digests.put(self._digest(body))
             else:
                 self.accepted_turns.clear()
                 self.agreements.put(body)
         except InvalidPayloadError as exc:
             return self._refuse("negotiate", exc)
         return ACK
+
+    def _digest(self, body: dict[str, Any]) -> dict[str, Any]:
+        """A digest message, canonicalised, or a refusal before it is filed.
+
+        Checked here rather than by the gate that reads it, because this is the
+        door and the door is where validation lives. The difference is not
+        cosmetic: a malformed digest refused here is answered ``{"ok": False}``
+        while the sender is still listening, so they learn their message was
+        never accepted. Filed and rejected later, the same message would be
+        acknowledged, and the peer would sit out its whole agreement window
+        waiting for a reply to something we had already thrown away.
+        """
+        filed = {**body, DIGEST_KEY: require_digest(body, DIGEST_KEY)}
+        if SERIES_KEY in body:
+            filed[SERIES_KEY] = require_str(body, SERIES_KEY)
+        return filed
 
     def receive_turn(self, message: object) -> dict[str, Any]:
         """Receive the opponent's turn. Receiving one makes it our turn.

@@ -13,6 +13,15 @@ which is where the language-model deadline lives.
 Validation happens **at the door**, before anything reaches a queue. A malformed
 message is refused and recorded rather than enqueued for a consumer that would
 have to handle it mid-turn.
+
+So does **binding**, and for a stronger reason. A queue the ceremony drains and
+a ledger that decides what counts as a replay are both written by this module
+before any consumer sees them, so a packet accepted against a binding we have
+not agreed is one we can neither judge nor take back. Nothing enters either
+until :meth:`PeerInboxes.bind` has said which sub-game of which series this
+mailbox is playing, and after that only messages naming exactly that one do.
+A sender that is merely early is told to come back — see :data:`RETRY_KEY` —
+rather than acknowledged on a binding nobody has agreed.
 """
 
 import hashlib
@@ -79,6 +88,27 @@ SCENT_DIGEST_KEY = "scent_sha256"
 Two digests over two different agreements, and conflating them would be a peer
 answering the physics question with the parameters answer — so they travel
 under separate keys and are routed to separate mailboxes.
+"""
+
+RETRY_KEY = "retry"
+"""Marks a refusal the sender should repeat rather than one it must accept.
+
+``{"ok": false}`` on its own says *no*, and a fire-and-forget sender reads that
+as *never*. But a door that is merely **not open yet** — a mailbox bound to no
+sub-game, or to one before the sub-game the message names — has said nothing
+about the message itself, and a series lost to that is the race this key ends.
+Those two cases answer ``ok: false`` *and* this flag, and
+:class:`~.mcp_client.OpponentClient` re-sends inside the Appendix F budget it
+already spends on a socket that will not answer.
+
+The alternative was to acknowledge what we could not yet judge, and that is what
+had to be undone: an unbound mailbox queued any canonically shaped packet and
+wrote its duplicate ledger from it, so a commitment forged before the runner
+bound its inboxes became the head of the queue the ceremony drains and the
+legitimate opening commitment behind it was never reached.
+
+An opponent that ignores the flag is no worse off than it was: it reads a plain
+refusal, exactly as it would have read one for a stale packet.
 """
 
 ACK: dict[str, Any] = {"ok": True}
@@ -159,6 +189,36 @@ class PeerInboxes:
     duplicates: list[str] = field(default_factory=list)
     """Turns dropped as re-sends. Not errors — evidence a retry behaved."""
 
+    deferred: list[str] = field(default_factory=list)
+    """Messages refused only because the door was not open for them yet.
+
+    Kept apart from :attr:`rejected`, which is the record a dispute reads: a
+    deferral accuses the sender of nothing, and filing it as a refusal would
+    make an ordinary boundary race look like a peer breaking the protocol. It is
+    still recorded, because a series that spent its retry budget getting in
+    needs to show why.
+    """
+
+    def bind(self, game_uid: str, sub_game: int) -> None:
+        """Open this mailbox for exactly one sub-game of exactly one series.
+
+        Called where the *next* thing we do is tell the opponent we are ready —
+        the agreement that opens the series, and the re-greeting that opens each
+        later sub-game. Both are messages they wait for before sending anything
+        of their own, so binding first is what makes the retryable refusal below
+        a safety net rather than the mechanism: an honest peer's opening packet
+        arrives at a door that is already open.
+
+        **The series is widened before the sub-game is narrowed, deliberately.**
+        These are two separate stores and the door is read on the server thread,
+        so a message can land between them. Taking the series first means the
+        worst it can see is a door still pointing at the sub-game we just left,
+        which *defers* the sender; taking the sub-game first would briefly point
+        at a series we are not in, which refuses it for good.
+        """
+        self.game_uid = game_uid
+        self.sub_game = sub_game
+
     def _refuse(self, what: str, exc: ValueError) -> dict[str, Any]:
         """Record a refusal without raising across the wire.
 
@@ -173,46 +233,69 @@ class PeerInboxes:
         self.rejected.append(f"{what}: {detail}")
         return {"ok": False, "detail": detail}
 
-    def _stale(self, what: str, game_uid: str, sub_game: int) -> str | None:
-        """Why a binding is one we are provably past, or ``None`` if it is playable.
+    def _closed(self, what: str, game_uid: str, sub_game: int) -> tuple[str, bool] | None:
+        """Why a binding may not enter a queue, and whether asking again would help.
 
-        **Refuses what is behind us, not what merely differs from us.** The
-        distinction is the whole point of this method. A replay is by definition
-        a message that has already been played, so it names the series we are in
-        and a sub-game we have finished, or a series that is not ours — and both
-        are refused here. A message bound to a sub-game *ahead* of ours is the
-        opposite: nothing has been played there yet, so there is nothing to
-        replay, and it is the ordinary shape of a peer that crossed the boundary
-        a few milliseconds before we did.
+        ``None`` when the message names **exactly** the sub-game of exactly the
+        series this mailbox is bound to; otherwise the reason, paired with
+        whether the sender should try again.
 
-        Demanding equality is what broke the series. Both sides advance this
-        binding on their own thread, and no message orders the two — the
-        re-handshake makes each side *announce* before the boundary, not adopt
-        it — so the peer that got there first had its opening commitment refused
-        at a door still set to the sub-game we had both just left. Its sender
-        treats ``receive_turn`` as fire-and-forget and never re-sends, so that
-        single refusal cost the rest of the series.
+        **Exactly, and nothing else.** The looser rule this replaces admitted
+        anything that was not provably behind us, which sounds conservative and
+        is the opposite: "not behind us" is also true of every packet that
+        arrives before we have bound anything at all, so an unbound mailbox
+        queued whatever it was sent and wrote its duplicate ledger from it. A
+        forged commitment pushed in that window took the head of the queue and
+        stranded the legitimate one behind it.
 
-        Nothing is loosened by admitting an early message. It is queued, not
-        acted on, and :meth:`~.ceremony.StepCeremony._check_binding` still
-        compares it against the commitment *we* locked for that step before any
-        ceremony accepts it. The door's job is to not lose a message; deciding
-        which sub-game it belongs to is the ceremony's.
+        **Two kinds of no, because there are two kinds of reason.** A binding we
+        cannot yet judge — no series agreed, or a sub-game this series has not
+        opened — is a statement about *us*, so the sender is asked to come back
+        and :data:`RETRY_KEY` says so. A binding we can judge and have refused —
+        another series, or a sub-game we are already past — is a statement about
+        *the message*, and repeating it changes nothing.
 
-        An inbox that has agreed no series yet — ``game_uid`` still empty —
-        calls nothing stale: with no position of our own we have no ground to
-        say a message is behind us.
+        The deferral is what makes the strict rule safe. Demanding equality with
+        no way to say "not yet" is what broke the series before: both peers
+        advance this binding on their own thread, so the one that crossed a
+        boundary first had its opening commitment refused at a door still set to
+        the sub-game we had both just left, and ``receive_turn`` is
+        fire-and-forget, so that single silent refusal cost the rest of the
+        series. :meth:`bind` orders the two sides so it should not arise at all;
+        this is what happens when it does anyway.
         """
         if not self.game_uid:
-            return None
+            return (
+                f"{what} arrived before this mailbox was bound to a series; nothing is "
+                "queued against a binding we have not agreed yet",
+                True,
+            )
         if game_uid != self.game_uid:
-            return f"{what} is bound to series {game_uid!r}, and we are playing {self.game_uid!r}"
+            return (
+                f"{what} is bound to series {game_uid!r}, and we are playing {self.game_uid!r}",
+                False,
+            )
+        if sub_game > self.sub_game:
+            return (
+                f"{what} is bound to sub-game {sub_game}, which this series has not opened "
+                f"yet at sub-game {self.sub_game}",
+                True,
+            )
         if sub_game < self.sub_game:
             return (
                 f"{what} is bound to sub-game {sub_game}, which this series is already "
-                f"past at sub-game {self.sub_game}"
+                f"past at sub-game {self.sub_game}",
+                False,
             )
         return None
+
+    def _shut(self, what: str, closed: tuple[str, bool]) -> dict[str, Any]:
+        """Answer a closed door, saying whether coming back would help."""
+        detail, retry = closed
+        if not retry:
+            return self._reject(what, detail)
+        self.deferred.append(f"{what}: {detail}")
+        return {"ok": False, RETRY_KEY: True, "detail": detail}
 
     def negotiate(self, message: object) -> dict[str, Any]:
         """Receive a greeting, a config digest or a scent lock, and file it by what it is.
@@ -302,9 +385,9 @@ class PeerInboxes:
             turn = TurnMessage.from_dict(message)
         except InvalidPayloadError as exc:
             return self._refuse("receive_turn", exc)
-        behind = self._stale("turn", turn.game_uid, turn.sub_game)
-        if behind is not None:
-            return self._reject("receive_turn", behind)
+        closed = self._closed("turn", turn.game_uid, turn.sub_game)
+        if closed is not None:
+            return self._shut("receive_turn", closed)
         key = (turn.sender, turn.step, turn.game_uid, turn.sub_game)
         digest = fingerprint(turn)
         taken = self.accepted_turns.get(key)
@@ -324,21 +407,19 @@ class PeerInboxes:
     def submit_audit(self, payload: object) -> dict[str, Any]:
         """Receive the opponent's end-of-game reveal: records and nonces.
 
-        **Two bindings are compared, and neither comparison is against a clock
-        we share with the sender.** The envelope is checked for staleness
-        through :meth:`_stale`, which refuses only what is behind us. Each
-        record inside is then checked against *the envelope it arrived in*
-        rather than against our own position — the sender wrote both, so they
-        must agree, and a reveal re-wrapped in a fresher audit to replay an
-        earlier sub-game is exactly the disagreement that exposes. Comparing the
-        record to our own sub-game instead would have refused an honest reveal
-        whose sender had simply crossed the boundary first.
+        **Two bindings are compared.** The envelope goes through
+        :meth:`_closed`, so nothing is opened against a series or a sub-game
+        that is not the one we are playing. Each record inside is then checked
+        against *the envelope it arrived in* rather than against our position
+        again — the sender wrote both, so they must agree, and a reveal
+        re-wrapped in a fresher audit to replay an earlier sub-game is exactly
+        the disagreement that exposes.
         """
         try:
             audit = AuditPayload.from_dict(payload)
-            behind = self._stale("audit payload", audit.game_uid, audit.sub_game)
-            if behind is not None:
-                return self._reject("submit_audit", behind)
+            closed = self._closed("audit payload", audit.game_uid, audit.sub_game)
+            if closed is not None:
+                return self._shut("submit_audit", closed)
             fresh: list[dict[str, Any]] = []
             pending: dict[tuple[str, int, str, int], str] = {}
             for record in audit.records:

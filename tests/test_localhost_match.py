@@ -287,6 +287,12 @@ class TestTheMatchActuallyHappened:
         assert cop.inboxes.rejected == []
         assert thief.inboxes.rejected == []
 
+    def test_neither_side_had_to_knock_twice(self, played: tuple[Side, Side, Path]) -> None:
+        """Both bound their mailboxes before agreeing, so no packet beat the door open."""
+        cop, thief, _ = played
+        assert cop.inboxes.deferred == []
+        assert thief.inboxes.deferred == []
+
     def test_each_side_holds_the_others_commitments(self, played: tuple[Side, Side, Path]) -> None:
         cop, thief, _ = played
         for step in (1, 2, 3):

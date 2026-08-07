@@ -801,6 +801,19 @@ class TestTwoRealPeersPlayASixSubGameSeriesAcrossFiveBoundaries:
         for side in series:
             assert side.inboxes.rejected == []
 
+    def test_no_boundary_had_to_be_retried_into(self, series: tuple[Live, Live]) -> None:
+        """The retryable refusal is the net, and across six sub-games nothing fell.
+
+        Each side binds its mailboxes *before* it announces the boundary, and
+        the opponent only opens a sub-game after that announcement reaches it,
+        so every packet of sub-game ``n`` arrives at a door already on ``n``.
+        A deferral here would mean the ordering had a gap in it — recoverable,
+        because the sender spends its budget rather than giving up, but no
+        longer the guarantee this asserts.
+        """
+        for side in series:
+            assert side.inboxes.deferred == []
+
     def test_every_sub_game_audited_clean(self, series: tuple[Live, Live]) -> None:
         for side in series:
             assert side.runner.opponent_played_fairly, side.runner.failures()

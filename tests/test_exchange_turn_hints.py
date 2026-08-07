@@ -1,13 +1,20 @@
 """P0-2: verbal hints cross the existing four-phase ceremony."""
 
 from dataclasses import dataclass
+from typing import Any
 
 import pytest
 
 from thief_agent.domain.actions import MoveAction
 from thief_agent.domain.board import Agent, BoardState, Move
 from thief_agent.infra.ceremony import CeremonyError, Reveal
-from thief_agent.infra.inboxes import PeerInboxes
+from thief_agent.infra.inboxes import RETRY_KEY, PeerInboxes
+from thief_agent.infra.mcp_client import (
+    ClientSettings,
+    OpponentClient,
+    OpponentUnreachableError,
+    PeerNotReadyError,
+)
 from thief_agent.strategy.base import BrainBase, Decision
 
 
@@ -259,36 +266,132 @@ def audit(records: list[dict[str, object]], **changes: object) -> dict[str, obje
     return body
 
 
-class TestABoundaryTheOpponentCrossesFirstDoesNotStrandTheSeries:
-    """The deadlock this binding introduced, written as the packets it refused.
+@dataclass
+class Door:
+    """A transport that delivers straight into a real mailbox, with no socket.
 
-    Two peers advance their own ``sub_game`` on their own thread and nothing
-    orders the two: the re-handshake makes each side *announce* at a boundary,
-    not adopt it, so under load the peer that crosses first sends the next
-    sub-game's opening messages while our door still names the last one. Both
-    refusals below were observed on a real six-sub-game series, and both are
-    silent to the sender — ``receive_turn`` is fire-and-forget, so a refused
-    turn is never re-sent and the series simply stops.
-
-    Every assertion is on :attr:`~PeerInboxes.rejected` rather than on a wait.
-    The 25s timeout is how this surfaced, not what went wrong, and a regression
-    that reproduced the timeout would take 25s to say so.
+    The two halves of this fix only work together — the door has to refuse in a
+    way the client understands, and the client has to re-send what the door
+    refused — so they are proved against each other rather than against a stub
+    of the other one.
     """
 
-    def test_the_next_sub_games_opening_turn_is_queued_rather_than_refused(self) -> None:
-        """Was: ``turn is bound to 'u-0001' sub-game 4, expected ... sub-game 3``."""
-        inboxes = PeerInboxes(game_uid="series-123", sub_game=3)
-        assert inboxes.receive_turn(turn(sub_game=4)) == {"ok": True}
-        assert inboxes.rejected == []
-        inboxes.sub_game = 4
-        assert inboxes.turns.get_nowait().sub_game == 4
+    inboxes: PeerInboxes
 
-    def test_and_its_reveal_still_opens_once_we_have_crossed_too(self) -> None:
+    def call(self, url: str, tool: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+        return self.inboxes.receive_turn(payload["message"])
+
+
+DEFERRED = {"ok": False, RETRY_KEY: True}
+"""What a door that is not open *yet* answers, minus the human-readable detail."""
+
+
+def deferred(answer: dict[str, object]) -> bool:
+    """Whether the door asked the sender to come back rather than refusing it."""
+    return {key: answer[key] for key in DEFERRED} == DEFERRED
+
+
+class TestNothingReachesAQueueBeforeTheDoorIsBound:
+    """The open door this binding left, written as the packets that walked through.
+
+    An unbound mailbox used to call nothing stale, which reads as prudence and
+    is really the opposite: with no binding to compare against, *every*
+    canonically shaped packet was acknowledged and queued, and the ledger that
+    decides what counts as a replay was written from it. A forged commitment
+    pushed before the runner bound its inboxes therefore became the head of the
+    queue the ceremony drains, and the legitimate opening commitment that
+    followed was stranded behind it.
+
+    The door now fails closed, and the sender is told which kind of *no* it got.
+    A binding we cannot yet judge — unbound, or a sub-game this series has not
+    opened — is answered with a **retryable** refusal and nothing is recorded;
+    one we can judge and have refused is final.
+    """
+
+    def test_a_forged_packet_before_binding_is_refused_and_leaves_no_trace(self) -> None:
+        """The production repro: ``old-or-forged/1`` pushed before the runner binds."""
+        inboxes = PeerInboxes()
+        answer = inboxes.receive_turn(turn(game_uid="old-or-forged", sub_game=1))
+        assert deferred(answer)
+        assert inboxes.turns.empty()
+        assert inboxes.accepted_turns == {}
+        assert inboxes.duplicates == [] and inboxes.rejected == []
+        assert len(inboxes.deferred) == 1
+
+    def test_the_same_forgery_after_binding_is_refused_for_good(self) -> None:
+        """Once we know which series we are in, a foreign one is not a retry away."""
+        inboxes = PeerInboxes()
+        inboxes.bind("series-123", 1)
+        answer = inboxes.receive_turn(turn(game_uid="old-or-forged", sub_game=1))
+        assert answer["ok"] is False and answer.get(RETRY_KEY) is not True
+        assert "old-or-forged" in str(answer["detail"])
+        assert inboxes.turns.empty() and inboxes.accepted_turns == {}
+        assert len(inboxes.rejected) == 1
+
+    def test_a_forgery_before_the_bind_cannot_poison_the_head_of_the_queue(self) -> None:
+        """Forged first, legitimate second: the ceremony must still drain the second."""
+        inboxes = PeerInboxes()
+        assert deferred(inboxes.receive_turn(turn(game_uid="old-or-forged", sub_game=1)))
+        inboxes.bind("series-123", 1)
+        assert inboxes.receive_turn(turn(sub_game=1)) == {"ok": True}
+        assert inboxes.turns.qsize() == 1
+        queued = inboxes.turns.get_nowait()
+        assert (queued.game_uid, queued.sub_game) == ("series-123", 1)
+        assert list(inboxes.accepted_turns) == [(OPPONENT, 1, "series-123", 1)]
+
+    def test_an_honest_packet_that_beat_the_bind_is_deferred_then_accepted(self) -> None:
+        """The race this replaces the open door with: refused, re-sent, played."""
+        inboxes = PeerInboxes()
+        assert deferred(inboxes.receive_turn(turn(sub_game=1)))
+        assert inboxes.turns.empty() and inboxes.accepted_turns == {}
+        inboxes.bind("series-123", 1)
+        assert inboxes.receive_turn(turn(sub_game=1)) == {"ok": True}
+        assert inboxes.turns.get_nowait().sub_game == 1
+        assert inboxes.rejected == [] and inboxes.duplicates == []
+
+    def test_the_audit_door_is_shut_before_binding_too(self) -> None:
+        """A reveal queued while unbound writes the reveal ledger just as freely."""
+        inboxes = PeerInboxes()
+        assert deferred(inboxes.submit_audit(audit([reveal(sub_game=1)], sub_game=1)))
+        assert inboxes.audits.empty()
+        assert inboxes.accepted_reveals == {}
+        assert inboxes.rejected == []
+
+    def test_a_sub_game_this_series_has_not_opened_is_deferred_not_queued(self) -> None:
+        """Was: queued early and drained later, which is the same open door one boundary on."""
         inboxes = PeerInboxes(game_uid="series-123", sub_game=3)
-        inboxes.receive_turn(turn(sub_game=4))
-        inboxes.sub_game = 4
+        assert deferred(inboxes.receive_turn(turn(sub_game=4)))
+        assert inboxes.turns.empty() and inboxes.accepted_turns == {}
+        assert inboxes.rejected == []
+
+    def test_and_the_re_send_lands_once_we_have_crossed_too(self) -> None:
+        inboxes = PeerInboxes(game_uid="series-123", sub_game=3)
+        assert deferred(inboxes.receive_turn(turn(sub_game=4)))
+        inboxes.bind("series-123", 4)
+        assert inboxes.receive_turn(turn(sub_game=4)) == {"ok": True}
         assert inboxes.submit_audit(audit([reveal(sub_game=4)], sub_game=4)) == {"ok": True}
         assert inboxes.rejected == []
+
+    def test_binding_takes_the_series_before_it_takes_the_sub_game(self) -> None:
+        """The two stores are read on the server thread, so their order is the contract.
+
+        A message landing between them must see a door that defers it, never
+        one that refuses it: taking the sub-game first would leave the door
+        pointing at a series we are not in, which is a final refusal.
+        """
+        inboxes = PeerInboxes()
+        seen: list[tuple[str, int]] = []
+        original = PeerInboxes.receive_turn
+
+        def watching(self: PeerInboxes, message: object) -> dict[str, object]:
+            seen.append((self.game_uid, self.sub_game))
+            return original(self, message)
+
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(PeerInboxes, "receive_turn", watching)
+            inboxes.bind("series-123", 1)
+            assert deferred(inboxes.receive_turn(turn(game_uid="series-123", sub_game=2)))
+        assert seen == [("series-123", 1)]
 
     def test_a_greeting_does_not_forget_a_turn_it_arrived_after(self) -> None:
         """Was: ``police revealed step 1 without a current phase-one commitment``.
@@ -303,33 +406,79 @@ class TestABoundaryTheOpponentCrossesFirstDoesNotStrandTheSeries:
         assert inboxes.submit_audit(audit([reveal()])) == {"ok": True}
         assert inboxes.rejected == []
 
-    def test_an_inbox_that_has_agreed_no_series_yet_calls_nothing_stale(self) -> None:
-        """The same race at the *first* boundary, which is ``agree`` rather than a greeting.
-
-        A runner binds its mailboxes as it opens sub-game one, so an opponent
-        who finished agreeing a moment earlier reaches the door while it still
-        names no series at all. With no position of our own there is nothing a
-        message can be behind.
-        """
-        inboxes = PeerInboxes()
-        assert inboxes.receive_turn(turn(sub_game=1)) == {"ok": True}
-        assert inboxes.rejected == []
-        inboxes.game_uid, inboxes.sub_game = "series-123", 1
-        assert inboxes.submit_audit(audit([reveal(sub_game=1)], sub_game=1)) == {"ok": True}
-        assert inboxes.rejected == []
-
     def test_step_one_recurs_every_sub_game_without_looking_like_a_replay(self) -> None:
         """Why the ledger was emptied at all, and why it no longer has to be."""
         inboxes = PeerInboxes(game_uid="series-123", sub_game=1)
         for number in range(1, 7):
-            inboxes.sub_game = number
+            inboxes.bind("series-123", number)
             assert inboxes.receive_turn(turn(sub_game=number)) == {"ok": True}
         assert inboxes.rejected == [] and inboxes.duplicates == []
         assert len(inboxes.accepted_turns) == 6
 
 
+class TestTheSenderSpendsABudgetRatherThanGivingUpOrWaitingForever:
+    """The other half of a retryable refusal: somebody has to try again.
+
+    ``receive_turn`` is fire-and-forget, so a door that refuses an honest packet
+    silently costs the series. The client already owns a bounded budget for a
+    socket that will not answer — Appendix F's attempts and backoff — and a door
+    that is not open yet is answered inside that same budget, so the wait is
+    bounded by a number both teams agreed rather than by patience.
+    """
+
+    def a_client(self, inboxes: PeerInboxes) -> OpponentClient:
+        """A client whose backoff opens the door, standing in for the other thread."""
+
+        def crossing(_: float) -> None:
+            inboxes.bind("series-123", 1)
+
+        return OpponentClient(
+            transport=Door(inboxes),
+            settings=ClientSettings(opponent_url="http://127.0.0.1:1/mcp", retry_backoff_sec=0.0),
+            sleep=crossing,
+        )
+
+    def test_an_honest_packet_sent_just_before_the_bind_lands_on_the_retry(self) -> None:
+        inboxes = PeerInboxes()
+        client = self.a_client(inboxes)
+        assert client.call("receive_turn", {"message": turn(sub_game=1)}) == {"ok": True}
+        assert client.attempts == 2
+        assert inboxes.turns.get_nowait().sub_game == 1
+        assert inboxes.rejected == []
+
+    def test_a_door_that_never_opens_costs_the_budget_and_then_the_match(self) -> None:
+        """Deterministic technical loss, not a hang: the attempts are counted out."""
+        inboxes = PeerInboxes()
+        client = OpponentClient(
+            transport=Door(inboxes),
+            settings=ClientSettings(
+                opponent_url="http://127.0.0.1:1/mcp", max_retries=2, retry_backoff_sec=0.0
+            ),
+        )
+        with pytest.raises(PeerNotReadyError, match="receive_turn"):
+            client.call("receive_turn", {"message": turn(sub_game=1)})
+        assert client.attempts == 3
+        assert inboxes.turns.empty() and inboxes.accepted_turns == {}
+
+    def test_that_exhaustion_is_the_same_technical_loss_an_unreachable_peer_is(self) -> None:
+        assert issubclass(PeerNotReadyError, OpponentUnreachableError)
+
+    def test_a_final_refusal_is_not_retried(self) -> None:
+        """Spending the budget on a *no* would turn one forgery into four."""
+        inboxes = PeerInboxes(game_uid="series-123", sub_game=1)
+        client = self.a_client(inboxes)
+        answer = client.call("receive_turn", {"message": turn(game_uid="other", sub_game=1)})
+        assert answer["ok"] is False and client.attempts == 1
+
+    def test_a_re_send_is_the_same_bytes_rather_than_a_second_action(self) -> None:
+        inboxes = PeerInboxes()
+        client = self.a_client(inboxes)
+        client.call("receive_turn", {"message": turn(sub_game=1)})
+        assert len({digest for _, digest in client.sent}) == 1
+
+
 class TestWhatIsBehindUsIsStillRefused:
-    """Admitting an early message is not admitting a stale one."""
+    """A door that defers what it cannot judge still refuses what it can."""
 
     def test_a_turn_from_a_sub_game_already_played_is_refused(self) -> None:
         inboxes = PeerInboxes(game_uid="series-123", sub_game=4)
@@ -351,15 +500,24 @@ class TestWhatIsBehindUsIsStillRefused:
         assert answer["ok"] is False and "travelled in an audit for" in answer["detail"]
         assert inboxes.audits.empty()
 
-    def test_a_retry_of_an_early_turn_is_a_duplicate_not_a_second_turn(self) -> None:
-        inboxes = PeerInboxes(game_uid="series-123", sub_game=3)
+    def test_a_retry_of_an_accepted_turn_is_a_duplicate_not_a_second_turn(self) -> None:
+        inboxes = PeerInboxes(game_uid="series-123", sub_game=4)
         assert inboxes.receive_turn(turn(sub_game=4)) == {"ok": True}
         assert inboxes.receive_turn(turn(sub_game=4)) == {"ok": True}
         assert inboxes.turns.qsize() == 1
         assert len(inboxes.duplicates) == 1 and inboxes.rejected == []
 
-    def test_an_early_turn_changed_after_the_fact_is_still_a_forgery(self) -> None:
+    def test_a_deferred_turn_leaves_nothing_for_its_re_send_to_collide_with(self) -> None:
+        """A retry after a deferral is the first acceptance, not a duplicate."""
         inboxes = PeerInboxes(game_uid="series-123", sub_game=3)
+        for _ in range(3):
+            assert deferred(inboxes.receive_turn(turn(sub_game=4)))
+        inboxes.bind("series-123", 4)
+        assert inboxes.receive_turn(turn(sub_game=4)) == {"ok": True}
+        assert inboxes.duplicates == [] and inboxes.turns.qsize() == 1
+
+    def test_a_turn_changed_after_the_fact_is_still_a_forgery(self) -> None:
+        inboxes = PeerInboxes(game_uid="series-123", sub_game=4)
         inboxes.receive_turn(turn(sub_game=4))
         answer = inboxes.receive_turn(turn(sub_game=4, commit="b" * 64))
         assert answer["ok"] is False and "never replace one" in answer["detail"]

@@ -6,6 +6,7 @@ move; any mismatch means refuse to play.
 """
 
 import hashlib
+import hmac
 import json
 from pathlib import Path
 from typing import Any
@@ -91,6 +92,24 @@ def canonical_bytes(payload: dict[str, Any]) -> bytes:
 def config_sha256(config: dict[str, Any]) -> str:
     """The digest exchanged before the first move."""
     return hashlib.sha256(canonical_bytes(config)).hexdigest()
+
+
+def digests_agree(ours: str, theirs: str) -> bool:
+    """Whether two peers are playing by the same parameters.
+
+    Constant-time, via :func:`hmac.compare_digest`. Not because a config digest
+    is a secret — both sides publish theirs — but because ``==`` on strings
+    stops at the first differing byte, and the time it takes therefore says how
+    long a common prefix was. An opponent free to re-negotiate could use that to
+    walk a digest out of us one character at a time and then claim our
+    parameters as its own. The comparison costs nothing either way, and the
+    version that leaks is the one that has to be justified.
+
+    Compared as bytes rather than as ``str``: ``compare_digest`` raises
+    ``TypeError`` on a non-ASCII string, and an unhandled exception on a path an
+    opponent can reach is a technical loss scoring zero for both sides.
+    """
+    return hmac.compare_digest(ours.encode("utf-8"), theirs.encode("utf-8"))
 
 
 def load(path: Path) -> dict[str, Any]:

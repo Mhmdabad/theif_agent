@@ -18,6 +18,7 @@ worse than one.
 """
 
 import queue
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,9 +35,9 @@ from ..infra.handshake import (
     check,
     record,
 )
-from ..infra.inboxes import PeerInboxes
+from ..infra.inboxes import DIGEST_KEY, SERIES_KEY, PeerInboxes
 from ..infra.mcp_client import OpponentClient, OpponentUnreachableError
-from ..shared.config import config_sha256
+from ..shared.config import config_sha256, digests_agree
 
 PROTOCOL_VERSION = "1.0"
 """Bumped when the wire contract changes. Exchanged during negotiation."""
@@ -47,6 +48,14 @@ GREETING_TIMEOUT_SEC = 30.0
 The Appendix F response timeout. A handshake with no deadline is the one place
 a deadlock costs nothing to reach and everything to diagnose: neither peer has
 moved, so there is no board state to explain what happened."""
+
+CONFIG_TIMEOUT_SEC = 30.0
+"""How long to wait for the opponent's config digest.
+
+The same Appendix F response timeout, for the same reason: nobody has moved
+yet, so an unbounded wait here produces a hang with no board to explain it. An
+opponent who never answers has not agreed to our parameters, and the only safe
+reading of silence at this gate is refusal."""
 
 
 @dataclass
@@ -355,20 +364,125 @@ class Orchestrator:
             raise MatchAborted(TechnicalLoss.FORGERY, str(result))
         return result
 
-    def agree_config(self, config: dict[str, Any]) -> str:
-        """Exchange config digests, refusing to play on any mismatch.
+    def agree_config(
+        self,
+        config: dict[str, Any],
+        game_uid: str = "",
+        timeout: float = CONFIG_TIMEOUT_SEC,
+    ) -> str:
+        """Exchange config digests, refusing to play unless both sides agree.
 
         The digest is computed from the **loaded** configuration rather than
         re-hashed from a file, so the value advertised is provably the one this
         peer is enforcing. Advertising a digest we are not playing by would be
         indistinguishable from cheating at audit.
 
+        **Both halves are required, and only one of them used to be here.**
+        Pushing our digest and reading the opponent's ``ok`` proves nothing:
+        ``negotiate`` acknowledges any well-formed message, so that ``ok`` is
+        the same whether they compared our parameters or never looked at them.
+        Agreement is decided the other way round — by taking the digest *they*
+        pushed at us and comparing it with ours.
+
+        **Speak, then listen.** Both peers run this at the same time and each
+        blocks on a message only the other can send, so a version that waited
+        before announcing would be two polite peers deadlocking — the failure
+        :meth:`open_series` is ordered to avoid, for the same reason.
+
+        Args:
+            game_uid: the series this digest is about, carried so an agreement
+                reached for one series cannot be replayed to open another. Sent
+                only when set, and enforced only when the opponent sends one
+                back: the reference protocol carries the digest alone, and
+                refusing a peer for speaking it would lose a match over a field
+                the rulebook never asked for.
+
         Raises:
-            MatchAborted: with ``TechnicalLoss.ILLEGAL_ACTION`` on mismatch.
+            MatchAborted: ``ILLEGAL_ACTION`` if the opponent's digest disagrees
+                with ours, ``TIMEOUT`` if none arrives inside the window.
         """
         ours = config_sha256(config)
         self.beat("negotiate_config")
-        reply = self.call_opponent("negotiate", {"message": {"config_sha256": ours}})
+        message: dict[str, object] = {DIGEST_KEY: ours}
+        if game_uid:
+            message[SERIES_KEY] = game_uid
+        reply = self.call_opponent("negotiate", {"message": message})
         if not reply.get("ok", False):
             raise MatchAborted(TechnicalLoss.ILLEGAL_ACTION, str(reply.get("detail", "")))
+        self.accept_config_digest(ours, game_uid, timeout)
         return ours
+
+    def accept_config_digest(self, ours: str, game_uid: str, timeout: float) -> str:
+        """Consume the opponent's digest and refuse anything short of agreement.
+
+        **Every** digest queued for this series has to agree, not merely the
+        first. A retry re-sends the same bytes, so duplicates are ordinary and
+        expected — but stopping at the first one would let a re-send that
+        arrived before a contradiction stand in for the contradiction, which is
+        the one arrangement of messages where a peer changing its parameters
+        mid-negotiation would go unnoticed.
+
+        Digests naming a **different** series are dropped as stale and the wait
+        continues on the same deadline, so replaying an agreement from an
+        earlier series buys nothing and does not shorten our patience either.
+
+        Consumed rather than peeked, so nothing is left in the mailbox that
+        could open the *next* series without a negotiation of its own.
+
+        Raises:
+            MatchAborted: ``ILLEGAL_ACTION`` on disagreement, ``TIMEOUT`` if
+                nothing about this series arrives before the deadline.
+        """
+        self.beat("await_config")
+        deadline = time.monotonic() + timeout
+        agreed: str | None = None
+        while agreed is None:
+            agreed = self.check_digest(self.wait_for_digest(deadline, timeout), ours, game_uid)
+        while True:
+            try:
+                queued = self.inboxes.digests.get_nowait()
+            except queue.Empty:
+                return agreed
+            self.check_digest(queued, ours, game_uid)
+
+    def wait_for_digest(self, deadline: float, timeout: float) -> dict[str, Any]:
+        """The next digest message, or a timeout. Never an unbounded wait.
+
+        Raises:
+            MatchAborted: ``TIMEOUT`` once the deadline passes. Silence at this
+                gate is a refusal to agree, not a reason to wait longer.
+        """
+        try:
+            return self.inboxes.digests.get(timeout=max(deadline - time.monotonic(), 0.0))
+        except queue.Empty:
+            raise MatchAborted(
+                TechnicalLoss.TIMEOUT,
+                f"no config digest from the opponent within {timeout:g}s; an "
+                "unanswered agreement is a refusal to agree, and a series played "
+                "without one is void either way",
+            ) from None
+
+    def check_digest(self, body: dict[str, Any], ours: str, game_uid: str) -> str | None:
+        """Their digest from one message, or ``None`` if it is not about this series.
+
+        Compared in constant time through :func:`~..shared.config.digests_agree`,
+        against the canonical lowercase form :func:`require_digest` normalises to
+        at the door — so this only ever compares two values of the same shape.
+
+        Raises:
+            MatchAborted: ``ILLEGAL_ACTION`` if their parameters are not ours.
+        """
+        theirs = str(body.get(DIGEST_KEY, ""))
+        about = str(body.get(SERIES_KEY, ""))
+        if game_uid and about and about != game_uid:
+            self.beat(f"stale-digest:{about}")
+            return None
+        if not digests_agree(ours, theirs):
+            raise MatchAborted(
+                TechnicalLoss.ILLEGAL_ACTION,
+                f"the opponent is playing by {theirs} and we are playing by {ours}; "
+                "Appendix E rule 11 requires byte-identical configuration on both "
+                "sides, and a series played on two sets of physics produces two "
+                "logs nobody can reconcile — zero for both teams",
+            )
+        return theirs

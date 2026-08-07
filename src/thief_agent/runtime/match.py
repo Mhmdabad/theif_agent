@@ -37,6 +37,8 @@ from typing import Any
 
 from ..domain.axes import AxisConvention
 from ..domain.board import BoardState
+from ..domain.lock import ScentAgreement
+from ..domain.outcome import TechnicalLoss
 from ..domain.scoring import Outcome, scores_for
 from ..infra.artefacts import ArtefactSet
 from ..infra.ceremony import AuditResult
@@ -46,7 +48,7 @@ from ..infra.match_log import MatchLog
 from ..infra.report import Report, Repositories, SubGameResult
 from ..shared.config import config_sha256, series_length
 from ..strategy.base import BrainBase
-from .orchestrator import CONFIG_TIMEOUT_SEC, Orchestrator
+from .orchestrator import CONFIG_TIMEOUT_SEC, MatchAborted, Orchestrator
 from .peer import McpPeer
 from .subgame import Played, SubGame
 
@@ -94,6 +96,15 @@ class MatchRunner:
     now: Callable[[], str] = field(default=lambda: "")
     outcomes: list[SubGameOutcome] = field(default_factory=list, init=False)
 
+    scent_lock: ScentAgreement | None = field(default=None, init=False)
+    """The pre-series scent model both sides hashed, once :meth:`agree` has run.
+
+    ``None`` until a peer has matched our lock exactly, and not settable from
+    outside the runner's construction: a series that never negotiated one has
+    nothing to derive its scent rules from, and :meth:`play_sub_game` refuses to
+    open on that rather than picking a default. The default is what P1-15 was.
+    """
+
     @property
     def game_id(self) -> str:
         return self.declaration.game_id
@@ -121,15 +132,53 @@ class MatchRunner:
         already spoiled — the steps played under the wrong physics cannot be
         un-played, and both sides have logs nobody can reconcile.
 
-        The digest is bound to this runner's ``game_uid``, so the series the
+        **Two agreements, in this order.** Appendix E rule 11 fixes the
+        parameters and rule 23 fixes the scent-emission model, and they are not
+        the same document: the config digest covers ``game.json``, while the
+        emission kernel, its falloff, its rounding and the dialect the field
+        travels in live in the code and would pass a config comparison
+        untouched. The parameters go first because two peers who cannot agree
+        what board they are on have nothing to say about pheromones on it.
+
+        Both are bound to this runner's ``game_uid``, so the series the
         declaration names and the series we negotiated are provably the same
         one. Without it an agreement reached for an earlier series could be
         replayed to open this one, and the declaration would record a
         negotiation that never happened.
+
+        Returns:
+            The config digest. The scent agreement is kept on
+            :attr:`scent_lock`, because it is not a digest but a set of terms
+            the sub-games have to be played under.
         """
-        return self.orchestrator.agree_config(
+        digest = self.orchestrator.agree_config(
             self.parameters, game_uid=self.declaration.game_uid, timeout=timeout
         )
+        self.scent_lock = self.orchestrator.agree_scent_model(
+            game_uid=self.declaration.game_uid, timeout=timeout
+        )
+        return digest
+
+    def locked_scent(self) -> ScentAgreement:
+        """The agreed model, or a refusal to open a sub-game without one.
+
+        The alternative — falling back to a default — is precisely the silent
+        downgrade this gate exists to prevent. A peer that never locked a model
+        is a peer whose field we cannot check, and the rulebook's price for a
+        series played on an unfixed model is the match.
+
+        Raises:
+            MatchAborted: ``ILLEGAL_ACTION`` when no lock was agreed.
+        """
+        if self.scent_lock is None:
+            raise MatchAborted(
+                TechnicalLoss.ILLEGAL_ACTION,
+                "no scent-emission model was locked with the opponent; Appendix E "
+                "rule 23 fixes it cryptographically before the game starts, and a "
+                "sub-game opened without one is played on a field neither side can "
+                "check — call agree() before playing",
+            )
+        return self.scent_lock
 
     def config_for(self, number: int) -> LockedConfig:
         return lock(
@@ -150,7 +199,12 @@ class MatchRunner:
         return [self.play_sub_game(number, timeout) for number in range(1, self.sub_games + 1)]
 
     def play_sub_game(self, number: int, timeout: float = 30.0) -> SubGameOutcome:
-        """Steps 3 and 4 for one sub-game."""
+        """Steps 3 and 4 for one sub-game.
+
+        The scent rules are read from the agreement before anything else, so a
+        series that never locked a model costs a refusal rather than a board.
+        """
+        locked = self.locked_scent()
         self.orchestrator.inboxes.accepted_turns.clear()
         log = MatchLog(
             game_id=self.game_id,
@@ -174,6 +228,7 @@ class MatchRunner:
             axes=self.axes,
             max_steps=self.max_steps,
             now=self.now,
+            require_bound_scent=locked.require_bound_scent,
         )
         played = game.play()
         outcome = SubGameOutcome(

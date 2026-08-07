@@ -87,11 +87,12 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done · **🚪 GATE** = milesto
 - [x] Decay `τ(t+1) = max(0, (1−ρ)τ(t) + Δτ)`, ρ = 0.10, at end of each **full** turn
 - [x] Sample **opponent's** field only; never our own
 - [x] Fixture test against hand-computed decay values
-- [ ] **Pre-series lock**: exchange emission/decay model + numeric example, hash it
-      *(`domain/lock.py` builds and hashes the agreement, including the scent
-      binding term; nothing in the negotiation path calls it yet)*
-- [ ] Offer our scent-engine code to the opponent (permitted and recommended)
-      *(the offer text is built; it is not sent by any runtime path yet)*
+- [x] **Pre-series lock**: exchange emission/decay model + numeric example, hash it
+      — `Orchestrator.agree_scent_model` offers it through `negotiate` and refuses
+      the series on any disagreement; `MatchRunner.agree` runs it after the config
+      digest and no sub-game opens without one
+- [x] Offer our scent-engine code to the opponent (permitted and recommended)
+      — `SOURCE_OFFER` travels in the lock message, outside the digest
 - [x] Belief map `b(s)` over the grid; zero belief on barriers, updated from the
       opponent's field at the full-turn boundary
 - [x] Scent snapshot transmitted in **phase 3** and sealed into the **phase-1**

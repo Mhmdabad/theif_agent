@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from ..domain.board import BoardState
+from ..domain.lock import ScentAgreement, ScentLock, disputes, propose
 from ..domain.outcome import TechnicalLoss
 from ..infra.ceremony import AuditResult, FinalReveal, MatchCeremony, audit_opponent
 from ..infra.handshake import (
@@ -35,7 +36,7 @@ from ..infra.handshake import (
     check,
     record,
 )
-from ..infra.inboxes import DIGEST_KEY, SERIES_KEY, PeerInboxes
+from ..infra.inboxes import DIGEST_KEY, SCENT_DIGEST_KEY, SCENT_KEY, SERIES_KEY, PeerInboxes
 from ..infra.mcp_client import OpponentClient, OpponentUnreachableError
 from ..shared.config import config_sha256, digests_agree
 
@@ -56,6 +57,14 @@ The same Appendix F response timeout, for the same reason: nobody has moved
 yet, so an unbounded wait here produces a hang with no board to explain it. An
 opponent who never answers has not agreed to our parameters, and the only safe
 reading of silence at this gate is refusal."""
+
+SCENT_TIMEOUT_SEC = 30.0
+"""How long to wait for the opponent's scent-model offer.
+
+The Appendix F response timeout again, and the same reading of silence. A peer
+that will not lock the emission model has not agreed to one, and Appendix E rule
+23 voids a match played on a model the two sides never fixed — so waiting longer
+only delays a series that cannot legitimately open."""
 
 
 @dataclass
@@ -486,3 +495,133 @@ class Orchestrator:
                 "logs nobody can reconcile — zero for both teams",
             )
         return theirs
+
+    def agree_scent_model(
+        self,
+        game_uid: str,
+        ours: ScentLock | None = None,
+        timeout: float = SCENT_TIMEOUT_SEC,
+    ) -> ScentAgreement:
+        """Exchange the scent-emission model, refusing to play unless it is shared.
+
+        Appendix E rule 23: the model is locked cryptographically **before** the
+        game starts, and a deviation in the decay formula voids the match. The
+        lock existed and was never sent — ``domain/lock.py`` had no import site
+        in ``src/`` at all — so the two known divergences from the reference
+        implementation surfaced as an audit failure halfway through a series
+        instead of as a conversation before it opened.
+
+        The offer is built from the **live engine** through
+        :func:`~..domain.lock.propose`, never transcribed, so what we hash is
+        what we will actually emit. Whatever it says, it says only about the
+        published 5x5 worked example: no nonce exists yet, no commitment has
+        been made, and the live board is not an input, so nothing about our
+        position can travel in it.
+
+        **Speak, then listen**, exactly as :meth:`agree_config` does and for the
+        same reason: both peers run this at once and each blocks on a message
+        only the other can send.
+
+        Args:
+            game_uid: the series this lock is about. Required rather than
+                optional — unlike the config digest, this message is our dialect
+                and not the reference's, so a peer sending one at all can bind
+                it. An empty value is refused by the opponent's own door, which
+                is where we would rather learn about it than at their audit.
+
+        Raises:
+            MatchAborted: ``ILLEGAL_ACTION`` if their model is not ours or their
+                offer was refused, ``TIMEOUT`` if none arrives inside the window.
+        """
+        ours = ours or propose()
+        self.beat("negotiate_scent")
+        reply = self.call_opponent("negotiate", {"message": self.scent_offer(ours, game_uid)})
+        if not reply.get("ok", False):
+            raise MatchAborted(TechnicalLoss.ILLEGAL_ACTION, str(reply.get("detail", "")))
+        return self.accept_scent_lock(ours, game_uid, timeout)
+
+    @staticmethod
+    def scent_offer(ours: ScentLock, game_uid: str) -> dict[str, object]:
+        """The canonical offer: the model, its digest, and the series it binds."""
+        return {SCENT_KEY: ours.terms(), SCENT_DIGEST_KEY: ours.digest(), SERIES_KEY: game_uid}
+
+    def accept_scent_lock(self, ours: ScentLock, game_uid: str, timeout: float) -> ScentAgreement:
+        """Consume the opponent's offers and refuse anything short of agreement.
+
+        **Every** offer queued for this series has to agree, not merely the
+        first, for the reason the config gate already gives: a retry re-sends
+        the same bytes, so duplicates are ordinary — but stopping at the first
+        would let a re-send stand in for a contradiction queued behind it, which
+        is the one arrangement of messages where a peer changing its model
+        mid-negotiation goes unnoticed.
+
+        Offers naming a **different** series are dropped as stale and the wait
+        continues on the same deadline. Consumed rather than peeked, so nothing
+        is left behind that could open the *next* series unlocked.
+
+        Raises:
+            MatchAborted: ``ILLEGAL_ACTION`` on disagreement, ``TIMEOUT`` if
+                nothing about this series arrives before the deadline.
+        """
+        self.beat("await_scent")
+        deadline = time.monotonic() + timeout
+        settled: ScentAgreement | None = None
+        while settled is None:
+            settled = self.check_scent_lock(
+                self.wait_for_scent_lock(deadline, timeout), ours, game_uid
+            )
+        while True:
+            try:
+                queued = self.inboxes.scent_locks.get_nowait()
+            except queue.Empty:
+                return settled
+            self.check_scent_lock(queued, ours, game_uid)
+
+    def wait_for_scent_lock(self, deadline: float, timeout: float) -> dict[str, Any]:
+        """The next offer, or a timeout. Never an unbounded wait.
+
+        Raises:
+            MatchAborted: ``TIMEOUT`` once the deadline passes. A peer that
+                offers no model has not agreed one, and Appendix E rule 23 voids
+                a match played on a model nobody fixed.
+        """
+        try:
+            return self.inboxes.scent_locks.get(timeout=max(deadline - time.monotonic(), 0.0))
+        except queue.Empty:
+            raise MatchAborted(
+                TechnicalLoss.TIMEOUT,
+                f"no scent-model lock from the opponent within {timeout:g}s; Appendix E "
+                "rule 23 fixes the emission model before the game starts, and a peer "
+                "that will not lock one cannot produce a heatmap either side can check",
+            ) from None
+
+    def check_scent_lock(
+        self, body: dict[str, Any], ours: ScentLock, game_uid: str
+    ) -> ScentAgreement | None:
+        """Their offer settled, or ``None`` if it is not about this series.
+
+        Decided by :func:`~..domain.lock.disputes`, which is where the physics
+        live: this class coordinates and does not decide, and a second opinion
+        about the model here is a second opinion that can disagree with the one
+        both repositories share.
+
+        Raises:
+            MatchAborted: ``ILLEGAL_ACTION`` if their model is not ours.
+        """
+        about = str(body.get(SERIES_KEY, ""))
+        if about != game_uid:
+            self.beat(f"stale-scent-lock:{about}")
+            return None
+        offer = body.get(SCENT_KEY)
+        problems = disputes(
+            ours, offer if isinstance(offer, dict) else {}, str(body.get(SCENT_DIGEST_KEY, ""))
+        )
+        if problems:
+            raise MatchAborted(
+                TechnicalLoss.ILLEGAL_ACTION,
+                "; ".join(problems) + "; Appendix E rule 23 locks the scent-emission "
+                "model before the game starts and prices a deviation in the decay "
+                "formula at a void match, so the remedy is negotiation between the "
+                "teams rather than a series played on two different fields",
+            )
+        return ours.agreement()

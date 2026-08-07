@@ -14,7 +14,9 @@ import pytest
 from test_localhost_match import REPOS, build_declaration, parameters  # noqa: E402
 from thief_agent.domain.axes import AxisConvention
 from thief_agent.domain.board import BoardState
+from thief_agent.domain.lock import ScentLock, propose
 from thief_agent.domain.outcome import TechnicalLoss
+from thief_agent.domain.scent import CHEBYSHEV
 from thief_agent.domain.scoring import Outcome, scores_for
 from thief_agent.infra.ceremony import AuditResult, Verdict
 from thief_agent.infra.handshake import Greeting, Peering
@@ -103,18 +105,26 @@ def an_outcome(number: int, clean: bool = True, captured: bool = False) -> SubGa
     )
 
 
-def answered(runner: MatchRunner, digest: str | None = None) -> MatchRunner:
-    """File the digest the opponent's peer would have pushed at us.
+def answered(
+    runner: MatchRunner, digest: str | None = None, lock: ScentLock | None = None
+) -> MatchRunner:
+    """File the messages the opponent's peer would have pushed at us.
 
-    The gate consumes what they send rather than trusting the ``ok`` they
-    answered our own push with, so a runner whose digest mailbox is empty is a
-    runner whose opponent never negotiated — which is a timeout, correctly.
+    Both of them, because ``agree()`` runs two gates: Appendix E rule 11 fixes
+    the parameters and rule 23 fixes the scent-emission model, and neither
+    stands in for the other. Each gate consumes what they send rather than
+    trusting the ``ok`` they answered our own push with, so a runner whose
+    mailboxes are empty is a runner whose opponent never negotiated — which is
+    a timeout, correctly.
     """
     runner.orchestrator.inboxes.negotiate(
         {
             "config_sha256": digest if digest is not None else config_sha256(runner.parameters),
             "game_uid": runner.declaration.game_uid,
         }
+    )
+    runner.orchestrator.inboxes.negotiate(
+        Orchestrator.scent_offer(lock or propose(), runner.declaration.game_uid)
     )
     return runner
 
@@ -172,6 +182,59 @@ class TestAgreeingTheConfigComesFirst:
         with pytest.raises(MatchAborted) as excinfo:
             runner.agree(timeout=0.0)
         assert excinfo.value.cause is TechnicalLoss.TIMEOUT
+
+
+class TestLockingTheScentModelComesNext:
+    """Appendix E rule 23, at the runner. The wire-level gate is in
+    ``test_scent_lock_negotiation``; what is here is the runner's own decisions.
+    """
+
+    def test_a_matching_lock_is_recorded_on_the_runner(self, tmp_path: Path) -> None:
+        runner = answered(a_runner(tmp_path))
+        runner.agree()
+        assert runner.scent_lock == propose().agreement()
+
+    def test_the_offer_is_bound_to_this_runners_series(self, tmp_path: Path) -> None:
+        """The series the declaration names is the series we locked."""
+        transport = Answering({"ok": True})
+        runner = answered(a_runner(tmp_path, transport=transport))
+        runner.agree()
+        assert transport.calls[1][1]["message"]["game_uid"] == runner.declaration.game_uid
+
+    def test_a_peer_on_another_falloff_aborts_the_series(self, tmp_path: Path) -> None:
+        """The divergence this project found against the reference code."""
+        runner = answered(a_runner(tmp_path), lock=propose(CHEBYSHEV))
+        with pytest.raises(MatchAborted) as excinfo:
+            runner.agree()
+        assert excinfo.value.cause is TechnicalLoss.ILLEGAL_ACTION
+        assert runner.scent_lock is None and runner.outcomes == []
+
+    def test_a_peer_that_locks_nothing_times_out(self, tmp_path: Path) -> None:
+        """The config digest alone does not open a series."""
+        runner = a_runner(tmp_path)
+        runner.orchestrator.inboxes.negotiate(
+            {"config_sha256": config_sha256(runner.parameters), "game_uid": "u-0001"}
+        )
+        with pytest.raises(MatchAborted) as excinfo:
+            runner.agree(timeout=0.0)
+        assert excinfo.value.cause is TechnicalLoss.TIMEOUT
+        assert runner.scent_lock is None
+
+    def test_a_config_refusal_stops_before_any_lock_is_offered(self, tmp_path: Path) -> None:
+        """Ordering: two peers who disagree about the board say nothing about pheromones."""
+        transport = Answering({"ok": False, "detail": "digest mismatch"})
+        runner = a_runner(tmp_path, transport=transport)
+        with pytest.raises(MatchAborted):
+            runner.agree()
+        assert [call[1]["message"].get("scent_lock") for call in transport.calls] == [None]
+
+    def test_no_sub_game_opens_without_one(self, tmp_path: Path) -> None:
+        """P1-15: the fallback for an unlocked model is refusal, not a default."""
+        runner = a_runner(tmp_path)
+        with pytest.raises(MatchAborted) as excinfo:
+            runner.play_sub_game(1)
+        assert excinfo.value.cause is TechnicalLoss.ILLEGAL_ACTION
+        assert runner.outcomes == []
 
 
 class TestTheConfigItLocks:

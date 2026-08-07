@@ -25,6 +25,7 @@ import pytest
 from thief_agent.domain.actions import MoveAction
 from thief_agent.domain.axes import AxisConvention
 from thief_agent.domain.board import BoardState
+from thief_agent.domain.lock import propose
 from thief_agent.domain.rules import legal_moves
 from thief_agent.infra.artefacts import ArtefactSet
 from thief_agent.infra.config_file import lock
@@ -245,6 +246,9 @@ def played(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[Side, Sid
 
     def run(side: Side) -> None:
         try:
+            # The two agreements first, in the order a real series opens in:
+            # a sub-game refuses to open on a scent model nobody locked.
+            side.runner.agree(timeout=25.0)
             side.runner.play_sub_game(1, timeout=25.0)
         except BaseException as exc:  # noqa: BLE001 - reported below, not swallowed
             failures[side.role] = exc
@@ -289,6 +293,45 @@ class TestTheMatchActuallyHappened:
             theirs = played_game(thief).ceremony.at(step).theirs
             assert ours is not None and theirs is not None
             assert ours.commit == theirs.commit
+
+
+class TestTheSeriesOpenedOnALockedScentModel:
+    """P0-3 and P1-15, end to end: agreed before a move, and it decided the audit.
+
+    ``test_scent_lock_negotiation`` drives the gate itself. What is proved here
+    is the join — that the model two real peers hashed at negotiation is the one
+    the sub-game they then played was played under.
+    """
+
+    def test_both_sides_locked_the_same_model(self, played: tuple[Side, Side, Path]) -> None:
+        cop, thief, _ = played
+        assert cop.runner.scent_lock == thief.runner.scent_lock == propose().agreement()
+
+    def test_both_gates_ran_in_order_and_before_the_board(
+        self, played: tuple[Side, Side, Path]
+    ) -> None:
+        """Parameters, then physics, then a move — and the log proves a move followed."""
+        cop, _, _ = played
+        beats = cop.runner.orchestrator.heartbeats
+        assert [beat for beat in beats if not beat.startswith(("attempt:", "outbound:"))] == [
+            "negotiate_config",
+            "await_config",
+            "negotiate_scent",
+            "await_scent",
+        ]
+        assert cop.runner.outcomes[0].log.entries
+
+    def test_the_sub_game_took_its_scent_rule_from_the_agreement(
+        self, played: tuple[Side, Side, Path]
+    ) -> None:
+        """Not from the dataclass default, which is what P1-15 was."""
+        for side in played[:2]:
+            assert side.runner.scent_lock is not None
+            assert (
+                played_game(side).require_bound_scent
+                is side.runner.scent_lock.require_bound_scent
+                is True
+            )
 
 
 class TestBothLogsVerify:

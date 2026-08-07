@@ -116,8 +116,10 @@ class TestAcrossRuns:
             make(cop=(5, 5), thief=(1, 1), barriers=walls, step=step) for step in (1, 2)
         ]
         continuous = ThiefBrain(axes=AXES, seed=3)
-        with_memory = [continuous.decide(state).action for state in states]
-        without = [ThiefBrain(axes=AXES, seed=3).decide(state).action for state in states]
+        with_memory = [continuous.decide(state, threat=state.cop).action for state in states]
+        without = [
+            ThiefBrain(axes=AXES, seed=3).decide(state, threat=state.cop).action for state in states
+        ]
         assert with_memory != without
 
     def test_the_tracker_makes_history_part_of_the_decision(self) -> None:

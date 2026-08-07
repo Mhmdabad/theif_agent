@@ -170,12 +170,20 @@ class TestAvailableToTheScorer:
         calm = ThiefBrain(axes=AXES)
         calm.reach.observe(opening, AXES)
         assert not calm.reach.closing
-        assert target_of(opening.thief, calm.decide(opening).action.move, AXES) == (0, 0)  # type: ignore[union-attr]
+        assert target_of(
+            opening.thief,
+            calm.decide(opening, threat=opening.cop).action.move,  # type: ignore[union-attr]
+            AXES,
+        ) == (0, 0)
 
         trapped = ThiefBrain(axes=AXES)
         walk(trapped.reach, opening, closing)
         assert trapped.reach.closing
-        moved_to = target_of(closing.thief, trapped.decide(closing).action.move, AXES)  # type: ignore[union-attr]
+        moved_to = target_of(
+            closing.thief,
+            trapped.decide(closing, threat=closing.cop).action.move,  # type: ignore[union-attr]
+            AXES,
+        )
         assert moved_to == (1, 1)
         assert manhattan(moved_to, closing.cop) < manhattan(closing.thief, closing.cop)
 
@@ -256,7 +264,7 @@ class TestStayIsFirstClass:
         walk(brain.reach, make(step=0), make(cop=(5, 5), thief=(1, 1), barriers=walls, step=1))
         assert brain.reach.closing
         state = make(cop=(5, 5), thief=(1, 1), barriers=walls, step=1)
-        action = brain.decide(state).action
+        action = brain.decide(state, threat=state.cop).action
         assert isinstance(action, MoveAction)
         assert action.move == "STAY"
 

@@ -104,7 +104,7 @@ class TestEvasion:
         """
         brain = ThiefBrain(axes=AXES)
         state = make(cop=(6, 6), thief=(1, 1))
-        action = brain.decide(state).action
+        action = brain.decide(state, threat=state.cop).action
         assert isinstance(action, MoveAction)
         moved = target_of(state.thief, action.move, AXES)
         assert moved in {(0, 1), (1, 0)}
@@ -331,7 +331,7 @@ class TestEscapeSpaceTieBreak:
         brain = ThiefBrain(axes=AXES)
         pocket = reachable_area(state, (0, 0), AXES)
         assert pocket < 10
-        action = brain.decide(state).action
+        action = brain.decide(state, threat=state.cop).action
         assert isinstance(action, MoveAction)
 
     def test_reachable_area_cannot_separate_candidates_at_all(self) -> None:
@@ -440,7 +440,7 @@ class TestCornerAversion:
         assert manhattan((0, 0), state.cop) == manhattan((2, 0), state.cop)
         assert not brain.is_cramped(state, "N", state.cop)
         assert open_neighbours(state, (0, 0), AXES) < open_neighbours(state, (2, 0), AXES)
-        action = brain.decide(state).action
+        action = brain.decide(state, threat=state.cop).action
         assert isinstance(action, MoveAction)
         assert action.move == "S"
 

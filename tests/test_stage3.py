@@ -107,7 +107,8 @@ class TestDeadEndRegression:
         """Sealing (2, 2) removes the good answer. The corridor is still not
         taken — (0, 2) is an edge run rather than a four-cell dead end."""
         walls = CORRIDOR | {(2, 2)}
-        action = ThiefBrain(axes=AXES).decide(make(cop=(1, 0), thief=(1, 2), barriers=walls)).action
+        state = make(cop=(1, 0), thief=(1, 2), barriers=walls)
+        action = ThiefBrain(axes=AXES).decide(state, threat=state.cop).action
         assert isinstance(action, MoveAction)
         assert action.move != "E"
 

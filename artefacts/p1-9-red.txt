@@ -1,0 +1,18 @@
+P1-9 strict-TDD RED evidence
+Recorded: 2026-08-07 before production changes
+Command: uv run pytest tests/test_scent_runtime.py -q
+Exit: 1
+
+29 tests collected; 26 passed, 3 failed.
+
+Failures:
+- TestBeliefDrivesTheNextDecision::test_completed_scent_becomes_the_very_next_deterministic_context
+  AssertionError: decision context was {}, expected threat/concentration/uncertainty.
+- TestBeliefDrivesTheNextDecision::test_malformed_scent_and_our_own_scent_cannot_poison_context
+  KeyError: 'threat'.
+- TestBeliefDrivesTheNextDecision::test_barriers_and_zero_mass_are_never_selected
+  The pre-fix runtime never supplied a belief-derived threat.
+
+The paired police run also exited 1 with the same three failures, using
+'target' in place of 'threat'. Original console captures were retained during
+the implementation as /tmp/police-p1-9-red.txt and /tmp/thief-p1-9-red.txt.

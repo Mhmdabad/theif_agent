@@ -133,6 +133,7 @@ def step_record(
     intent: str,
     hint: str,
     barrier_placed: Position | None = None,
+    scent: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """Everything one step commits to, before the nonce is folded in.
 
@@ -145,6 +146,22 @@ def step_record(
     Only the cop ever passes it. The field is present in both agents anyway, so
     the two sides serialise the same shape and a thief's ``null`` is a fact
     about the turn rather than a difference in format.
+
+    **The scent field is sealed too, and it is the whole point of sealing.**
+    The trail is the one witness the rulebook calls unfalsifiable, and it is
+    disclosed a phase later than the commitment — so without binding it here, a
+    peer could read the opponent's reveal and only then decide what trail to
+    claim it had left. Sealed, the field is fixed before anyone has spoken, and
+    a single cell edited afterwards changes the digest and fails the audit.
+
+    Sealed **in full** rather than as a digest of itself. A digest would bind
+    just as tightly and would leave the log unable to prove anything on its
+    own: the Replay App re-hashes the record it finds in the file, and a record
+    naming a field nobody kept is a record a third party cannot check.
+
+    ``None`` is a fact about the turn, not an omission — the key is always
+    present, so the two sides serialise one shape whether or not a series was
+    negotiated with scent binding in force.
     """
     return {
         "state": board_terms(state, role),
@@ -153,6 +170,7 @@ def step_record(
         "intent": intent,
         "hint": hint,
         "barrier_placed": list(barrier_placed) if barrier_placed else None,
+        "scent": dict(scent) if scent is not None else None,
     }
 
 

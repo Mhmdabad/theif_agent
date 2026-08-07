@@ -34,10 +34,14 @@ from typing import Protocol, cast
 
 from ..domain.actions import Action, MoveAction, PlaceBarrier, apply_action
 from ..domain.axes import AxisConvention
+from ..domain.belief import Belief
 from ..domain.board import Agent, BoardState, Move
 from ..domain.crypto import commit_of, nonce, step_record
+from ..domain.inference import update as absorb_evidence
+from ..domain.memory import ScentMemory
 from ..domain.outcome import is_capture_by_overlap, is_enclosure_capture, is_trapping_capture
-from ..domain.rules import advance_turn
+from ..domain.rules import advance_turn, position_of
+from ..domain.scent_audit import ScentFieldError, StepPlay, audit_scent, check_field
 from ..infra.ceremony import (
     Acknowledgement,
     AuditResult,
@@ -122,6 +126,44 @@ class SubGame:
 
     their_final: FinalReveal | None = field(default=None, init=False)
 
+    require_bound_scent: bool = True
+    """Whether a peer must disclose a scent field bound to its commitment.
+
+    **Fail-closed, and the default is the closed side.** Unverifiable scent is
+    not weaker evidence than verified scent — it is no evidence wearing the
+    appearance of some, and absorbing it would let an opponent steer our belief
+    by simply declining to bind what it sends. So a peer that discloses nothing
+    checkable fails the audit rather than being quietly excused.
+
+    Setting this false is the *negotiated* downgrade, and it downgrades to
+    **no scent at all** rather than to unverified scent: the reference dialect
+    ships its field in the phase-1 turn message, unbound and alongside the
+    commitment it would otherwise conceal, and there is no reading of that we
+    can accept without giving up both the secrecy of our position and the one
+    witness the rulebook calls unfalsifiable. Playing an opponent who speaks
+    only that dialect therefore costs the pheromone layer, explicitly, and is
+    agreed before the series rather than discovered inside it.
+    """
+
+    start: BoardState = field(init=False)
+    """The board this sub-game opened on, kept for the scent reconstruction.
+
+    ``state`` moves; the audit needs the position both sides agreed to start
+    from, because the whole point of re-deriving the opponent's trail is to do
+    it from terms that were fixed before anybody played.
+    """
+
+    scent: ScentMemory = field(default_factory=ScentMemory, init=False)
+    """What we have emitted, and what we have absorbed — never pooled."""
+
+    belief: Belief = field(init=False)
+    """The distribution the policy targets and the live GUI paints.
+
+    One object, not two. A display-only copy would let the picture we show
+    diverge from the reasoning we did, which is the one thing the screenshot
+    requirement exists to demonstrate.
+    """
+
     play_result: Played | None = field(default=None, init=False)
     """How this sub-game ended, kept so a caller can ask again later.
 
@@ -132,6 +174,8 @@ class SubGame:
 
     def __post_init__(self) -> None:
         self.ceremony = MatchCeremony(role=self.role)
+        self.start = self.state
+        self.belief = Belief.uniform(self.state)
 
     @property
     def opponent(self) -> str:
@@ -177,6 +221,8 @@ class SubGame:
         self._acknowledge(step)
         self._reveal(step, record, opened)
         self._advance(action, self.peer_move(step))
+        self._observe(step)
+        self.scent.decay()
 
     def _commit(self, step: int) -> tuple[dict[str, object], Action, Reveal]:
         """Phase 1. Seal our move, record it, then send — in that order.
@@ -188,9 +234,13 @@ class SubGame:
         """
         decision = self.brain.decide(self.state)
         action = decision.action
+        self._our_actions[step] = action
         placed = action.at if isinstance(action, PlaceBarrier) else None
         move: Move | str = action.move if isinstance(action, MoveAction) else "barrier"
-        record = step_record(self.state, self.role, move, decision.intent, decision.hint, placed)
+        laid = self._emit(action)
+        record = step_record(
+            self.state, self.role, move, decision.intent, decision.hint, placed, laid
+        )
         secret = nonce()
         commitment = Commitment(
             step=step,
@@ -213,8 +263,67 @@ class SubGame:
             hint=decision.hint,
             timestamp=self.now(),
             barrier_placed=list(placed) if placed else None,
+            scent=laid,
         )
         return record, action, opened
+
+    def _emit(self, action: Action) -> dict[str, float]:
+        """Lay this turn's field and return the whole trail, in wire form.
+
+        **Centred where the turn ends, not where it began.** The field is laid
+        down by occupying a cell, so an agent that moved emits around its new
+        position — and one that stood still, or forfeited movement to build,
+        emits around the cell it is on. There is no silent turn.
+
+        The centre is computed by applying the action we are about to commit
+        to, which is the same function that will apply it for real a phase
+        later. Deriving it any other way would be a second movement model, and
+        the two would disagree exactly once, in a match, against a real
+        opponent re-deriving our trail from the moves we revealed.
+
+        What is returned is the accumulated trail rather than this turn's
+        deposit alone: the rulebook's scent *trail* is a short film of recent
+        movement, and a peer sent only the newest frame could read direction
+        out of nothing.
+        """
+        agent = self._agent(self.role)
+        after = apply_action(self.state, agent, action, self.axes)
+        self.scent.emit(position_of(after, agent), self.state.grid_size)
+        return self.scent.outgoing()
+
+    def _observe(self, step: int) -> None:
+        """Absorb what the opponent emitted, once the full turn is over.
+
+        Three rules, each of which has a way of being got wrong quietly:
+
+        **Theirs only.** :class:`~..domain.memory.ScentMemory` keeps the two
+        fields apart structurally, and the belief update is fed
+        ``scent.opponent`` — never a pool. An agent that merged both would
+        track itself, confidently, since its own trail is brightest exactly
+        where it stands.
+
+        **At the full-turn boundary.** Called after both sides have acted, so
+        the evidence entering the belief describes a completed turn rather than
+        half of one.
+
+        **Validated, or discarded whole.** A field that fails
+        :func:`~..domain.scent_audit.check_field` is not partially absorbed:
+        one bad cell means an untrustworthy field, and keeping the rest would
+        let an opponent steer the belief with the half we accepted. The failure
+        is not raised here either — it surfaces at the audit as a verdict,
+        because a crash mid-match is a technical loss scoring zero for *both*
+        sides and would reward sending us rubbish.
+        """
+        self.belief.apply_barriers(self.state)
+        opened = self._peer_reveals.get(step)
+        if opened is None or opened.scent is None:
+            return
+        try:
+            check_field(opened.scent, self.state.grid_size)
+        except ScentFieldError:
+            return
+        self.scent.absorb(opened.scent, self.state.grid_size)
+        absorb_evidence(self.belief, self.scent.opponent.values)
 
     def _acknowledge(self, step: int) -> None:
         """Phase 2. The phase the reference skips, and the reason reveal is safe."""
@@ -231,6 +340,13 @@ class SubGame:
         )
 
     _peer_reveals: dict[int, Reveal] = field(default_factory=dict, init=False)
+    _our_actions: dict[int, Action] = field(default_factory=dict, init=False)
+    """What we actually did each step, kept so the audit can replay the board.
+
+    The opponent's trail is only checkable against a board, and the board only
+    exists if *both* histories are known — our barrier at step 4 is what makes
+    their move at step 5 legal or not.
+    """
 
     def peer_move(self, step: int) -> Action | None:
         """What the opponent said they did, once they have said it."""
@@ -313,4 +429,46 @@ class SubGame:
                     "to can be opened; their play is unverifiable rather than proven",
                 ),
             )
-        return audit_opponent(self.ceremony, self.their_final, self.sealed_states)
+        sealed = audit_opponent(self.ceremony, self.their_final, self.sealed_states)
+        impossible = self._audit_scent()
+        if not impossible:
+            return sealed
+        return AuditResult(
+            verdict=Verdict.FORGED,
+            checked=sealed.checked,
+            failures=sealed.failures + impossible,
+        )
+
+    def _audit_scent(self) -> tuple[str, ...]:
+        """Re-derive their trail from the agreed start and the revealed moves.
+
+        A second, independent question from the one the nonces answer. The
+        commitments prove the opponent *fixed* its field before the turn; they
+        say nothing about whether the field it fixed is one the physics could
+        produce. A peer that committed to a trail centred across the board from
+        where it stood would open every commitment honestly and pass a
+        cryptographic audit — while lying about the one witness Chapter 4 calls
+        unfalsifiable.
+
+        So the trail is rebuilt from scratch: both sides' revealed movement
+        replayed on the board they agreed to start from, emission on every
+        action, decay once per full turn, compared against every field they
+        disclosed. This is what makes *a hint may lie, a trail may not* a
+        property of the protocol rather than an aspiration about it.
+        """
+        plays = [
+            StepPlay(
+                step=step,
+                ours=action,
+                theirs=self.peer_move(step),
+                disclosed=opened.scent if (opened := self._peer_reveals.get(step)) else None,
+            )
+            for step, action in sorted(self._our_actions.items())
+        ]
+        return audit_scent(
+            self.start,
+            self.axes,
+            self.role,
+            plays,
+            require_bound=self.require_bound_scent,
+        )

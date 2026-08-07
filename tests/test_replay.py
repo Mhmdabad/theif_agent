@@ -209,11 +209,19 @@ class TestTheLogCanVerifyItself:
 
     def test_the_log_stores_what_was_sealed_not_what_was_sent(self, tmp_path: Path) -> None:
         """A wire Reveal carries sender/step/timestamp; the digest covers
-        state/role/move/intent/hint/barrier_placed. Storing the message would
-        make every honest step recompute to a different digest."""
+        state/role/move/intent/hint/barrier_placed/scent. Storing the message
+        would make every honest step recompute to a different digest."""
         stored = load(sealed_log(tmp_path)).current.reveal
         assert stored is not None
-        assert set(stored) == {"state", "role", "move", "intent", "hint", "barrier_placed"}
+        assert set(stored) == {
+            "state",
+            "role",
+            "move",
+            "intent",
+            "hint",
+            "barrier_placed",
+            "scent",
+        }
         assert "timestamp" not in stored
 
     def test_every_step_of_an_honest_log_verifies(self, tmp_path: Path) -> None:

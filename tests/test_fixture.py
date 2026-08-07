@@ -73,6 +73,7 @@ class TestItIsShareable:
             "decay_rate",
             "emission",
             "decay_series",
+            "binding",
         }
 
     def test_it_is_stable_across_calls(self) -> None:

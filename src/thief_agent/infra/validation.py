@@ -14,10 +14,19 @@ decoder: ``True`` is an ``int`` in Python, and a payload of ``{"row": true}``
 would otherwise index row 1.
 """
 
+import math
 from typing import Any
 
 MAX_STRING = 4096
 """Longest accepted string field. Bounded so a peer cannot be exhausted."""
+
+MAX_SCENT_CELLS = 10_000
+"""Most cells an inbound scent field may name.
+
+A bound on the message rather than on the board, because this layer does not
+know the board: it is here so one payload cannot exhaust us before the layer
+that *does* know the board gets to reject it on physics.
+"""
 
 
 class InvalidPayloadError(ValueError):
@@ -86,6 +95,48 @@ def reject_unknown_fields(payload: dict[str, Any], allowed: frozenset[str]) -> N
     unknown = sorted(set(payload) - allowed)
     if unknown:
         raise InvalidPayloadError(f"unexpected fields: {unknown}")
+
+
+def optional_scent(payload: dict[str, Any], key: str) -> dict[str, float] | None:
+    """A ``{"row,col": intensity}`` field, or absent.
+
+    Shape only. Whether the cells exist on *this* board, and whether the
+    intensities are ones the agreed model can produce, are questions about the
+    game rather than about the wire — they belong to
+    :func:`~..domain.scent_audit.check_field`, which knows the board size and
+    the locked emission model. Splitting them keeps one validator per question
+    instead of two that can disagree.
+
+    What is refused here is what would be dangerous before anybody looks at the
+    physics: a value that is not a number, a ``NaN`` that compares unequal to
+    itself and would poison every sum downstream, an infinity that would
+    dominate any normalisation, a negative intensity the rulebook's clamp makes
+    meaningless, and a field too large to be about a board at all.
+
+    Booleans are rejected explicitly: ``isinstance(True, int)`` is true in
+    Python, so ``true`` would otherwise be absorbed as an intensity of one.
+    """
+    value = payload.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise InvalidPayloadError(f"{key!r} must be an object, got {type(value).__name__}")
+    if len(value) > MAX_SCENT_CELLS:
+        raise InvalidPayloadError(f"{key!r} names {len(value)} cells, over {MAX_SCENT_CELLS}")
+    field: dict[str, float] = {}
+    for cell, intensity in value.items():
+        if not isinstance(cell, str):
+            raise InvalidPayloadError(f"{key!r} keys must be strings, got {type(cell).__name__}")
+        if isinstance(intensity, bool) or not isinstance(intensity, int | float):
+            raise InvalidPayloadError(
+                f"{key!r} intensity at {cell!r} must be a number, got {type(intensity).__name__}"
+            )
+        if not math.isfinite(intensity):
+            raise InvalidPayloadError(f"{key!r} intensity at {cell!r} must be finite")
+        if intensity < 0.0:
+            raise InvalidPayloadError(f"{key!r} intensity at {cell!r} must not be negative")
+        field[cell] = float(intensity)
+    return field
 
 
 def optional_cell(payload: dict[str, Any], key: str) -> list[int] | None:

@@ -51,6 +51,25 @@ FIXTURE_TURNS = 3
 subtractive one several times over: 0.81, 0.729, 0.656 against 0.80, 0.70,
 0.60."""
 
+BINDING = "commit-bound-reveal-v1"
+"""How the field travels: sealed in phase 1, spoken in phase 3.
+
+An agreement term rather than an implementation detail, and it belongs in the
+exchanged fixture for the same reason the numbers do. Two peers can compute
+byte-identical fields and still be playing different games — one sealing the
+field into its commitment, the other shipping it unbound in the phase-1 turn
+message as the reference dialect does. The second is not a laxer version of the
+first: it discloses the emitter's exact cell a phase early, since a fresh
+emission peaks where the emitter stands, and it leaves the field free to be
+chosen after hearing what the opponent said.
+
+So the difference is settled in the same digest as the physics, before a series
+opens, where it costs a conversation. Discovered inside a series it would cost
+the series — and there is no way to accept unbound scent that does not give up
+both the secrecy of our position and the one witness the rulebook calls
+unfalsifiable.
+"""
+
 
 @dataclass(frozen=True, slots=True)
 class ScentFixture:
@@ -64,6 +83,7 @@ class ScentFixture:
     decay_rate: float
     emission: dict[str, float]
     decay_series: tuple[float, ...]
+    binding: str = BINDING
 
     def as_terms(self) -> dict[str, object]:
         """Flat, JSON-safe form for the negotiation payload."""
@@ -76,6 +96,7 @@ class ScentFixture:
             "decay_rate": self.decay_rate,
             "emission": self.emission,
             "decay_series": list(self.decay_series),
+            "binding": self.binding,
         }
 
 

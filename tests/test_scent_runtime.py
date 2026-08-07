@@ -45,7 +45,8 @@ from thief_agent.infra.ceremony import (
 )
 from thief_agent.infra.match_log import MatchLog
 from thief_agent.runtime.subgame import SubGame
-from thief_agent.strategy.base import Decision
+from thief_agent.strategy.base import Decision, StrategyContextError
+from thief_agent.strategy.thief_brain import ThiefBrain
 
 WHEN = "2026-08-05T10:00:00+00:00"
 AXES = AxisConvention()
@@ -95,6 +96,18 @@ class ScriptedBrain:
         move = self.moves[min(self.played, len(self.moves) - 1)]
         self.played += 1
         return Decision(action=MoveAction(move=move), hint="somewhere", intent="truth")  # type: ignore[arg-type]
+
+
+class RecordingBrain(ScriptedBrain):
+    """A configured context brain that records the real runtime contract."""
+
+    def __init__(self, moves: list[str]) -> None:
+        super().__init__(moves)
+        self.calls: list[tuple[BoardState, dict[str, object]]] = []
+
+    def decide(self, state: BoardState, **context: object) -> Decision:
+        self.calls.append((state, context))
+        return super().decide(state, **context)
 
 
 class ScentedOpponent:
@@ -303,7 +316,7 @@ class TestOnlyTheOpponentsFieldIsAbsorbed:
 
     def test_a_field_we_cannot_verify_is_not_absorbed(self) -> None:
         """Fail-closed: no scent beats scent we cannot check."""
-        game, _ = a_subgame(ScentedOpponent(junk=True))
+        game, _ = a_subgame(ScentedOpponent(junk=True), moves=["STAY"])
         game.play()
         assert game.scent.opponent.values == {}
 
@@ -341,7 +354,7 @@ class TestTheBeliefMapMoves:
 
     def test_an_unverifiable_field_leaves_the_belief_alone(self) -> None:
         """A malformed field must not become evidence by being loud."""
-        game, _ = a_subgame(ScentedOpponent(junk=True))
+        game, _ = a_subgame(ScentedOpponent(junk=True), moves=["STAY"])
         before = game.belief.heatmap()
         game.play()
         assert game.belief.heatmap() == before
@@ -354,6 +367,96 @@ class TestTheBeliefMapMoves:
 
         assert "thief" not in inspect.signature(render).parameters
         assert "opponent" not in inspect.signature(render).parameters
+
+
+class TestBeliefDrivesTheNextDecision:
+    def test_completed_scent_becomes_the_very_next_deterministic_context(self) -> None:
+        game, _ = a_subgame(max_steps=2)
+        game.state = replace(game.state, cop=(7, 7))
+        brain = RecordingBrain(["STAY", "STAY"])
+        game.brain = brain  # type: ignore[assignment]
+        game.play()
+
+        first_state, first = brain.calls[0]
+        second_state, second = brain.calls[1]
+        assert first == {"threat": (0, 0), "concentration": 0.0, "uncertainty": 1.0}
+        assert game.belief.at(OUR_START) == 0.0
+        assert first["threat"] != (7, 7)
+        assert second["threat"] == THEIR_START
+        assert second["concentration"] > 0.0  # type: ignore[operator]
+        assert second["uncertainty"] == pytest.approx(1.0 - second["concentration"])  # type: ignore[operator]
+        assert first_state.cop == first["threat"]
+        assert second_state.cop == second["threat"]
+
+    def test_malformed_scent_and_our_own_scent_cannot_poison_context(self) -> None:
+        game, _ = a_subgame(ScentedOpponent(junk=True), moves=["STAY", "STAY"], max_steps=2)
+        brain = RecordingBrain(["STAY", "STAY"])
+        game.brain = brain  # type: ignore[assignment]
+        game.play()
+        assert [call[1]["threat"] for call in brain.calls] == [(0, 0), (0, 0)]
+        assert all(call[1]["concentration"] == 0.0 for call in brain.calls)
+
+    def test_physically_forged_step_one_cannot_redirect_step_two(self) -> None:
+        game, _ = a_subgame(ScentedOpponent(forge_at=1), max_steps=2)
+        game.state = replace(game.state, cop=(7, 7))
+        brain = RecordingBrain(["STAY", "STAY"])
+        game.brain = brain  # type: ignore[assignment]
+
+        played = game.play()
+
+        assert brain.calls[1][1]["threat"] == (0, 0)
+        assert not played.audit.clean
+        assert any("step 1" in failure for failure in played.audit.failures)
+
+    def test_barriers_and_zero_mass_are_never_selected(self) -> None:
+        game, _ = a_subgame(max_steps=1)
+        brain = RecordingBrain(["STAY"])
+        game.brain = brain  # type: ignore[assignment]
+        game.state = replace(game.state, barriers=frozenset({(0, 1)}))
+        game.belief.mass = {(0, 1): 9.0, (1, 1): 0.0, (1, 0): 1.0}
+        game.play()
+        assert brain.calls[0][1]["threat"] == (1, 0)
+
+    def test_context_is_not_added_to_gui_or_log(self) -> None:
+        game, _ = a_subgame(max_steps=1)
+        brain = RecordingBrain(["STAY"])
+        game.brain = brain  # type: ignore[assignment]
+        game.play()
+        reveal = game.log.entries[1].reveal
+        assert reveal is not None
+        assert not ({"threat", "concentration", "uncertainty"} & reveal.keys())
+
+    def test_incompatible_configured_brain_gets_a_migration_error(self) -> None:
+        class LegacyBrain:
+            def decide(self, state: BoardState) -> Decision:
+                return Decision(MoveAction("STAY"))
+
+        game, _ = a_subgame(max_steps=1)
+        game.brain = LegacyBrain()  # type: ignore[assignment]
+        with pytest.raises(StrategyContextError, match=r"accept \*\*context.*threat"):
+            game.play()
+
+    def test_shipped_thief_evades_belief_not_the_true_coordinate(self) -> None:
+        game, _ = a_subgame(max_steps=1)
+        game.state = replace(game.state, cop=(0, 0), thief=(3, 3))
+        game.brain = ThiefBrain(axes=AXES, min_open_neighbours=0)
+        game.belief.mass = {(6, 3): 1.0}
+        game.play()
+        opened = game.ceremony.at(1).revealed_ours
+        assert opened is not None and opened.move == "N"
+
+    def test_shipped_thief_decision_changes_when_only_belief_changes(self) -> None:
+        moves: list[str] = []
+        for peak in ((0, 3), (6, 3)):
+            game, _ = a_subgame(max_steps=1)
+            game.state = replace(game.state, cop=(3, 6), thief=(3, 3))
+            game.brain = ThiefBrain(axes=AXES, min_open_neighbours=0)
+            game.belief.mass = {peak: 1.0}
+            game.play()
+            opened = game.ceremony.at(1).revealed_ours
+            assert opened is not None
+            moves.append(opened.move)
+        assert moves == ["S", "N"]
 
 
 class TestTheFieldTravelsInPhaseThreeOnly:

@@ -29,7 +29,8 @@ produces, and an auditor cannot tell the two apart.
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from inspect import signature
 from typing import Protocol, cast
 
 from ..domain.actions import Action, MoveAction, PlaceBarrier, apply_action
@@ -53,7 +54,7 @@ from ..infra.ceremony import (
     audit_opponent,
 )
 from ..infra.match_log import MatchLog
-from ..strategy.base import BrainBase
+from ..strategy.base import BrainBase, StrategyContextError
 
 OPPONENT_OF = {"police": "thief", "thief": "police"}
 
@@ -185,6 +186,7 @@ class SubGame:
         self.ceremony = MatchCeremony(role=self.role)
         self.start = self.state
         self.belief = Belief.uniform(self.state)
+        self.belief.exclude(position_of(self.state, self._agent(self.role)))
 
     @property
     def opponent(self) -> str:
@@ -199,6 +201,9 @@ class SubGame:
         over, and two peers disagreeing about when it ended is a disagreement
         about the result.
         """
+        if self._captured():
+            self._disclose()
+            return self._finished(0, captured=True, reason="capture")
         played = 0
         for step in range(1, self.max_steps + 1):
             played = step
@@ -241,7 +246,15 @@ class SubGame:
         opponent holds a commitment we have no record of making, which is the
         one asymmetry an append-only log exists to prevent.
         """
-        decision = self.brain.decide(self.state)
+        decision_state, context = self._strategy_input()
+        try:
+            signature(self.brain.decide).bind(decision_state, **context)
+        except TypeError as exc:
+            raise StrategyContextError(
+                "configured brain decide() must accept **context containing "
+                f"{next(iter(context))}, concentration, and uncertainty"
+            ) from exc
+        decision = self.brain.decide(decision_state, **context)
         action = decision.action
         self._our_actions[step] = action
         placed = action.at if isinstance(action, PlaceBarrier) else None
@@ -275,6 +288,33 @@ class SubGame:
             scent=laid,
         )
         return record, action, opened
+
+    def _strategy_input(self) -> tuple[BoardState, dict[str, object]]:
+        """Return the stable, belief-only decision boundary for a strategy.
+
+        ``state`` retains the board geometry and our exact cell, but its opponent
+        coordinate is replaced by the deterministic belief peak. The keyword
+        context is intentionally small and stable for configured ``**context``
+        brains: role-appropriate ``target``/``threat``, ``concentration``, and
+        ``uncertainty``.
+        """
+        self.belief.apply_barriers(self.state)
+        self.belief.exclude(position_of(self.state, self._agent(self.role)))
+        peak = self.belief.most_likely()
+        if peak is None:
+            raise StrategyContextError("opponent belief has no possible cell")
+        concentration = self.belief.concentration()
+        state = (
+            replace(self.state, thief=peak)
+            if self.role == "police"
+            else replace(self.state, cop=peak)
+        )
+        focus = "target" if self.role == "police" else "threat"
+        return state, {
+            focus: peak,
+            "concentration": concentration,
+            "uncertainty": 1.0 - concentration,
+        }
 
     def _emit(self, action: Action) -> dict[str, float]:
         """Lay this turn's field and return the whole trail, in wire form.
@@ -330,6 +370,28 @@ class SubGame:
         try:
             check_field(opened.scent, self.state.grid_size)
         except ScentFieldError:
+            return
+        plays = [
+            StepPlay(
+                step=played_step,
+                ours=action,
+                theirs=self.peer_move(played_step),
+                disclosed=reveal.scent if (reveal := self._peer_reveals.get(played_step)) else None,
+            )
+            for played_step, action in sorted(self._our_actions.items())
+            if played_step <= step
+        ]
+        failures = audit_scent(
+            self.start,
+            self.axes,
+            self.role,
+            plays,
+            require_bound=self.require_bound_scent,
+        )
+        if any(
+            failure.startswith(f"step {step}:") or "revealed move cannot be replayed" in failure
+            for failure in failures
+        ):
             return
         self.scent.absorb(opened.scent, self.state.grid_size)
         absorb_evidence(self.belief, self.scent.opponent.values)

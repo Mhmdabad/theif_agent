@@ -91,14 +91,22 @@ class ThiefBrain(BrainBase):
     def threat(self, state: BoardState, **context: object) -> Position:
         """The cell to run from.
 
-        Until the belief map exists this is the cop's actual position — the
-        "blind" stage, proving the decision core under full information before
-        uncertainty is layered on.
+        Runtime supplies the belief peak. Direct callers that omit it receive a
+        deterministic uniform-prior choice derived only from board geometry;
+        exact opponent truth is never a fallback.
         """
         supplied = context.get("threat")
         if isinstance(supplied, tuple) and len(supplied) == 2:
             return (int(supplied[0]), int(supplied[1]))
-        return state.cop
+        candidates = [
+            (row, col)
+            for row in range(state.grid_size)
+            for col in range(state.grid_size)
+            if (row, col) != state.thief and state.is_free((row, col))
+        ]
+        if not candidates:
+            raise NoLegalActionError("belief prior has no possible cop cell")
+        return candidates[0]
 
     def _pick_move(self, state: BoardState, **context: object) -> Move:
         """The best legal move under :meth:`_rank`.
@@ -116,12 +124,13 @@ class ThiefBrain(BrainBase):
         Raises:
             NoLegalActionError: if no move is legal.
         """
+        threat = self.threat(state, **context)
+        state = replace(state, cop=threat)
         available = self.options(state)
         if not available:
             raise NoLegalActionError("thief has no legal move")
         self.reach.observe(state, self.axes)
         logger.info("step %d seed=%d %s", state.step, self.seed, self.reach)
-        threat = self.threat(state, **context)
         return max(available, key=lambda move: self._rank(state, move, threat))
 
     def scent_cost(self, move: Move) -> int:

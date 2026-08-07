@@ -135,6 +135,14 @@ class SubGame:
     by simply declining to bind what it sends. So a peer that discloses nothing
     checkable fails the audit rather than being quietly excused.
 
+    **Supplied by the caller, from a negotiation.**
+    :meth:`~.match.MatchRunner.play_sub_game` reads it off
+    :attr:`~..domain.lock.ScentAgreement.require_bound_scent` — the ``binding``
+    term of a lock the opponent matched exactly — and refuses to open a sub-game
+    at all when no lock was agreed. The default here is what a sub-game
+    constructed directly by a test gets, and it is the closed side for the same
+    reason the rest of this docstring gives; it is no longer how a match decides.
+
     Setting this false is the *negotiated* downgrade, and it downgrades to
     **no scent at all** rather than to unverified scent: the reference dialect
     ships its field in the phase-1 turn message, unbound and alongside the
@@ -142,7 +150,8 @@ class SubGame:
     can accept without giving up both the secrecy of our position and the one
     witness the rulebook calls unfalsifiable. Playing an opponent who speaks
     only that dialect therefore costs the pheromone layer, explicitly, and is
-    agreed before the series rather than discovered inside it.
+    agreed before the series rather than discovered inside it — which is why the
+    lock refuses any other ``binding`` outright rather than accommodating it.
     """
 
     start: BoardState = field(init=False)

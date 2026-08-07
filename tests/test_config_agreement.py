@@ -100,6 +100,7 @@ class Side:
         """
         self.inboxes.agreements = queue.Queue[dict[str, Any]]()
         self.inboxes.digests = queue.Queue[dict[str, Any]]()
+        self.inboxes.scent_locks = queue.Queue[dict[str, Any]]()
         self.inboxes.turns = queue.Queue[TurnMessage]()
         self.inboxes.accepted_turns.clear()
         self.inboxes.rejected.clear()
@@ -155,7 +156,7 @@ def fresh(wire: tuple[Side, Side]) -> tuple[Side, Side]:
     return wire
 
 
-def concurrently(work: dict[str, Callable[[], str]], patience: float = 60.0) -> dict[str, Any]:
+def concurrently(work: dict[str, Callable[[], Any]], patience: float = 60.0) -> dict[str, Any]:
     """Run one call per side at once, keeping whatever each produced.
 
     Both sides have to run together: each blocks on a message only the other
@@ -168,7 +169,7 @@ def concurrently(work: dict[str, Callable[[], str]], patience: float = 60.0) -> 
     """
     done: dict[str, Any] = {}
 
-    def run(name: str, call: Callable[[], str]) -> None:
+    def run(name: str, call: Callable[[], Any]) -> None:
         try:
             done[name] = call()
         except BaseException as exc:  # noqa: BLE001 - reported below, not swallowed

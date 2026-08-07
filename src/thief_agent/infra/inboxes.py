@@ -23,7 +23,13 @@ from typing import Any, Protocol
 
 from ..shared.config import canonical_bytes
 from .protocol import AuditPayload, ControlMessage, TurnMessage
-from .validation import InvalidPayloadError, require_digest, require_mapping, require_str
+from .validation import (
+    InvalidPayloadError,
+    optional_scent,
+    require_digest,
+    require_mapping,
+    require_str,
+)
 
 
 def fingerprint(turn: TurnMessage) -> str:
@@ -47,6 +53,31 @@ Carried when the sender offers it so a digest agreed for one series cannot be
 replayed to open another. Absence is not suspicious — it is what a reference
 implementation looks like — so it is treated as *unbound* rather than as stale;
 only a message naming a **different** series is refused downstream.
+
+**Required on a scent-lock offer, and optional only on a config digest.** The
+lock is this project's dialect rather than the reference's: a peer speaking it
+at all is speaking ours, so an offer that will not say which series it is about
+is a message we have no honest reading of. Accepting it as "unbound" would let
+a lock agreed for a finished series open the next one, which is the one thing
+binding exists to prevent.
+"""
+
+SCENT_KEY = "scent_lock"
+"""What makes a negotiation message a scent-model offer.
+
+Appendix E rule 23 locks the emission model cryptographically *before* the game
+starts, and this is the message that does it. A third body on the one
+negotiation channel, routed on content exactly as the digest is, because the
+wire cannot distinguish them: greeting, digest and lock all arrive as
+``negotiate``.
+"""
+
+SCENT_DIGEST_KEY = "scent_sha256"
+"""The digest of the offered model. Named apart from ``config_sha256``.
+
+Two digests over two different agreements, and conflating them would be a peer
+answering the physics question with the parameters answer — so they travel
+under separate keys and are routed to separate mailboxes.
 """
 
 ACK: dict[str, Any] = {"ok": True}
@@ -83,6 +114,17 @@ class PeerInboxes:
     got NoneType``. Whether it did depended on the order two peers happened to
     call each other in.
     """
+    scent_locks: "queue.Queue[dict[str, Any]]" = field(default_factory=queue.Queue)
+    """Pre-series scent-model offers, kept apart from greetings and digests.
+
+    A third mailbox rather than a flag on the second, for the reason the second
+    exists: ``latest_agreement`` takes the *newest* item because a newer
+    greeting supersedes an older one, and every message sharing that queue
+    inherits a rule written for greetings. The config gate and the scent gate
+    also run one after the other, so an offer that arrived early has to survive
+    untouched while the digest gate drains its own queue.
+    """
+
     turns: "queue.Queue[TurnMessage]" = field(default_factory=queue.Queue)
     audits: "queue.Queue[AuditPayload]" = field(default_factory=queue.Queue)
     controls: "queue.Queue[ControlMessage]" = field(default_factory=queue.Queue)
@@ -108,17 +150,20 @@ class PeerInboxes:
         return {"ok": False, "detail": detail}
 
     def negotiate(self, message: object) -> dict[str, Any]:
-        """Receive a greeting or a config digest, and file it by what it is.
+        """Receive a greeting, a config digest or a scent lock, and file it by what it is.
 
-        Routed on content because the wire cannot distinguish them: both arrive
-        as ``negotiate``. A message carrying ``config_sha256`` is a digest;
-        anything else is treated as a greeting and validated as one downstream,
-        so a malformed message still fails where greetings are understood
-        rather than being silently filed as a digest nobody reads.
+        Routed on content because the wire cannot distinguish them: all three
+        arrive as ``negotiate``. A message carrying ``scent_lock`` is an offer,
+        one carrying ``config_sha256`` is a digest; anything else is treated as
+        a greeting and validated as one downstream, so a malformed message still
+        fails where greetings are understood rather than being silently filed as
+        something nobody reads.
         """
         try:
             body = require_mapping(message, "agreement")
-            if DIGEST_KEY in body:
+            if SCENT_KEY in body:
+                self.scent_locks.put(self._scent_lock(body))
+            elif DIGEST_KEY in body:
                 self.digests.put(self._digest(body))
             else:
                 self.accepted_turns.clear()
@@ -126,6 +171,36 @@ class PeerInboxes:
         except InvalidPayloadError as exc:
             return self._refuse("negotiate", exc)
         return ACK
+
+    def _scent_lock(self, body: dict[str, Any]) -> dict[str, Any]:
+        """A scent-model offer, checked for shape, or a refusal before it is filed.
+
+        Shape only. Whether their model is *ours* is a question about the game
+        and belongs to :func:`~..domain.lock.disputes`, which knows what our
+        engine does; splitting them keeps one validator per question instead of
+        two that can disagree.
+
+        What is settled here is what would be dangerous before anybody compares
+        physics: an offer that is not an object, a model that is not one, a
+        digest that is not a digest, a series binding that is missing or empty,
+        and an emission field too large to be about a board at all. The last
+        goes through :func:`~.validation.optional_scent` — the same bound the
+        turn message gets — because this payload is attacker-controlled and is
+        about to be canonicalised and hashed.
+
+        Refused at the door rather than filed, so the sender learns while it is
+        still listening instead of sitting out its whole agreement window
+        waiting for a reply to something we had already thrown away.
+        """
+        offer = require_mapping(body[SCENT_KEY], SCENT_KEY)
+        model = require_mapping(offer.get("scent_model"), f"{SCENT_KEY}.scent_model")
+        optional_scent(model, "emission")
+        return {
+            **body,
+            SCENT_KEY: offer,
+            SCENT_DIGEST_KEY: require_digest(body, SCENT_DIGEST_KEY),
+            SERIES_KEY: require_str(body, SERIES_KEY),
+        }
 
     def _digest(self, body: dict[str, Any]) -> dict[str, Any]:
         """A digest message, canonicalised, or a refusal before it is filed.

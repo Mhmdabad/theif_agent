@@ -44,11 +44,17 @@ from ..infra.artefacts import ArtefactSet
 from ..infra.ceremony import AuditResult
 from ..infra.config_file import LockedConfig, lock
 from ..infra.declaration import MatchDeclaration
+from ..infra.handshake import Peering
 from ..infra.match_log import MatchLog
 from ..infra.report import Report, Repositories, SubGameResult
 from ..shared.config import config_sha256, series_length
 from ..strategy.base import BrainBase
-from .orchestrator import CONFIG_TIMEOUT_SEC, MatchAborted, Orchestrator
+from .orchestrator import (
+    CONFIG_TIMEOUT_SEC,
+    GREETING_TIMEOUT_SEC,
+    MatchAborted,
+    Orchestrator,
+)
 from .peer import McpPeer
 from .subgame import Played, SubGame
 
@@ -94,6 +100,20 @@ class MatchRunner:
     max_steps: int
     directory: Path
     now: Callable[[], str] = field(default=lambda: "")
+    peering: Peering | None = None
+    """The addresses in force, from the opening handshake and re-agreed at each boundary.
+
+    Supplied by the driver rather than negotiated here: trading addresses is
+    :meth:`Orchestrator.open_series`, and a runner that opened its own series
+    would be a second place the declaration gets written. What the runner owns
+    is the *series*, which is why the boundaries between its sub-games are its
+    responsibility and this field advances across them.
+
+    ``None`` means no addresses were ever agreed, and :meth:`play_series`
+    refuses on it rather than skipping the boundary. Skipping it silently is
+    exactly the defect this field exists to close.
+    """
+
     outcomes: list[SubGameOutcome] = field(default_factory=list, init=False)
 
     scent_lock: ScentAgreement | None = field(default=None, init=False)
@@ -189,14 +209,75 @@ class MatchRunner:
             agreed_between=(self.declaration.us.name, self.declaration.them.name),
         )
 
+    def peered(self) -> Peering:
+        """The addresses in force, or a refusal to play a series that agreed none.
+
+        The alternative — playing on whatever the private config bootstrapped
+        us with — is a series whose declaration names addresses nobody traded,
+        and one that could not re-handshake because it has nothing to compare a
+        fresh greeting against.
+
+        Raises:
+            MatchAborted: ``ILLEGAL_ACTION`` when no handshake opened the series.
+        """
+        if self.peering is None:
+            raise MatchAborted(
+                TechnicalLoss.ILLEGAL_ACTION,
+                "no addresses were agreed with the opponent; a series opens by "
+                "trading greetings through open_series, and one that skipped it "
+                "has nothing to re-handshake against between its sub-games",
+            )
+        return self.peering
+
+    def rehandshake(self, number: int, timeout: float = GREETING_TIMEOUT_SEC) -> Peering:
+        """Re-agree the addresses at the boundary before sub-game ``number``.
+
+        The addresses we announce are the ones already agreed: our own tunnel
+        rotating is a discovery the driver makes, not something a series loop
+        can invent. What this recovers from is *their* tunnel rotating, which is
+        the case the loop can neither predict nor be told about — and it is the
+        common one, because a free-tier tunnel issues a new URL on every restart.
+
+        The result replaces :attr:`peering` only once it is agreed, so a refused
+        boundary leaves the series pointing where it was rather than half-moved.
+        """
+        current = self.peered()
+        self.peering = self.orchestrator.rehandshake(
+            current, current.ours, number, self.directory, self.game_id, timeout
+        )
+        return self.peering
+
     def play_series(self, timeout: float = 30.0) -> list[SubGameOutcome]:
         """Step 3 for the whole series: every numbered sub-game, in order.
 
         The length is resolved *before* the first sub-game, so a configuration
         that deviates costs nothing — no board is played under it, and the
         opponent never sees a series that stops short of the book.
+
+        **Every pair of sub-games is separated by a re-handshake**, which is the
+        thing this loop had none of. ``rehandshake`` was written, documented and
+        never called: six sub-games ran back to back, so a tunnel that rotated
+        partway through killed the series — and a technical loss scores zero for
+        *both* sides, so it destroyed the sub-games already won on the board too.
+
+        Five boundaries, at 1→2 through 5→6. Not before the first, which the
+        opening handshake already covered, and not after the last, where an
+        announcement is a message nobody is waiting for.
+
+        The peering is resolved alongside the length and for the same reason: a
+        series that cannot re-handshake is one that will lose a board it has
+        already won, and the cheapest moment to say so is before there is a
+        board to lose. The length goes first of the two because a deviating
+        configuration is a fault of our own that needs no opponent to diagnose.
         """
-        return [self.play_sub_game(number, timeout) for number in range(1, self.sub_games + 1)]
+        length = self.sub_games
+        self.peered()
+        played: list[SubGameOutcome] = []
+        for number in range(1, length + 1):
+            if number > 1:
+                self.rehandshake(number, timeout)
+            played.append(self.play_sub_game(number, timeout))
+        return played
 
     def play_sub_game(self, number: int, timeout: float = 30.0) -> SubGameOutcome:
         """Steps 3 and 4 for one sub-game.

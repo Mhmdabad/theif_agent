@@ -55,6 +55,51 @@ class Answering:
         return self.reply
 
 
+def a_peering(role: str = "thief", sub_game: int = 1) -> Peering:
+    """The addresses an opening handshake agreed, for a test not about addresses.
+
+    A series re-handshakes between its sub-games and refuses to open without a
+    peering to compare a fresh greeting against, so every runner that plays one
+    needs a peering — including the runners whose subject is something else.
+    """
+    opponent = "thief" if role == "police" else "police"
+    return Peering(
+        ours=Greeting(
+            role=role,
+            group_id="s82kma9e",
+            public_url="https://ours.ngrok.io",
+            protocol_version=PROTOCOL_VERSION,
+        ),
+        theirs=Greeting(
+            role=opponent,
+            group_id="them",
+            public_url="https://theirs.ngrok.io",
+            protocol_version=PROTOCOL_VERSION,
+        ),
+        sub_game=sub_game,
+    )
+
+
+def stub_boundaries(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Let a series cross its boundaries with no opponent there to re-greet.
+
+    ``test_rehandshake_between_subgames`` is where the boundary itself is under
+    test. Here it would only be an opponent that never answers, so it is stood
+    in for — and the sub-games it was crossed before are returned, because a
+    boundary quietly not happening is the defect and no test should be blind to
+    it.
+    """
+    crossed: list[int] = []
+
+    def crossing(self: MatchRunner, number: int, timeout: float = 30.0) -> Peering:
+        crossed.append(number)
+        self.peering = a_peering(self.role, number)
+        return self.peering
+
+    monkeypatch.setattr(MatchRunner, "rehandshake", crossing)
+    return crossed
+
+
 def a_runner(
     tmp_path: Path, reply: dict[str, Any] | None = None, transport: Answering | None = None
 ) -> MatchRunner:
@@ -76,6 +121,7 @@ def a_runner(
         max_steps=2,
         directory=tmp_path,
         now=lambda: WHEN,
+        peering=a_peering(),
     )
 
 

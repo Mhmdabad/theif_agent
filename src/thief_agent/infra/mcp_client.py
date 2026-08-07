@@ -15,6 +15,7 @@ import dataclasses
 import hashlib
 import json
 import os
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -167,13 +168,13 @@ class OpponentClient:
         self,
         transport: Transport,
         settings: ClientSettings,
-        sleep: Callable[[float], None] = lambda _: None,
+        sleep: Callable[[float], None] | None = None,
         log: TransportLog | None = None,
         on_attempt: Callable[[str], None] = lambda _: None,
     ) -> None:
         self._transport = transport
         self._settings = settings
-        self._sleep = sleep
+        self._sleep = time.sleep if sleep is None else sleep
         self.attempts = 0
         self.log = log if log is not None else TransportLog()
         self.on_attempt = on_attempt

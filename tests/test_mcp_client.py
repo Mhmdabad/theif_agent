@@ -72,6 +72,14 @@ class TestRetryBudget:
         OpponentClient(transport, settings, sleep=slept.append).call("ping", {})
         assert slept == [5.0, 5.0]
 
+    def test_default_backoff_uses_wall_clock_sleep(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        slept: list[float] = []
+        monkeypatch.setattr("thief_agent.infra.mcp_client.time.sleep", slept.append)
+        transport = FakeTransport(TimeoutError(), {"ok": True})
+        settings = dataclasses.replace(SETTINGS, retry_backoff_sec=5.0)
+        OpponentClient(transport, settings).call("ping", {})
+        assert slept == [5.0]
+
     def test_does_not_sleep_after_the_final_attempt(self) -> None:
         slept: list[float] = []
         transport = FakeTransport(*[TimeoutError()] * 10)

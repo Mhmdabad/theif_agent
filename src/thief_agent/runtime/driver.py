@@ -163,7 +163,7 @@ def open_match(
         orchestrator=orchestrator,
         declaration=declaration,
         parameters=parameters,
-        brain=load_brain(private),
+        brain=load_brain(private.get("strategy")),
         axes=AxisConvention(),
         start=BoardState(
             grid_size=int(board.get("grid_size", 8)),

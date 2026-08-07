@@ -123,7 +123,7 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done · **🚪 GATE** = milesto
 - [ ] ngrok / Localtonet tunnel exposing the FastMCP server publicly
 - [ ] Public URL exchanged in handshake, recorded in the declaration file
 - [ ] `opponent_url` switched from localhost to the public tunnel URL
-- [ ] Re-handshake path for a changed tunnel URL between sub-games
+- [x] Re-handshake path for a changed tunnel URL between sub-games
 - [ ] Latency measured; `response_timeout_sec` justified against real round-trips
 - [ ] Retry policy applied to transport failures only — never to re-send a move
 - [ ] Transport event logging (connect / timeout / retry / reconnect)

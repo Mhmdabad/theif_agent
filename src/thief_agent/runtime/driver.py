@@ -11,6 +11,11 @@ This module chooses none of it — it puts the arguments in the right order, whi
 is exactly the thing that had no home and is where every defect in this project
 has been.
 
+The addresses ``open_series`` agrees are handed to the runner rather than kept
+here, because the boundaries between sub-games are the *series*' business and
+that is what the runner owns. A peering that stopped at this line is a series
+that cannot re-handshake, which is a series a rotated tunnel ends.
+
 **Somebody has to start first, and it must not be punished for it.** Two peers
 opening a match are each other's prerequisite: the first one up announces to a
 server that does not exist yet. ``open_series`` announces unforgivingly, which
@@ -179,6 +184,7 @@ def open_match(
         max_steps=int(parameters.get("movement_and_barriers", {}).get("max_moves", 40)),
         directory=directory,
         now=_now,
+        peering=peering,
     )
 
     try:

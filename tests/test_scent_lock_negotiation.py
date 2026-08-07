@@ -49,6 +49,7 @@ from test_config_agreement import (  # noqa: E402
     fresh,
 )
 from test_localhost_match import free_port, parameters, wait_for  # noqa: E402
+from test_match import stub_boundaries  # noqa: E402
 from thief_agent.domain.fixture import BINDING
 from thief_agent.domain.lock import ScentAgreement, propose, restate
 from thief_agent.domain.outcome import TechnicalLoss
@@ -606,6 +607,7 @@ class TestTheAgreementReachesEverySubGame:
         """Six sub-games, one agreement, and not one of them opened without it."""
         ours, _ = fresh(wire)
         self.a_stub_sub_game(monkeypatch)
+        stub_boundaries(monkeypatch)
         runner = a_runner(ours, parameters(), tmp_path)
         runner.scent_lock = our_lock()
         outcomes = runner.play_series(timeout=BRIEF)

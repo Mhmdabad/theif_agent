@@ -130,12 +130,31 @@ class PeerInboxes:
     audits: "queue.Queue[AuditPayload]" = field(default_factory=queue.Queue)
     controls: "queue.Queue[ControlMessage]" = field(default_factory=queue.Queue)
     rejected: list[str] = field(default_factory=list)
-    accepted_turns: dict[tuple[str, int], str] = field(default_factory=dict)
+    accepted_turns: dict[tuple[str, int, str, int], str] = field(default_factory=dict)
+    """``(sender, step, game_uid, sub_game) -> digest`` of every turn taken.
+
+    The duplicate detector, keyed by the same canonical binding
+    :attr:`accepted_reveals` already uses. Keyed by ``(sender, step)`` alone it
+    was ambiguous across sub-games — step 1 recurs in all six — so it had to be
+    emptied at every boundary, and *that* was a race rather than a reset: the
+    opponent starts pushing a sub-game's messages when **their** thread reaches
+    the boundary, not when ours does. A turn accepted a moment before our own
+    reset lost its ledger entry, and the reveal that opened it was then refused
+    as having no phase-one commitment — a deadlock, because the sender had no
+    reason to send it twice. Binding the key removes the reason to ever forget
+    an entry, and the series bounds its size.
+    """
+
     accepted_reveals: dict[tuple[str, int, str, int], str] = field(default_factory=dict)
+    """``(sender, step, game_uid, sub_game) -> digest`` of every reveal opened."""
+
     hint_max_words: int = 15
+
     game_uid: str = ""
+    """The series being played, once one is agreed. Empty means none yet."""
+
     sub_game: int = 0
-    """``(sender, step) -> digest`` of every turn taken. The duplicate detector."""
+    """How far along that series we are. Only messages *behind* it are stale."""
 
     duplicates: list[str] = field(default_factory=list)
     """Turns dropped as re-sends. Not errors — evidence a retry behaved."""
@@ -154,6 +173,47 @@ class PeerInboxes:
         self.rejected.append(f"{what}: {detail}")
         return {"ok": False, "detail": detail}
 
+    def _stale(self, what: str, game_uid: str, sub_game: int) -> str | None:
+        """Why a binding is one we are provably past, or ``None`` if it is playable.
+
+        **Refuses what is behind us, not what merely differs from us.** The
+        distinction is the whole point of this method. A replay is by definition
+        a message that has already been played, so it names the series we are in
+        and a sub-game we have finished, or a series that is not ours — and both
+        are refused here. A message bound to a sub-game *ahead* of ours is the
+        opposite: nothing has been played there yet, so there is nothing to
+        replay, and it is the ordinary shape of a peer that crossed the boundary
+        a few milliseconds before we did.
+
+        Demanding equality is what broke the series. Both sides advance this
+        binding on their own thread, and no message orders the two — the
+        re-handshake makes each side *announce* before the boundary, not adopt
+        it — so the peer that got there first had its opening commitment refused
+        at a door still set to the sub-game we had both just left. Its sender
+        treats ``receive_turn`` as fire-and-forget and never re-sends, so that
+        single refusal cost the rest of the series.
+
+        Nothing is loosened by admitting an early message. It is queued, not
+        acted on, and :meth:`~.ceremony.StepCeremony._check_binding` still
+        compares it against the commitment *we* locked for that step before any
+        ceremony accepts it. The door's job is to not lose a message; deciding
+        which sub-game it belongs to is the ceremony's.
+
+        An inbox that has agreed no series yet — ``game_uid`` still empty —
+        calls nothing stale: with no position of our own we have no ground to
+        say a message is behind us.
+        """
+        if not self.game_uid:
+            return None
+        if game_uid != self.game_uid:
+            return f"{what} is bound to series {game_uid!r}, and we are playing {self.game_uid!r}"
+        if sub_game < self.sub_game:
+            return (
+                f"{what} is bound to sub-game {sub_game}, which this series is already "
+                f"past at sub-game {self.sub_game}"
+            )
+        return None
+
     def negotiate(self, message: object) -> dict[str, Any]:
         """Receive a greeting, a config digest or a scent lock, and file it by what it is.
 
@@ -171,8 +231,6 @@ class PeerInboxes:
             elif DIGEST_KEY in body:
                 self.digests.put(self._digest(body))
             else:
-                self.accepted_turns.clear()
-                self.accepted_reveals.clear()
                 self.agreements.put(body)
         except InvalidPayloadError as exc:
             return self._refuse("negotiate", exc)
@@ -244,13 +302,11 @@ class PeerInboxes:
             turn = TurnMessage.from_dict(message)
         except InvalidPayloadError as exc:
             return self._refuse("receive_turn", exc)
-        if turn.game_uid != self.game_uid or turn.sub_game != self.sub_game:
-            return self._reject(
-                "receive_turn",
-                f"turn is bound to {turn.game_uid!r} sub-game {turn.sub_game}, expected "
-                f"{self.game_uid!r} sub-game {self.sub_game}",
-            )
-        key, digest = (turn.sender, turn.step), fingerprint(turn)
+        behind = self._stale("turn", turn.game_uid, turn.sub_game)
+        if behind is not None:
+            return self._reject("receive_turn", behind)
+        key = (turn.sender, turn.step, turn.game_uid, turn.sub_game)
+        digest = fingerprint(turn)
         taken = self.accepted_turns.get(key)
         if taken == digest:
             self.duplicates.append(f"receive_turn: {turn.sender} step {turn.step} re-sent")
@@ -266,16 +322,23 @@ class PeerInboxes:
         return ACK
 
     def submit_audit(self, payload: object) -> dict[str, Any]:
-        """Receive the opponent's end-of-game reveal: records and nonces."""
+        """Receive the opponent's end-of-game reveal: records and nonces.
+
+        **Two bindings are compared, and neither comparison is against a clock
+        we share with the sender.** The envelope is checked for staleness
+        through :meth:`_stale`, which refuses only what is behind us. Each
+        record inside is then checked against *the envelope it arrived in*
+        rather than against our own position — the sender wrote both, so they
+        must agree, and a reveal re-wrapped in a fresher audit to replay an
+        earlier sub-game is exactly the disagreement that exposes. Comparing the
+        record to our own sub-game instead would have refused an honest reveal
+        whose sender had simply crossed the boundary first.
+        """
         try:
             audit = AuditPayload.from_dict(payload)
-            if audit.game_uid != self.game_uid or audit.sub_game != self.sub_game:
-                return self._reject(
-                    "submit_audit",
-                    "audit payload is bound to "
-                    f"{audit.game_uid!r} sub-game {audit.sub_game}, expected "
-                    f"{self.game_uid!r} sub-game {self.sub_game}",
-                )
+            behind = self._stale("audit payload", audit.game_uid, audit.sub_game)
+            if behind is not None:
+                return self._reject("submit_audit", behind)
             fresh: list[dict[str, Any]] = []
             pending: dict[tuple[str, int, str, int], str] = {}
             for record in audit.records:
@@ -283,19 +346,20 @@ class PeerInboxes:
                     fresh.append(record)
                     continue
                 opened = Reveal.from_dict(record, hint_max_words=self.hint_max_words)
-                if (opened.sender, opened.step) not in self.accepted_turns:
+                if opened.game_uid != audit.game_uid or opened.sub_game != audit.sub_game:
                     return self._reject(
                         "submit_audit",
-                        f"{opened.sender} revealed step {opened.step} without a current "
-                        "phase-one commitment",
-                    )
-                if opened.game_uid != self.game_uid or opened.sub_game != self.sub_game:
-                    return self._reject(
-                        "submit_audit",
-                        f"reveal is bound to {opened.game_uid!r} sub-game {opened.sub_game}, "
-                        f"expected {self.game_uid!r} sub-game {self.sub_game}",
+                        f"reveal is bound to {opened.game_uid!r} sub-game {opened.sub_game} "
+                        f"but travelled in an audit for {audit.game_uid!r} sub-game "
+                        f"{audit.sub_game}",
                     )
                 key = (opened.sender, opened.step, opened.game_uid, opened.sub_game)
+                if key not in self.accepted_turns:
+                    return self._reject(
+                        "submit_audit",
+                        f"{opened.sender} revealed step {opened.step} of {opened.game_uid!r} "
+                        f"sub-game {opened.sub_game} without a current phase-one commitment",
+                    )
                 digest = hashlib.sha256(canonical_bytes(opened.to_dict())).hexdigest()
                 taken = pending.get(key, self.accepted_reveals.get(key))
                 if taken == digest:

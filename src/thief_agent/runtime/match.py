@@ -284,10 +284,21 @@ class MatchRunner:
 
         The scent rules are read from the agreement before anything else, so a
         series that never locked a model costs a refusal rather than a board.
+
+        **The mailbox ledgers are not emptied here, and emptying them was a
+        bug.** Both are keyed by the sub-game a message is bound to, so a new
+        sub-game cannot collide with an old one and nothing needs forgetting.
+        Clearing them looked like a per-sub-game reset and was really a reset of
+        *shared* state on our own schedule: the opponent pushes this sub-game's
+        first turn when their thread reaches the boundary, which under load is
+        before ours does, so the clear regularly destroyed the ledger entry for
+        a turn already accepted — and the reveal that opened it was then refused
+        as uncommitted, deadlocking the series. Advancing the binding below is
+        safe in a way the clear was not: it only ever moves forward, and
+        :meth:`~..infra.inboxes.PeerInboxes._stale` refuses what is behind it
+        rather than what merely differs from it.
         """
         locked = self.locked_scent()
-        self.orchestrator.inboxes.accepted_turns.clear()
-        self.orchestrator.inboxes.accepted_reveals.clear()
         self.orchestrator.inboxes.game_uid = self.declaration.game_uid
         self.orchestrator.inboxes.sub_game = number
         hint_max_words = int(self.parameters.get("hint_max_words", 15))

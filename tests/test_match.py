@@ -14,7 +14,7 @@ import pytest
 from test_localhost_match import REPOS, build_declaration, parameters  # noqa: E402
 from thief_agent.domain.axes import AxisConvention
 from thief_agent.domain.board import BoardState
-from thief_agent.domain.lock import ScentLock, propose
+from thief_agent.domain.lock import ScentAgreement, ScentLock, propose
 from thief_agent.domain.outcome import TechnicalLoss
 from thief_agent.domain.scent import CHEBYSHEV
 from thief_agent.domain.scoring import Outcome, scores_for
@@ -34,7 +34,7 @@ from thief_agent.runtime.driver import (
 )
 from thief_agent.runtime.match import MatchRunner, SubGameOutcome
 from thief_agent.runtime.orchestrator import PROTOCOL_VERSION, MatchAborted, Orchestrator
-from thief_agent.runtime.subgame import Played
+from thief_agent.runtime.subgame import Played, SubGame
 from thief_agent.shared.config import config_sha256
 from thief_agent.strategy.thief_brain import ThiefBrain
 
@@ -281,6 +281,74 @@ class TestLockingTheScentModelComesNext:
             runner.play_sub_game(1)
         assert excinfo.value.cause is TechnicalLoss.ILLEGAL_ACTION
         assert runner.outcomes == []
+
+
+class TestOpeningASubGameDoesNotForgetWhatTheOpponentAlreadySent:
+    """The opponent crosses the boundary on their thread, not ours.
+
+    ``play_sub_game`` used to empty the mailbox ledgers as it opened, which read
+    like a per-sub-game reset and was really a reset of shared state on a
+    schedule the sender knows nothing about. A peer that got to the boundary
+    first had its opening turn accepted at our door and then struck from the
+    ledger a moment later, and the reveal opening that turn was refused as
+    uncommitted — which no sender retries, so the series deadlocked until both
+    sides timed out. Deterministic here: the race is only how it was *reached*.
+    """
+
+    @staticmethod
+    def a_stub_sub_game(monkeypatch: pytest.MonkeyPatch) -> None:
+        """Let a sub-game be constructed without playing one over a socket."""
+        monkeypatch.setattr(
+            SubGame,
+            "play",
+            lambda self: Played(
+                steps=0,
+                final=self.state,
+                captured=False,
+                reason="stubbed",
+                audit=AuditResult(verdict=Verdict.CLEAN, checked=0),
+            ),
+        )
+        monkeypatch.setattr(
+            SubGame, "audit", lambda self: AuditResult(verdict=Verdict.CLEAN, checked=0)
+        )
+
+    def a_runner_at(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MatchRunner:
+        self.a_stub_sub_game(monkeypatch)
+        runner = a_runner(tmp_path)
+        runner.scent_lock = ScentAgreement(digest="a" * 64, binding="turn-message-bound")
+        return runner
+
+    def test_a_turn_accepted_before_we_opened_survives_the_opening(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        runner = self.a_runner_at(tmp_path, monkeypatch)
+        inboxes = runner.orchestrator.inboxes
+        inboxes.game_uid, inboxes.sub_game = "u-0001", 1
+        early = {
+            "step": 1,
+            "sender": "police",
+            "hint": "",
+            "smell_grid": {},
+            "commit": "a" * 64,
+            "timestamp": WHEN,
+            "game_uid": "u-0001",
+            "sub_game": 2,
+        }
+        assert inboxes.receive_turn(early) == {"ok": True}
+
+        runner.play_sub_game(2)
+
+        assert ("police", 1, "u-0001", 2) in inboxes.accepted_turns
+        assert inboxes.rejected == []
+
+    def test_the_binding_it_advances_is_this_sub_games(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        runner = self.a_runner_at(tmp_path, monkeypatch)
+        runner.play_sub_game(3)
+        assert runner.orchestrator.inboxes.game_uid == "u-0001"
+        assert runner.orchestrator.inboxes.sub_game == 3
 
 
 class TestTheConfigItLocks:

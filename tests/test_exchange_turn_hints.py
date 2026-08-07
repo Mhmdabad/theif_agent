@@ -224,3 +224,127 @@ def test_reveal_from_prior_sub_game_is_rejected_before_current_one_is_queued() -
     assert inboxes.audits.empty()
     assert inboxes.submit_audit(current) == {"ok": True}
     assert inboxes.audits.get_nowait().sub_game == 2
+
+
+OPPONENT = str(reveal()["sender"])
+"""Whoever the other side is here. Taken from the fixture so both repos read alike."""
+
+
+def turn(**changes: object) -> dict[str, object]:
+    """The phase-one message that makes a reveal openable."""
+    body: dict[str, object] = {
+        "step": 1,
+        "sender": OPPONENT,
+        "hint": "",
+        "smell_grid": {},
+        "commit": "a" * 64,
+        "timestamp": "now",
+        "game_uid": "series-123",
+        "sub_game": 2,
+    }
+    body.update(changes)
+    return body
+
+
+def audit(records: list[dict[str, object]], **changes: object) -> dict[str, object]:
+    """The envelope a reveal travels in."""
+    body: dict[str, object] = {
+        "sender": OPPONENT,
+        "records": records,
+        "result_claim": "in_progress",
+        "game_uid": "series-123",
+        "sub_game": 2,
+    }
+    body.update(changes)
+    return body
+
+
+class TestABoundaryTheOpponentCrossesFirstDoesNotStrandTheSeries:
+    """The deadlock this binding introduced, written as the packets it refused.
+
+    Two peers advance their own ``sub_game`` on their own thread and nothing
+    orders the two: the re-handshake makes each side *announce* at a boundary,
+    not adopt it, so under load the peer that crosses first sends the next
+    sub-game's opening messages while our door still names the last one. Both
+    refusals below were observed on a real six-sub-game series, and both are
+    silent to the sender — ``receive_turn`` is fire-and-forget, so a refused
+    turn is never re-sent and the series simply stops.
+
+    Every assertion is on :attr:`~PeerInboxes.rejected` rather than on a wait.
+    The 25s timeout is how this surfaced, not what went wrong, and a regression
+    that reproduced the timeout would take 25s to say so.
+    """
+
+    def test_the_next_sub_games_opening_turn_is_queued_rather_than_refused(self) -> None:
+        """Was: ``turn is bound to 'u-0001' sub-game 4, expected ... sub-game 3``."""
+        inboxes = PeerInboxes(game_uid="series-123", sub_game=3)
+        assert inboxes.receive_turn(turn(sub_game=4)) == {"ok": True}
+        assert inboxes.rejected == []
+        inboxes.sub_game = 4
+        assert inboxes.turns.get_nowait().sub_game == 4
+
+    def test_and_its_reveal_still_opens_once_we_have_crossed_too(self) -> None:
+        inboxes = PeerInboxes(game_uid="series-123", sub_game=3)
+        inboxes.receive_turn(turn(sub_game=4))
+        inboxes.sub_game = 4
+        assert inboxes.submit_audit(audit([reveal(sub_game=4)], sub_game=4)) == {"ok": True}
+        assert inboxes.rejected == []
+
+    def test_a_greeting_does_not_forget_a_turn_it_arrived_after(self) -> None:
+        """Was: ``police revealed step 1 without a current phase-one commitment``.
+
+        The boundary greeting used to empty the ledger, which is the same defect
+        wearing the opponent's clothes: their announcement lands on our thread's
+        schedule, so it could wipe a turn we had already accepted and acted on.
+        """
+        inboxes = PeerInboxes(game_uid="series-123", sub_game=2)
+        assert inboxes.receive_turn(turn()) == {"ok": True}
+        inboxes.negotiate({"greeting": {"role": OPPONENT, "public_url": "https://moved"}})
+        assert inboxes.submit_audit(audit([reveal()])) == {"ok": True}
+        assert inboxes.rejected == []
+
+    def test_step_one_recurs_every_sub_game_without_looking_like_a_replay(self) -> None:
+        """Why the ledger was emptied at all, and why it no longer has to be."""
+        inboxes = PeerInboxes(game_uid="series-123", sub_game=1)
+        for number in range(1, 7):
+            inboxes.sub_game = number
+            assert inboxes.receive_turn(turn(sub_game=number)) == {"ok": True}
+        assert inboxes.rejected == [] and inboxes.duplicates == []
+        assert len(inboxes.accepted_turns) == 6
+
+
+class TestWhatIsBehindUsIsStillRefused:
+    """Admitting an early message is not admitting a stale one."""
+
+    def test_a_turn_from_a_sub_game_already_played_is_refused(self) -> None:
+        inboxes = PeerInboxes(game_uid="series-123", sub_game=4)
+        answer = inboxes.receive_turn(turn(sub_game=3))
+        assert answer["ok"] is False and "already past" in answer["detail"]
+        assert inboxes.turns.empty()
+
+    def test_a_turn_from_another_series_is_refused_however_far_along_it_is(self) -> None:
+        inboxes = PeerInboxes(game_uid="series-123", sub_game=2)
+        answer = inboxes.receive_turn(turn(game_uid="series-999", sub_game=6))
+        assert answer["ok"] is False and "series 'series-999'" in answer["detail"]
+        assert inboxes.turns.empty()
+
+    def test_a_reveal_rewrapped_in_a_fresher_envelope_is_refused(self) -> None:
+        """The replay the inner binding exists to catch, and the one it still catches."""
+        inboxes = PeerInboxes(game_uid="series-123", sub_game=2)
+        inboxes.receive_turn(turn())
+        answer = inboxes.submit_audit(audit([reveal(sub_game=1)]))
+        assert answer["ok"] is False and "travelled in an audit for" in answer["detail"]
+        assert inboxes.audits.empty()
+
+    def test_a_retry_of_an_early_turn_is_a_duplicate_not_a_second_turn(self) -> None:
+        inboxes = PeerInboxes(game_uid="series-123", sub_game=3)
+        assert inboxes.receive_turn(turn(sub_game=4)) == {"ok": True}
+        assert inboxes.receive_turn(turn(sub_game=4)) == {"ok": True}
+        assert inboxes.turns.qsize() == 1
+        assert len(inboxes.duplicates) == 1 and inboxes.rejected == []
+
+    def test_an_early_turn_changed_after_the_fact_is_still_a_forgery(self) -> None:
+        inboxes = PeerInboxes(game_uid="series-123", sub_game=3)
+        inboxes.receive_turn(turn(sub_game=4))
+        answer = inboxes.receive_turn(turn(sub_game=4, commit="b" * 64))
+        assert answer["ok"] is False and "never replace one" in answer["detail"]

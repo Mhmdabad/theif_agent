@@ -303,6 +303,21 @@ class TestABoundaryTheOpponentCrossesFirstDoesNotStrandTheSeries:
         assert inboxes.submit_audit(audit([reveal()])) == {"ok": True}
         assert inboxes.rejected == []
 
+    def test_an_inbox_that_has_agreed_no_series_yet_calls_nothing_stale(self) -> None:
+        """The same race at the *first* boundary, which is ``agree`` rather than a greeting.
+
+        A runner binds its mailboxes as it opens sub-game one, so an opponent
+        who finished agreeing a moment earlier reaches the door while it still
+        names no series at all. With no position of our own there is nothing a
+        message can be behind.
+        """
+        inboxes = PeerInboxes()
+        assert inboxes.receive_turn(turn(sub_game=1)) == {"ok": True}
+        assert inboxes.rejected == []
+        inboxes.game_uid, inboxes.sub_game = "series-123", 1
+        assert inboxes.submit_audit(audit([reveal(sub_game=1)], sub_game=1)) == {"ok": True}
+        assert inboxes.rejected == []
+
     def test_step_one_recurs_every_sub_game_without_looking_like_a_replay(self) -> None:
         """Why the ledger was emptied at all, and why it no longer has to be."""
         inboxes = PeerInboxes(game_uid="series-123", sub_game=1)

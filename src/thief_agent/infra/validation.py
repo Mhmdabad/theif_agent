@@ -16,6 +16,7 @@ would otherwise index row 1.
 
 import math
 import re
+import unicodedata
 from typing import Any
 
 MAX_STRING = 4096
@@ -64,6 +65,26 @@ def require_str(payload: dict[str, Any], key: str, *, max_length: int = MAX_STRI
         raise InvalidPayloadError(f"{key!r} must not be empty")
     if len(value) > max_length:
         raise InvalidPayloadError(f"{key!r} exceeds {max_length} characters")
+    return value
+
+
+def require_hint(payload: dict[str, Any], key: str = "hint", *, max_words: int = 15) -> str:
+    """A required, non-empty Unicode hint within the negotiated word cap.
+
+    Python strings may contain lone UTF-16 surrogates even though JSON text may
+    not.  Control characters are also not natural-language content and make
+    logs and line-oriented transports ambiguous, so both are refused.
+    """
+    value = require_str(payload, key)
+    for character in value:
+        category = unicodedata.category(character)
+        if category == "Cs":
+            raise InvalidPayloadError(f"{key!r} must contain Unicode scalar values")
+        if category == "Cc":
+            raise InvalidPayloadError(f"{key!r} contains a control character")
+    count = len(value.split())
+    if count > max_words:
+        raise InvalidPayloadError(f"{key!r} has {count} words, over {max_words} words")
     return value
 
 

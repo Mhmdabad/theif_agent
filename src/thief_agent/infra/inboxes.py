@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from ..shared.config import canonical_bytes
+from .ceremony import CeremonyError, Reveal
 from .protocol import AuditPayload, ControlMessage, TurnMessage
 from .validation import (
     InvalidPayloadError,
@@ -130,12 +131,14 @@ class PeerInboxes:
     controls: "queue.Queue[ControlMessage]" = field(default_factory=queue.Queue)
     rejected: list[str] = field(default_factory=list)
     accepted_turns: dict[tuple[str, int], str] = field(default_factory=dict)
+    accepted_reveals: dict[tuple[str, int], str] = field(default_factory=dict)
+    hint_max_words: int = 15
     """``(sender, step) -> digest`` of every turn taken. The duplicate detector."""
 
     duplicates: list[str] = field(default_factory=list)
     """Turns dropped as re-sends. Not errors — evidence a retry behaved."""
 
-    def _refuse(self, what: str, exc: InvalidPayloadError) -> dict[str, Any]:
+    def _refuse(self, what: str, exc: ValueError) -> dict[str, Any]:
         """Record a refusal without raising across the wire.
 
         Kept rather than discarded: a match that ends in a dispute needs to
@@ -167,6 +170,7 @@ class PeerInboxes:
                 self.digests.put(self._digest(body))
             else:
                 self.accepted_turns.clear()
+                self.accepted_reveals.clear()
                 self.agreements.put(body)
         except InvalidPayloadError as exc:
             return self._refuse("negotiate", exc)
@@ -256,8 +260,31 @@ class PeerInboxes:
     def submit_audit(self, payload: object) -> dict[str, Any]:
         """Receive the opponent's end-of-game reveal: records and nonces."""
         try:
-            self.audits.put(AuditPayload.from_dict(payload))
-        except InvalidPayloadError as exc:
+            audit = AuditPayload.from_dict(payload)
+            fresh: list[dict[str, Any]] = []
+            for record in audit.records:
+                if "move" not in record:
+                    fresh.append(record)
+                    continue
+                opened = Reveal.from_dict(record, hint_max_words=self.hint_max_words)
+                key = (opened.sender, opened.step)
+                digest = hashlib.sha256(canonical_bytes(opened.to_dict())).hexdigest()
+                taken = self.accepted_reveals.get(key)
+                if taken == digest:
+                    self.duplicates.append(
+                        f"submit_audit: {opened.sender} step {opened.step} re-sent"
+                    )
+                    continue
+                if taken is not None:
+                    return self._reject(
+                        "submit_audit",
+                        f"{opened.sender} already revealed step {opened.step} differently",
+                    )
+                self.accepted_reveals[key] = digest
+                fresh.append(record)
+            if fresh or not audit.records:
+                self.audits.put(AuditPayload(audit.sender, fresh, audit.result_claim))
+        except (InvalidPayloadError, CeremonyError) as exc:
             return self._refuse("submit_audit", exc)
         return ACK
 

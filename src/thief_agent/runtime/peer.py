@@ -48,7 +48,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..infra.ceremony import Acknowledgement, Commitment, FinalReveal, Reveal
+from ..infra.ceremony import Acknowledgement, CeremonyError, Commitment, FinalReveal, Reveal
 from ..infra.inboxes import PeerInboxes
 from ..infra.mcp_client import OpponentClient
 from ..infra.protocol import AuditPayload, TurnMessage
@@ -79,6 +79,7 @@ class McpPeer:
     inboxes: PeerInboxes
     now: str = ""
     timeout: float = 30.0
+    hint_max_words: int = 15
     acks: dict[int, Acknowledgement] = field(default_factory=dict, init=False)
     result_claim: str = ""
     """What we claim the sub-game's result was. Set before the final reveal."""
@@ -150,7 +151,15 @@ class McpPeer:
         self._submit([opened.to_dict()], UNDECIDED)
 
     def await_reveal(self, step: int) -> Reveal:
-        return Reveal.from_dict(self._await_record(lambda r: r.get("step") == step and "move" in r))
+        opened = Reveal.from_dict(
+            self._await_record(
+                lambda r: "move" in r and isinstance(r.get("step"), int) and r["step"] <= step
+            ),
+            hint_max_words=self.hint_max_words,
+        )
+        if opened.step != step:
+            raise CeremonyError(f"reveal is for stale step {opened.step}, expected step {step}")
+        return opened
 
     # --- phase 4: final reveal ----------------------------------------------
     def send_final(self, disclosed: FinalReveal) -> None:

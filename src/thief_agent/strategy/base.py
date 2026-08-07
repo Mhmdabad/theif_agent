@@ -94,7 +94,12 @@ class BrainBase(ABC):
         """
         action = self._decide_move(state, **context)
         self._guard(state, action)
-        return Decision(action=action)
+        return Decision(action=action, hint=self._hint(state, action, **context))
+
+    def _hint(self, state: BoardState, action: Action, **context: object) -> str:
+        """Supply one deterministic safe verbal hint for this accepted turn."""
+        del state, action, context
+        return "I am watching the streets"
 
     def _decide_move(self, state: BoardState, **context: object) -> Action:
         """Choose between relocating and any role-specific alternative.

@@ -188,6 +188,13 @@ def played() -> Iterator[tuple[Side, Side]]:
 
 
 class TestTheFieldActuallyCrossesTheWire:
+    def test_each_side_receives_exactly_one_identical_hint_per_step(
+        self, played: tuple[Side, Side]
+    ) -> None:
+        cop, thief = played
+        assert cop.game.received_hints == {step: "over there" for step in range(1, STEPS + 1)}
+        assert thief.game.received_hints == {step: "over there" for step in range(1, STEPS + 1)}
+
     def test_both_sides_transmitted_a_non_empty_field_every_step(
         self, played: tuple[Side, Side]
     ) -> None:
@@ -243,6 +250,7 @@ class TestNothingIsGivenAwayInPhaseOne:
         peer.send_commit(Commitment(step=1, sender="police", commit="a" * 64, timestamp=WHEN))
         tool, payload = sent[0]
         assert tool == "receive_turn"
+        assert payload["message"]["hint"] == ""
         assert payload["message"]["smell_grid"] == {}
 
     def test_no_nonce_travels_with_the_field(self, played: tuple[Side, Side]) -> None:

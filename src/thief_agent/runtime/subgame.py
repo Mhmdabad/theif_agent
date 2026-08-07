@@ -54,6 +54,7 @@ from ..infra.ceremony import (
     audit_opponent,
 )
 from ..infra.match_log import MatchLog
+from ..infra.validation import InvalidPayloadError, require_hint
 from ..strategy.base import BrainBase, StrategyContextError
 
 OPPONENT_OF = {"police": "thief", "thief": "police"}
@@ -114,6 +115,7 @@ class SubGame:
     state: BoardState
     axes: AxisConvention
     max_steps: int
+    hint_max_words: int = 15
     ceremony: MatchCeremony = field(init=False)
     now: Callable[[], str] = field(default=lambda: "")
     sealed_states: dict[int, BoardState] = field(default_factory=dict, init=False)
@@ -126,6 +128,8 @@ class SubGame:
     """
 
     their_final: FinalReveal | None = field(default=None, init=False)
+    received_hints: dict[int, str] = field(default_factory=dict, init=False)
+    """Opponent language, retained verbatim and separate from verified scent."""
 
     require_bound_scent: bool = True
     """Whether a peer must disclose a scent field bound to its commitment.
@@ -255,6 +259,14 @@ class SubGame:
                 f"{next(iter(context))}, concentration, and uncertainty"
             ) from exc
         decision = self.brain.decide(decision_state, **context)
+        if not decision.hint:
+            # Compatibility for configured brains that overrode ``decide``
+            # before hints became a required runtime output.
+            decision = replace(decision, hint="I am watching the streets")
+        try:
+            require_hint({"hint": decision.hint}, max_words=self.hint_max_words)
+        except InvalidPayloadError as exc:
+            raise StrategyContextError(f"configured brain produced an invalid hint: {exc}") from exc
         action = decision.action
         self._our_actions[step] = action
         placed = action.at if isinstance(action, PlaceBarrier) else None
@@ -314,6 +326,7 @@ class SubGame:
             focus: peak,
             "concentration": concentration,
             "uncertainty": 1.0 - concentration,
+            "opponent_hint": self.received_hints.get(self.state.step - 1),
         }
 
     def _emit(self, action: Action) -> dict[str, float]:
@@ -409,6 +422,7 @@ class SubGame:
         self._peer_reveals[step] = self.ceremony.at(step).receive_reveal(
             self.peer.await_reveal(step)
         )
+        self.received_hints[step] = self._peer_reveals[step].hint
 
     _peer_reveals: dict[int, Reveal] = field(default_factory=dict, init=False)
     _our_actions: dict[int, Action] = field(default_factory=dict, init=False)

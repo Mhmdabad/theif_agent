@@ -282,7 +282,12 @@ class TestTheCeremonyIsReal:
         """The board cannot be advanced from a statement it cannot read."""
         game, _, _ = a_subgame(tmp_path, max_steps=1)
         game._peer_reveals[1] = Reveal(  # noqa: SLF001
-            step=1, sender="police", move="sideways", intent="truth", hint="", timestamp=WHEN
+            step=1,
+            sender="police",
+            move="sideways",
+            intent="truth",
+            hint="somewhere",
+            timestamp=WHEN,
         )
         with pytest.raises(UnplayableReveal, match="not a move"):
             game.peer_move(1)
@@ -334,7 +339,7 @@ class TestTheBranchesARoleReversalReaches:
             sender="police",
             move="barrier",
             intent="truth",
-            hint="",
+            hint="somewhere",
             timestamp=WHEN,
             barrier_placed=[2, 3],
         )
@@ -350,7 +355,7 @@ class TestTheBranchesARoleReversalReaches:
             sender="thief",
             move="barrier",
             intent="truth",
-            hint="",
+            hint="somewhere",
             timestamp=WHEN,
             barrier_placed=[2, 3],
         )

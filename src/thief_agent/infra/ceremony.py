@@ -40,6 +40,7 @@ from .validation import (
     InvalidPayloadError,
     optional_cell,
     optional_scent,
+    require_hint,
     require_int,
     require_mapping,
     require_str,
@@ -269,7 +270,7 @@ class Reveal:
         }
 
     @classmethod
-    def from_dict(cls, data: object) -> "Reveal":
+    def from_dict(cls, data: object, *, hint_max_words: int = 15) -> "Reveal":
         """Parse an inbound reveal.
 
         A nonce arriving here is **refused**, not ignored. Every other stray
@@ -294,7 +295,7 @@ class Reveal:
                 sender=require_str(body, "sender"),
                 move=require_str(body, "move"),
                 intent=require_str(body, "intent"),
-                hint=body.get("hint", "") if isinstance(body.get("hint", ""), str) else "",
+                hint=require_hint(body, max_words=hint_max_words),
                 timestamp=require_str(body, "timestamp"),
                 barrier_placed=optional_cell(body, "barrier_placed"),
                 scent=optional_scent(body, "scent"),

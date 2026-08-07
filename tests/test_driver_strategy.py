@@ -120,8 +120,8 @@ class RecordingRunner:
     def agree(self) -> None:
         return None
 
-    def play_sub_game(self, number: int) -> None:
-        return None
+    def play_series(self) -> list[None]:
+        return []
 
     def result(self, **kwargs: object) -> None:
         return None
@@ -167,7 +167,6 @@ def match(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Match:
             private=private,
             environ={},
             game_id="m1",
-            sub_games=1,
             directory=tmp_path,
             rehearsal=True,
         )

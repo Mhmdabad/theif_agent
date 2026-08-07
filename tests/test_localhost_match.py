@@ -214,7 +214,6 @@ def a_side(role: str, port: int, opponent_port: int) -> Side:
         brain=PlaysItsOwnPiece("cop" if role == "police" else "thief"),  # type: ignore[arg-type]
         axes=AXES,
         start=BoardState(grid_size=8, cop=(0, 0), thief=(6, 5), barriers=frozenset(), step=0),
-        sub_games=1,
         max_steps=STEPS,
         directory=Path("/tmp") / f"unused-{role}",
         now=lambda: WHEN,
@@ -438,7 +437,6 @@ class TestAWholeMatchRunsThroughTheRunner:
             brain=PlaysItsOwnPiece("cop" if side.role == "police" else "thief"),  # type: ignore[arg-type]
             axes=AXES,
             start=BoardState(grid_size=8, cop=(0, 0), thief=(6, 5), barriers=frozenset(), step=0),
-            sub_games=1,
             max_steps=STEPS,
             directory=where,
             now=lambda: WHEN,

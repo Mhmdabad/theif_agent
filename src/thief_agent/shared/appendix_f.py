@@ -63,6 +63,7 @@ TABLE: tuple[Param, ...] = (
     Param("pheromones", "pheromone_decay", 0.10, Status.FIXED),
     Param("pheromones", "pheromone_grid_size", 5, Status.FIXED),
     # Table 18 - network and league
+    Param("network_and_league", "num_games", 6, Status.FIXED),
     Param("network_and_league", "diversity_reward", 10, Status.FIXED),
     Param("network_and_league", "min_games_to_pass", 2, Status.FIXED),
     Param("network_and_league", "max_games_per_team", 10, Status.FIXED),

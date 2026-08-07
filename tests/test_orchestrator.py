@@ -25,6 +25,8 @@ TURN = {
     "smell_grid": {"3,3": 0.9},
     "commit": "a" * 64,
     "timestamp": "2026-08-03T09:00:00+00:00",
+    "game_uid": "series-123",
+    "sub_game": 1,
 }
 
 
@@ -50,7 +52,13 @@ class FakeTransport:
 
 def orchestrator(*outcomes: object) -> tuple[Orchestrator, FakeTransport]:
     transport = FakeTransport(*outcomes)
-    return Orchestrator(PeerInboxes(), OpponentClient(transport, SETTINGS)), transport
+    return (
+        Orchestrator(
+            PeerInboxes(game_uid="series-123", sub_game=1),
+            OpponentClient(transport, SETTINGS),
+        ),
+        transport,
+    )
 
 
 class TestSingleGateway:

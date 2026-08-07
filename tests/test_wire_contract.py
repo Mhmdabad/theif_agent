@@ -74,7 +74,16 @@ def outbound() -> list[tuple[str, dict[str, Any]]]:
         sub_game=1,
         now=WHEN,
     )
-    peer.send_commit(Commitment(step=1, sender="thief", commit="a" * 64, timestamp=WHEN))
+    peer.send_commit(
+        Commitment(
+            step=1,
+            sender="thief",
+            commit="a" * 64,
+            timestamp=WHEN,
+            game_uid="series-123",
+            sub_game=1,
+        )
+    )
     peer._submit([], "in_progress")
 
     return recorder.sent

@@ -19,7 +19,7 @@ import re
 import unicodedata
 from typing import Any
 
-from ..domain.hints import FUTURE_ACTION, NUMERIC
+from ..domain.hints import FUTURE_ACTION, NUMERIC, policy_text
 
 MAX_STRING = 4096
 """Longest accepted string field. Bounded so a peer cannot be exhausted."""
@@ -88,9 +88,10 @@ def require_hint(payload: dict[str, Any], key: str = "hint", *, max_words: int =
             raise InvalidPayloadError(f"{key!r} contains a control character")
         if category == "Cf":
             raise InvalidPayloadError(f"{key!r} contains a Unicode format character")
-    if NUMERIC.search(value):
+    checked = policy_text(value)
+    if NUMERIC.search(checked):
         raise InvalidPayloadError(f"{key!r} contains numeric coordinates")
-    if FUTURE_ACTION.search(value):
+    if FUTURE_ACTION.search(checked):
         raise InvalidPayloadError(f"{key!r} discloses a future action")
     count = len(value.split())
     if count > max_words:

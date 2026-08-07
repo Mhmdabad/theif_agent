@@ -244,6 +244,12 @@ class PeerInboxes:
             turn = TurnMessage.from_dict(message)
         except InvalidPayloadError as exc:
             return self._refuse("receive_turn", exc)
+        if turn.game_uid != self.game_uid or turn.sub_game != self.sub_game:
+            return self._reject(
+                "receive_turn",
+                f"turn is bound to {turn.game_uid!r} sub-game {turn.sub_game}, expected "
+                f"{self.game_uid!r} sub-game {self.sub_game}",
+            )
         key, digest = (turn.sender, turn.step), fingerprint(turn)
         taken = self.accepted_turns.get(key)
         if taken == digest:
@@ -277,7 +283,19 @@ class PeerInboxes:
                     fresh.append(record)
                     continue
                 opened = Reveal.from_dict(record, hint_max_words=self.hint_max_words)
-                key = (opened.sender, opened.step, audit.game_uid, audit.sub_game)
+                if (opened.sender, opened.step) not in self.accepted_turns:
+                    return self._reject(
+                        "submit_audit",
+                        f"{opened.sender} revealed step {opened.step} without a current "
+                        "phase-one commitment",
+                    )
+                if opened.game_uid != self.game_uid or opened.sub_game != self.sub_game:
+                    return self._reject(
+                        "submit_audit",
+                        f"reveal is bound to {opened.game_uid!r} sub-game {opened.sub_game}, "
+                        f"expected {self.game_uid!r} sub-game {self.sub_game}",
+                    )
+                key = (opened.sender, opened.step, opened.game_uid, opened.sub_game)
                 digest = hashlib.sha256(canonical_bytes(opened.to_dict())).hexdigest()
                 taken = pending.get(key, self.accepted_reveals.get(key))
                 if taken == digest:

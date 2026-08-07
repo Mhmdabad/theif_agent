@@ -103,6 +103,8 @@ class McpPeer:
             smell_grid={},
             commit=commitment.commit,
             timestamp=commitment.timestamp,
+            game_uid=commitment.game_uid,
+            sub_game=commitment.sub_game,
         )
         answer = self.client.call("receive_turn", {"message": turn.to_dict()})
         self.acks[commitment.step] = self._read_ack(commitment, answer)
@@ -133,6 +135,8 @@ class McpPeer:
             sender=turn.sender,
             commit=turn.commit,
             timestamp=turn.timestamp,
+            game_uid=turn.game_uid,
+            sub_game=turn.sub_game,
         )
 
     # --- phase 2: acknowledge -----------------------------------------------
@@ -157,6 +161,12 @@ class McpPeer:
             self._await_reveal_record(step),
             hint_max_words=self.hint_max_words,
         )
+        if opened.game_uid != self.game_uid or opened.sub_game != self.sub_game:
+            raise CeremonyError(
+                "reveal binding does not match current sub-game: "
+                f"{opened.game_uid!r}/{opened.sub_game} != "
+                f"{self.game_uid!r}/{self.sub_game}"
+            )
         return opened
 
     # --- phase 4: final reveal ----------------------------------------------

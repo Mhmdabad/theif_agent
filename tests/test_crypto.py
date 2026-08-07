@@ -330,6 +330,8 @@ class TestTheFullStepRecord:
             "hint",
             "barrier_placed",
             "scent",
+            "game_uid",
+            "sub_game",
         }
         assert self.record()["state"]["step"] == 4  # type: ignore[index]
 

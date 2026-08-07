@@ -273,7 +273,15 @@ class SubGame:
         move: Move | str = action.move if isinstance(action, MoveAction) else "barrier"
         laid = self._emit(action)
         record = step_record(
-            self.state, self.role, move, decision.intent, decision.hint, placed, laid
+            self.state,
+            self.role,
+            move,
+            decision.intent,
+            decision.hint,
+            placed,
+            laid,
+            game_uid=self.log.game_uid,
+            sub_game=self.log.sub_game,
         )
         secret = nonce()
         commitment = Commitment(
@@ -281,6 +289,8 @@ class SubGame:
             sender=self.role,
             commit=commit_of(record, secret),
             timestamp=self.now(),
+            game_uid=self.log.game_uid,
+            sub_game=self.log.sub_game,
         )
         self.ceremony.at(step).commit(commitment, secret)
         self.log.commit(step, commitment.commit)
@@ -296,6 +306,8 @@ class SubGame:
             intent=decision.intent,
             hint=decision.hint,
             timestamp=self.now(),
+            game_uid=self.log.game_uid,
+            sub_game=self.log.sub_game,
             barrier_placed=list(placed) if placed else None,
             scent=laid,
         )

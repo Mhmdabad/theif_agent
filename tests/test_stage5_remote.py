@@ -42,6 +42,8 @@ TURN = {
     "smell_grid": {"3,3": 0.9},
     "commit": "a" * 64,
     "timestamp": "2026-08-04T09:00:00+00:00",
+    "game_uid": "series-123",
+    "sub_game": 1,
 }
 
 
@@ -88,7 +90,11 @@ class Internet:
 
 def peer(net: Internet, role: str, ours: str, theirs: str) -> Orchestrator:
     settings = ClientSettings.from_config({"opponent_url": theirs}, environ={})
-    orchestrator = Orchestrator(PeerInboxes(), OpponentClient(net, settings), role=role)
+    orchestrator = Orchestrator(
+        PeerInboxes(game_uid="series-123", sub_game=1),
+        OpponentClient(net, settings),
+        role=role,
+    )
     net.listen(ours, orchestrator)
     return orchestrator
 

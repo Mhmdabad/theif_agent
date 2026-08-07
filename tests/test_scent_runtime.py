@@ -136,6 +136,7 @@ class ScentedOpponent:
         return THEIR_START
 
     def send_commit(self, commitment: Commitment) -> None:
+        self.game_uid, self.sub_game = commitment.game_uid, commitment.sub_game
         self.commits.append(Commitment.from_dict(self._wire(commitment)))
         self.ceremony.at(commitment.step).receive(self.commits[-1])
 
@@ -146,12 +147,24 @@ class ScentedOpponent:
         self.fields[step] = self.scent.outgoing()
         self.state = replace(self.state, step=step)
         record = step_record(
-            self.state, self.role, "STAY", "truth", f"t{step}", scent=self.sealed(step)
+            self.state,
+            self.role,
+            "STAY",
+            "truth",
+            f"t{step}",
+            scent=self.sealed(step),
+            game_uid=self.game_uid,
+            sub_game=self.sub_game,
         )
         secret = nonce()
         self.nonces[step] = secret
         mine = Commitment(
-            step=step, sender=self.role, commit=commit_of(record, secret), timestamp=WHEN
+            step=step,
+            sender=self.role,
+            commit=commit_of(record, secret),
+            timestamp=WHEN,
+            game_uid=self.game_uid,
+            sub_game=self.sub_game,
         )
         self.ceremony.at(step).commit(mine, secret)
         return Commitment.from_dict(self._wire(mine))
@@ -195,6 +208,8 @@ class ScentedOpponent:
             hint=f"t{step}",
             timestamp=WHEN,
             scent=self.spoken(step),
+            game_uid=self.game_uid,
+            sub_game=self.sub_game,
         )
         self.ceremony.at(step).reveal(mine)
         return Reveal.from_dict(self._wire(mine))

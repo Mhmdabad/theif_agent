@@ -37,6 +37,8 @@ def reveal(**changes: object) -> dict[str, object]:
         "barrier_placed": None,
         "scent": {},
         "timestamp": "2026-08-07T00:00:00Z",
+        "game_uid": "series-123",
+        "sub_game": 2,
     }
     body.update(changes)
     return body
@@ -60,6 +62,13 @@ def reveal(**changes: object) -> dict[str, object]:
         ({"hint": "safe\u202elooking"}, "format character"),
         ({"hint": "I am at 3,4"}, "numeric coordinates"),
         ({"hint": "Next turn I will move north"}, "future action"),
+        ({"hint": "I intend to move north next turn"}, "future action"),
+        ({"hint": "I’ll move north"}, "future action"),
+        ({"hint": "I'll move north"}, "future action"),
+        ({"hint": "I will move north"}, "future action"),
+        ({"hint": "coordinates 3 and 4"}, "numeric coordinates"),
+        ({"hint": "x=3 y=4"}, "numeric coordinates"),
+        ({"hint": "ROW : 3; COLUMN = 4"}, "numeric coordinates"),
     ],
 )
 def test_wire_refuses_malformed_or_oversized_hints(changes: dict[str, object], detail: str) -> None:
@@ -80,6 +89,75 @@ def test_wire_accepts_exactly_the_word_limit() -> None:
     assert Reveal.from_dict(reveal(hint=text)).hint == text
 
 
+@pytest.mark.parametrize(
+    "hint",
+    [
+        "I moved north last turn",
+        "I am nowhere near the bridge",
+        "There are 3 bridges north of here",
+        "My xylophone has 3 strings",
+        "Rowboats and columns line the old hall",
+    ],
+)
+def test_benign_deceptive_and_non_coordinate_hints_are_not_overblocked(hint: str) -> None:
+    assert Reveal.from_dict(reveal(hint=hint)).hint == hint
+
+
+def test_unbound_legacy_reveal_fails_closed() -> None:
+    legacy = reveal()
+    legacy.pop("game_uid")
+    legacy.pop("sub_game")
+    with pytest.raises(CeremonyError, match="game_uid"):
+        Reveal.from_dict(legacy)
+
+
+def test_rewrapped_old_reveal_is_rejected_by_its_immutable_inner_binding() -> None:
+    inboxes = PeerInboxes(game_uid="series-123", sub_game=2)
+    assert (
+        inboxes.receive_turn(
+            {
+                "step": 1,
+                "sender": "police",
+                "hint": "",
+                "smell_grid": {},
+                "commit": "a" * 64,
+                "timestamp": "now",
+                "game_uid": "series-123",
+                "sub_game": 2,
+            }
+        )["ok"]
+        is True
+    )
+    payload = {
+        "sender": "police",
+        "records": [reveal(sub_game=1)],
+        "result_claim": "in_progress",
+        "game_uid": "series-123",
+        "sub_game": 2,
+    }
+    assert inboxes.submit_audit(payload)["ok"] is False
+    assert inboxes.audits.empty()
+
+    payload["records"] = [reveal(game_uid="other-series")]
+    assert inboxes.submit_audit(payload)["ok"] is False
+    assert inboxes.audits.empty()
+
+
+def test_inner_binding_mutated_to_current_has_no_effect_without_current_phase_one() -> None:
+    inboxes = PeerInboxes(game_uid="series-123", sub_game=2)
+    payload = {
+        "sender": "police",
+        "records": [reveal()],
+        "result_claim": "in_progress",
+        "game_uid": "series-123",
+        "sub_game": 2,
+    }
+    answer = inboxes.submit_audit(payload)
+    assert answer["ok"] is False
+    assert "without a current phase-one commitment" in answer["detail"]
+    assert inboxes.audits.empty()
+
+
 def test_reveal_retry_is_idempotent_but_cannot_mask_a_conflicting_hint() -> None:
     inboxes = PeerInboxes(game_uid="series-123", sub_game=2)
     committed = {
@@ -89,6 +167,8 @@ def test_reveal_retry_is_idempotent_but_cannot_mask_a_conflicting_hint() -> None
         "smell_grid": {},
         "commit": "a" * 64,
         "timestamp": "now",
+        "game_uid": "series-123",
+        "sub_game": 2,
         "barrier_placed": None,
         "capture_claim": None,
         "claim_response": None,
@@ -119,6 +199,18 @@ def test_reveal_retry_is_idempotent_but_cannot_mask_a_conflicting_hint() -> None
 
 def test_reveal_from_prior_sub_game_is_rejected_before_current_one_is_queued() -> None:
     inboxes = PeerInboxes(game_uid="series-123", sub_game=2)
+    inboxes.receive_turn(
+        {
+            "step": 1,
+            "sender": "police",
+            "hint": "",
+            "smell_grid": {},
+            "commit": "a" * 64,
+            "timestamp": "now",
+            "game_uid": "series-123",
+            "sub_game": 2,
+        }
+    )
     old = {
         "sender": "police",
         "records": [reveal()],

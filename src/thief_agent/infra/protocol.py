@@ -55,6 +55,8 @@ class TurnMessage:
     smell_grid: dict[str, float]
     commit: str
     timestamp: str
+    game_uid: str = "series-123"
+    sub_game: int = 2
     barrier_placed: list[int] | None = None
     capture_claim: list[int] | None = None
     claim_response: dict[str, Any] | None = None
@@ -83,6 +85,8 @@ class TurnMessage:
             smell_grid={str(k): float(v) for k, v in smell.items()},
             commit=require_str(body, "commit"),
             timestamp=require_str(body, "timestamp"),
+            game_uid=require_str(body, "game_uid"),
+            sub_game=require_int(body, "sub_game", minimum=1, maximum=6),
             barrier_placed=optional_cell(body, "barrier_placed"),
             capture_claim=optional_cell(body, "capture_claim"),
             claim_response=body.get("claim_response"),

@@ -14,13 +14,13 @@ import pytest
 from test_localhost_match import REPOS, build_declaration, parameters  # noqa: E402
 from thief_agent.domain.axes import AxisConvention
 from thief_agent.domain.board import BoardState
-from thief_agent.domain.lock import ScentLock, propose
+from thief_agent.domain.lock import ScentAgreement, ScentLock, propose
 from thief_agent.domain.outcome import TechnicalLoss
 from thief_agent.domain.scent import CHEBYSHEV
 from thief_agent.domain.scoring import Outcome, scores_for
 from thief_agent.infra.ceremony import AuditResult, Verdict
 from thief_agent.infra.handshake import Greeting, Peering
-from thief_agent.infra.inboxes import PeerInboxes
+from thief_agent.infra.inboxes import RETRY_KEY, PeerInboxes
 from thief_agent.infra.match_log import MatchLog
 from thief_agent.infra.mcp_client import ClientSettings, OpponentClient
 from thief_agent.infra.report import Report, SubGameResult
@@ -34,7 +34,7 @@ from thief_agent.runtime.driver import (
 )
 from thief_agent.runtime.match import MatchRunner, SubGameOutcome
 from thief_agent.runtime.orchestrator import PROTOCOL_VERSION, MatchAborted, Orchestrator
-from thief_agent.runtime.subgame import Played
+from thief_agent.runtime.subgame import Played, SubGame
 from thief_agent.shared.config import config_sha256
 from thief_agent.strategy.thief_brain import ThiefBrain
 
@@ -53,6 +53,18 @@ class Answering:
     def call(self, url: str, tool: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
         self.calls.append((tool, payload))
         return self.reply
+
+
+class Watching:
+    """A transport that records what the door named at the moment we spoke."""
+
+    def __init__(self) -> None:
+        self.inboxes = PeerInboxes()
+        self.bound: list[tuple[str, int]] = []
+
+    def call(self, url: str, tool: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+        self.bound.append((self.inboxes.game_uid, self.inboxes.sub_game))
+        return {"ok": True}
 
 
 def a_peering(role: str = "thief", sub_game: int = 1) -> Peering:
@@ -281,6 +293,112 @@ class TestLockingTheScentModelComesNext:
             runner.play_sub_game(1)
         assert excinfo.value.cause is TechnicalLoss.ILLEGAL_ACTION
         assert runner.outcomes == []
+
+
+class TestOpeningASubGameDoesNotForgetWhatTheOpponentAlreadySent:
+    """The opponent crosses the boundary on their thread, not ours.
+
+    ``play_sub_game`` used to empty the mailbox ledgers as it opened, which read
+    like a per-sub-game reset and was really a reset of shared state on a
+    schedule the sender knows nothing about. A peer that got to the boundary
+    first had its opening turn accepted at our door and then struck from the
+    ledger a moment later, and the reveal opening that turn was refused as
+    uncommitted — which no sender retries, so the series deadlocked until both
+    sides timed out. Deterministic here: the race is only how it was *reached*.
+    """
+
+    @staticmethod
+    def a_stub_sub_game(monkeypatch: pytest.MonkeyPatch) -> None:
+        """Let a sub-game be constructed without playing one over a socket."""
+        monkeypatch.setattr(
+            SubGame,
+            "play",
+            lambda self: Played(
+                steps=0,
+                final=self.state,
+                captured=False,
+                reason="stubbed",
+                audit=AuditResult(verdict=Verdict.CLEAN, checked=0),
+            ),
+        )
+        monkeypatch.setattr(
+            SubGame, "audit", lambda self: AuditResult(verdict=Verdict.CLEAN, checked=0)
+        )
+
+    def a_runner_at(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MatchRunner:
+        self.a_stub_sub_game(monkeypatch)
+        runner = a_runner(tmp_path)
+        runner.scent_lock = ScentAgreement(digest="a" * 64, binding="turn-message-bound")
+        return runner
+
+    @staticmethod
+    def early() -> dict[str, Any]:
+        return {
+            "step": 1,
+            "sender": "police",
+            "hint": "",
+            "smell_grid": {},
+            "commit": "a" * 64,
+            "timestamp": WHEN,
+            "game_uid": "u-0001",
+            "sub_game": 2,
+        }
+
+    def test_a_turn_deferred_before_we_opened_is_taken_once_we_have(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Deferred rather than queued, and the sender's re-send is what lands."""
+        runner = self.a_runner_at(tmp_path, monkeypatch)
+        inboxes = runner.orchestrator.inboxes
+        inboxes.bind("u-0001", 1)
+        assert inboxes.receive_turn(self.early())[RETRY_KEY] is True
+        assert inboxes.accepted_turns == {}
+
+        runner.play_sub_game(2)
+
+        assert inboxes.receive_turn(self.early()) == {"ok": True}
+        assert ("police", 1, "u-0001", 2) in inboxes.accepted_turns
+        assert inboxes.rejected == []
+
+    def test_the_binding_it_advances_is_this_sub_games(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        runner = self.a_runner_at(tmp_path, monkeypatch)
+        runner.play_sub_game(3)
+        assert runner.orchestrator.inboxes.game_uid == "u-0001"
+        assert runner.orchestrator.inboxes.sub_game == 3
+
+
+class TestTheDoorIsOpenedBeforeAnythingInvitesAMessage:
+    """Why the honest peer never has to spend its retry budget.
+
+    A retryable refusal keeps a race from costing the series; it does not stop
+    the race happening. What stops it is ordering: every message the opponent
+    sends for a sub-game follows something *we* said — the agreement that opens
+    the series, and the re-greeting that opens each later one — so binding the
+    door before we say it means their opening packet cannot arrive at a door
+    that is still shut.
+    """
+
+    def watched(self, tmp_path: Path) -> tuple[MatchRunner, "Watching"]:
+        transport = Watching()
+        runner = a_runner(tmp_path, transport=transport)  # type: ignore[arg-type]
+        transport.inboxes = runner.orchestrator.inboxes
+        return runner, transport
+
+    def test_the_series_is_bound_before_its_first_agreement_crosses_the_wire(
+        self, tmp_path: Path
+    ) -> None:
+        runner, transport = self.watched(tmp_path)
+        with pytest.raises(MatchAborted):
+            runner.agree(timeout=0.01)
+        assert transport.bound[0] == ("u-0001", 1)
+
+    def test_a_boundary_is_bound_before_it_is_announced(self, tmp_path: Path) -> None:
+        runner, transport = self.watched(tmp_path)
+        with pytest.raises(MatchAborted):
+            runner.rehandshake(4, timeout=0.01)
+        assert transport.bound[0] == ("u-0001", 4)
 
 
 class TestTheConfigItLocks:

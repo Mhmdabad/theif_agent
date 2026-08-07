@@ -22,6 +22,7 @@ correct; refusing to *play* because of one is not.
 """
 
 import re
+import unicodedata
 
 from .board import BoardState, Position
 
@@ -33,11 +34,26 @@ problem, and dropping it would hand them a way to make us ignore them.
 """
 
 NUMERIC = re.compile(
-    r"\b\d+\s*[,;]\s*\d+\b"
-    r"|\b(?:row|col|column|cell|square)\s*\d+\b"
-    r"|\(\s*\d+\s*,\s*\d+\s*\)"
+    r"\b\d+\s*(?:[,;]|\band\b)\s*\d+\b"
+    r"|\b(?:row|col(?:umn)?|cell|square)\s*(?:=|:|is|number|no\.?)*\s*\d+\b"
+    r"|\b[xy]\s*=\s*\d+\b(?:\s*[,;]?\s*|\s+and\s+)"
+    r"[xy]\s*=\s*\d+\b"
+    r"|\(\s*\d+\s*[,;]\s*\d+\s*\)",
+    re.IGNORECASE,
 )
 """Shapes that constitute a coordinate protocol rather than a hint."""
+
+FUTURE_ACTION = re.compile(
+    r"(?:\b(?:next|future)\s+(?:turn|move)\b[^.!?]*\b(?:move|go|head|travel|stay|"
+    r"wait|place|build|north|south|east|west|up|down|left|right|barrier)\b)"
+    r"|(?:\b(?:i|we)\s+(?:will|shall|am\s+going\s+to|intend\s+to|plan\s+to|"
+    r"(?:'ll))\s+(?:move|go|head|travel|stay|wait|place|build|"
+    r"north|south|east|west|up|down|left|right|barrier)\b)"
+    r"|(?:\b(?:i|we)'ll\s+(?:move|go|head|travel|stay|wait|place|build|"
+    r"north|south|east|west|up|down|left|right|barrier)\b)",
+    re.IGNORECASE,
+)
+"""Explicit disclosures of a not-yet-committed action."""
 
 DIRECTIONS: dict[str, tuple[int, int]] = {
     "north": (-1, 0),
@@ -80,6 +96,11 @@ class CoordinateProtocolError(ValueError):
     """
 
 
+def policy_text(text: str) -> str:
+    """Canonical text used only for policy matching; the hint itself stays verbatim."""
+    return unicodedata.normalize("NFKC", text).casefold().replace("’", "'").replace("‘", "'")
+
+
 def words(text: str) -> list[str]:
     """Lowercased word tokens, punctuation stripped."""
     return re.findall(r"[a-z]+", text.lower())
@@ -114,7 +135,7 @@ def parse(text: str, state: BoardState, speaker: Position) -> dict[Position, flo
     Raises:
         CoordinateProtocolError: if the hint carries numeric coordinates.
     """
-    if NUMERIC.search(text):
+    if NUMERIC.search(policy_text(text)):
         raise CoordinateProtocolError(f"numeric coordinates are forbidden: {text!r}")
 
     claim: dict[Position, float] = {}

@@ -120,7 +120,7 @@ class Side:
 
 
 def a_side(role: str, port: int, opponent_port: int) -> Side:
-    inboxes = PeerInboxes()
+    inboxes = PeerInboxes(game_uid="u-0001", sub_game=1)
     client = OpponentClient(
         transport=FastMcpTransport(),
         settings=ClientSettings(
@@ -133,7 +133,15 @@ def a_side(role: str, port: int, opponent_port: int) -> Side:
     game = SubGame(
         role=role,
         brain=Marches(SCRIPT[role]),  # type: ignore[arg-type]
-        peer=McpPeer(role=role, client=client, inboxes=inboxes, now=WHEN, timeout=25.0),
+        peer=McpPeer(
+            role=role,
+            client=client,
+            inboxes=inboxes,
+            game_uid="u-0001",
+            sub_game=1,
+            now=WHEN,
+            timeout=25.0,
+        ),
         log=MatchLog(
             game_id="uoh26-s82kma9e",
             sub_game=1,
@@ -188,6 +196,13 @@ def played() -> Iterator[tuple[Side, Side]]:
 
 
 class TestTheFieldActuallyCrossesTheWire:
+    def test_each_side_receives_exactly_one_identical_hint_per_step(
+        self, played: tuple[Side, Side]
+    ) -> None:
+        cop, thief = played
+        assert cop.game.received_hints == {step: "over there" for step in range(1, STEPS + 1)}
+        assert thief.game.received_hints == {step: "over there" for step in range(1, STEPS + 1)}
+
     def test_both_sides_transmitted_a_non_empty_field_every_step(
         self, played: tuple[Side, Side]
     ) -> None:
@@ -238,11 +253,14 @@ class TestNothingIsGivenAwayInPhaseOne:
                 Recorder(), ClientSettings(opponent_url="http://127.0.0.1:1/mcp")
             ),
             inboxes=PeerInboxes(),
+            game_uid="u-0001",
+            sub_game=1,
             now=WHEN,
         )
         peer.send_commit(Commitment(step=1, sender="police", commit="a" * 64, timestamp=WHEN))
         tool, payload = sent[0]
         assert tool == "receive_turn"
+        assert payload["message"]["hint"] == ""
         assert payload["message"]["smell_grid"] == {}
 
     def test_no_nonce_travels_with_the_field(self, played: tuple[Side, Side]) -> None:

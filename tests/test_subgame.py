@@ -90,6 +90,7 @@ class StandInOpponent:
     # --- the sub-game speaks to us ------------------------------------------
     def send_commit(self, commitment: Commitment) -> None:
         self.seen.append("commit")
+        self.game_uid, self.sub_game = commitment.game_uid, commitment.sub_game
         self.ceremony.at(commitment.step).receive(Commitment.from_dict(self._wire(commitment)))
 
     def await_commit(self, step: int) -> Commitment:
@@ -105,12 +106,24 @@ class StandInOpponent:
         self.scent.emit(self.state.cop, self.state.grid_size)
         self.fields[step] = self.scent.outgoing()
         record = step_record(
-            self.state, self.role, self.move, "truth", f"t{step}", scent=self.fields[step]
+            self.state,
+            self.role,
+            self.move,
+            "truth",
+            f"t{step}",
+            scent=self.fields[step],
+            game_uid=self.game_uid,
+            sub_game=self.sub_game,
         )
         secret = nonce()
         self.records[step], self.nonces[step] = record, secret
         mine = Commitment(
-            step=step, sender=self.role, commit=commit_of(record, secret), timestamp=WHEN
+            step=step,
+            sender=self.role,
+            commit=commit_of(record, secret),
+            timestamp=WHEN,
+            game_uid=self.game_uid,
+            sub_game=self.sub_game,
         )
         self.ceremony.at(step).commit(mine, secret)
         return Commitment.from_dict(self._wire(mine))
@@ -136,6 +149,8 @@ class StandInOpponent:
             hint=f"t{step}",
             timestamp=WHEN,
             scent=self.fields[step],
+            game_uid=self.game_uid,
+            sub_game=self.sub_game,
         )
         self.ceremony.at(step).reveal(mine)
         return Reveal.from_dict(self._wire(mine))
@@ -282,7 +297,12 @@ class TestTheCeremonyIsReal:
         """The board cannot be advanced from a statement it cannot read."""
         game, _, _ = a_subgame(tmp_path, max_steps=1)
         game._peer_reveals[1] = Reveal(  # noqa: SLF001
-            step=1, sender="police", move="sideways", intent="truth", hint="", timestamp=WHEN
+            step=1,
+            sender="police",
+            move="sideways",
+            intent="truth",
+            hint="somewhere",
+            timestamp=WHEN,
         )
         with pytest.raises(UnplayableReveal, match="not a move"):
             game.peer_move(1)
@@ -334,7 +354,7 @@ class TestTheBranchesARoleReversalReaches:
             sender="police",
             move="barrier",
             intent="truth",
-            hint="",
+            hint="somewhere",
             timestamp=WHEN,
             barrier_placed=[2, 3],
         )
@@ -350,7 +370,7 @@ class TestTheBranchesARoleReversalReaches:
             sender="thief",
             move="barrier",
             intent="truth",
-            hint="",
+            hint="somewhere",
             timestamp=WHEN,
             barrier_placed=[2, 3],
         )

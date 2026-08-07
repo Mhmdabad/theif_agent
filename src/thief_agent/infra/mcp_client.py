@@ -15,6 +15,7 @@ import dataclasses
 import hashlib
 import json
 import os
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -33,6 +34,26 @@ from .tunnel import normalise
 
 OPPONENT_URL_ENV = "OPPONENT_URL"
 """Overrides ``opponent_url`` in the private TOML. See :meth:`ClientSettings.from_config`."""
+
+RETRY_KEY = "retry"
+"""The flag a peer sets on a refusal it wants repeated. See :mod:`.inboxes`.
+
+Duplicated from the door's constant rather than imported, because these two
+modules are the two ends of the wire and importing one into the other would say
+they are the same program. They are not: this end also has to work against an
+opponent whose door is someone else's code.
+"""
+
+
+def deferred(answer: Mapping[str, Any]) -> bool:
+    """Whether an answer refused us only for now.
+
+    Both halves must be present. ``ok`` alone is the refusal every peer sends,
+    and treating an unflagged one as retryable would spend the whole budget
+    re-sending a message the opponent has already judged and refused — turning
+    one rejected forgery into four.
+    """
+    return answer.get("ok") is False and answer.get(RETRY_KEY) is True
 
 
 class Transport(Protocol):
@@ -53,6 +74,18 @@ class OpponentUnreachableError(RuntimeError):
 
     The caller converts this into a technical loss. It is deliberately not
     retried further up: the budget expressed here *is* the whole allowance.
+    """
+
+
+class PeerNotReadyError(OpponentUnreachableError):
+    """Raised when the opponent answered, but never opened its door in time.
+
+    A distinct name because it is a distinct fault — the socket worked and the
+    peer refused us for a binding it had not agreed yet — and a subclass because
+    the *consequence* is the one thing it shares with a dead tunnel: the budget
+    is spent, and every caller that already turns exhaustion into a technical
+    loss should turn this into the same one. A peer whose mailbox never opened
+    is exactly as unplayable as a peer that never answered.
     """
 
 
@@ -135,13 +168,13 @@ class OpponentClient:
         self,
         transport: Transport,
         settings: ClientSettings,
-        sleep: Callable[[float], None] = lambda _: None,
+        sleep: Callable[[float], None] | None = None,
         log: TransportLog | None = None,
         on_attempt: Callable[[str], None] = lambda _: None,
     ) -> None:
         self._transport = transport
         self._settings = settings
-        self._sleep = sleep
+        self._sleep = time.sleep if sleep is None else sleep
         self.attempts = 0
         self.log = log if log is not None else TransportLog()
         self.on_attempt = on_attempt
@@ -196,7 +229,19 @@ class OpponentClient:
         return was
 
     def call(self, tool: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """Invoke ``tool`` on the opponent, retrying transport failures only.
+        """Invoke ``tool`` on the opponent, retrying what is worth retrying.
+
+        **Transport failures, and refusals the peer asked us to repeat.** The
+        second kind is the door saying *not yet* — see :func:`deferred` — and it
+        spends the same budget for the same reason: the alternative is a
+        fire-and-forget sender that loses a sub-game to a boundary its opponent
+        crossed a millisecond later. A refusal without that flag is the peer's
+        judgement of the message and is returned untouched, so a forgery costs
+        one attempt rather than four.
+
+        Exhaustion of either kind is a technical loss rather than a wait: the
+        attempts are counted out in advance, so a door that never opens ends the
+        call at a moment neither side has to guess.
 
         **A retry re-sends bytes, not an intention.** The payload is serialised
         canonically once, before the first attempt, and every attempt sends a
@@ -211,7 +256,9 @@ class OpponentClient:
         for call sites that have not been written yet.
 
         Raises:
-            OpponentUnreachableError: once the retry budget is spent.
+            PeerNotReadyError: once the budget is spent against a door that
+                kept deferring us.
+            OpponentUnreachableError: once it is spent against a dead socket.
             TypeError: if the payload cannot be serialised. Deliberately before
                 the first attempt: a message we cannot reproduce byte-for-byte
                 is one we cannot prove we sent only once.
@@ -220,6 +267,7 @@ class OpponentClient:
         frozen = canonical_bytes(payload)
         self.log.record(SENT, tool, url, detail=hashlib.sha256(frozen).hexdigest())
         last: Exception | None = None
+        shut = ""
         for attempt in range(self._settings.max_retries + 1):
             self.attempts += 1
             self.on_attempt(tool)
@@ -230,22 +278,33 @@ class OpponentClient:
             except (TimeoutError, ConnectionError, OSError) as exc:
                 last = exc
                 self.log.record(TIMEOUT, tool, url, detail=f"{type(exc).__name__}: {exc}")
-                if attempt < self._settings.max_retries:
-                    self.log.record(
-                        RETRY,
-                        tool,
-                        url,
-                        detail=(
-                            f"attempt {attempt + 2} of {self._settings.max_retries + 1} "
-                            f"after {self._settings.retry_backoff_sec:g}s"
-                        ),
-                    )
-                    self._sleep(self._settings.retry_backoff_sec)
+                self._back_off(attempt, tool, url)
             else:
                 if url not in self._connected:
                     self._connected.add(url)
                     self.log.record(CONNECT, tool, url)
-                return answer
-        detail = f"{tool} failed after {self._settings.max_retries + 1} attempts against {url}"
-        self.log.record(UNREACHABLE, tool, url, detail=str(last))
-        raise OpponentUnreachableError(detail) from last
+                if not deferred(answer):
+                    return answer
+                shut = str(answer.get("detail", ""))
+                self.log.record(TIMEOUT, tool, url, detail=f"deferred: {shut}")
+                self._back_off(attempt, tool, url)
+        spent = f"{tool} failed after {self._settings.max_retries + 1} attempts against {url}"
+        self.log.record(UNREACHABLE, tool, url, detail=shut or str(last))
+        if shut:
+            raise PeerNotReadyError(f"{spent}; the last answer was {shut!r}")
+        raise OpponentUnreachableError(spent) from last
+
+    def _back_off(self, attempt: int, tool: str, url: str) -> None:
+        """Wait out the agreed gap before the next attempt, if there is one."""
+        if attempt >= self._settings.max_retries:
+            return
+        self.log.record(
+            RETRY,
+            tool,
+            url,
+            detail=(
+                f"attempt {attempt + 2} of {self._settings.max_retries + 1} "
+                f"after {self._settings.retry_backoff_sec:g}s"
+            ),
+        )
+        self._sleep(self._settings.retry_backoff_sec)

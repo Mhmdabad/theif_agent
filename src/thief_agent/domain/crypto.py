@@ -134,6 +134,9 @@ def step_record(
     hint: str,
     barrier_placed: Position | None = None,
     scent: dict[str, float] | None = None,
+    *,
+    game_uid: str = "series-123",
+    sub_game: int = 2,
 ) -> dict[str, Any]:
     """Everything one step commits to, before the nonce is folded in.
 
@@ -164,6 +167,8 @@ def step_record(
     negotiated with scent binding in force.
     """
     return {
+        "game_uid": game_uid,
+        "sub_game": sub_game,
         "state": board_terms(state, role),
         "role": role,
         "move": move,

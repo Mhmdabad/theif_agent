@@ -9,10 +9,10 @@ from typing import Any
 
 import pytest
 
-from thief_agent.infra.ceremony import Commitment, FinalReveal, Reveal
+from thief_agent.infra.ceremony import CeremonyError, Commitment, FinalReveal, Reveal
 from thief_agent.infra.inboxes import PeerInboxes
 from thief_agent.infra.mcp_client import ClientSettings, OpponentClient
-from thief_agent.infra.protocol import AuditPayload
+from thief_agent.infra.protocol import AuditPayload, TurnMessage
 from thief_agent.runtime.peer import UNDECIDED, McpPeer, PeerTimeout
 
 WHEN = "2026-08-05T11:00:00+00:00"
@@ -46,6 +46,8 @@ def a_peer(
         inboxes=inboxes,
         now=WHEN,
         timeout=timeout,
+        game_uid="series-123",
+        sub_game=2,
     )
     return peer, transport, inboxes
 
@@ -126,6 +128,27 @@ class TestWhatCrossesTheWire:
 
 
 class TestRecordsArriveOutOfOrder:
+    def test_stale_reveal_cannot_mask_current_reveal_in_same_payload(self) -> None:
+        peer, _, inboxes = a_peer()
+        stale = Reveal(
+            step=1, sender="police", move="S", intent="truth", hint="old", timestamp=WHEN
+        )
+        current = Reveal(
+            step=2, sender="police", move="N", intent="truth", hint="now", timestamp=WHEN
+        )
+        inboxes.audits.put(
+            AuditPayload(
+                sender="police",
+                records=[stale.to_dict(), current.to_dict()],
+                result_claim=UNDECIDED,
+                game_uid="series-123",
+                sub_game=2,
+            )
+        )
+
+        assert peer.await_reveal(2) == current
+        assert stale.to_dict() not in peer._held
+
     def test_a_record_we_are_not_waiting_for_is_kept(self) -> None:
         """A discarded message is a deadlock nobody can diagnose."""
         peer, _, inboxes = a_peer()
@@ -136,6 +159,8 @@ class TestRecordsArriveOutOfOrder:
                 sender="police",
                 records=[early.to_dict(), wanted.to_dict()],
                 result_claim=UNDECIDED,
+                game_uid="series-123",
+                sub_game=2,
             )
         )
         assert peer.await_reveal(1).move == "S"
@@ -150,10 +175,116 @@ class TestRecordsArriveOutOfOrder:
                 sender="police",
                 records=[second.to_dict(), first.to_dict()],
                 result_claim=UNDECIDED,
+                game_uid="series-123",
+                sub_game=2,
             )
         )
         assert peer.await_reveal(1).move == "S"
         assert peer.await_reveal(2).move == "N", "step 2 arrived first and was dropped"
+
+
+class TestAnImpossibleRecordIsSetAsideRatherThanPlayed:
+    """The door queues only what matches, so none of this can arrive. Nor could
+    the forged pre-binding packet that stranded a series, until the door was
+    closed. Draining the head of a queue on trust is what turned one packet that
+    should never have been there into the loss of the legitimate one behind it,
+    and a consumer that refuses instead of skipping loses the same sub-game by a
+    different route. So a foreign record is quarantined and the wait continues
+    on the deadline it started with.
+    """
+
+    def a_turn(self, **changed: object) -> TurnMessage:
+        body: dict[str, Any] = {
+            "step": 1,
+            "sender": "police",
+            "hint": "",
+            "smell_grid": {},
+            "commit": OTHER,
+            "timestamp": WHEN,
+            "game_uid": "series-123",
+            "sub_game": 2,
+        }
+        body.update(changed)
+        return TurnMessage(**body)
+
+    def test_a_foreign_commitment_does_not_strand_the_legitimate_one_behind_it(self) -> None:
+        peer, _, inboxes = a_peer(timeout=2.0)
+        inboxes.turns.put(self.a_turn(game_uid="old-or-forged", commit=DIGEST))
+        inboxes.turns.put(self.a_turn())
+        assert peer.await_commit(1).commit == OTHER
+        assert [record["game_uid"] for record in peer.quarantined] == ["old-or-forged"]
+
+    def test_a_commitment_for_a_sub_game_we_are_not_playing_is_skipped_too(self) -> None:
+        peer, _, inboxes = a_peer(timeout=2.0)
+        inboxes.turns.put(self.a_turn(sub_game=1, commit=DIGEST))
+        inboxes.turns.put(self.a_turn())
+        assert peer.await_commit(1).commit == OTHER
+
+    def test_nothing_but_foreign_commitments_still_ends_on_the_deadline(self) -> None:
+        peer, _, inboxes = a_peer()
+        inboxes.turns.put(self.a_turn(game_uid="old-or-forged"))
+        with pytest.raises(PeerTimeout, match="commitment for step 1"):
+            peer.await_commit(1)
+
+    def an_audit(self, records: list[dict[str, Any]], **changed: object) -> AuditPayload:
+        body: dict[str, Any] = {
+            "sender": "police",
+            "records": records,
+            "result_claim": UNDECIDED,
+            "game_uid": "series-123",
+            "sub_game": 2,
+        }
+        body.update(changed)
+        return AuditPayload(**body)
+
+    def test_a_foreign_audit_payload_does_not_strand_the_reveal_behind_it(self) -> None:
+        peer, _, inboxes = a_peer(timeout=2.0)
+        forged = Reveal(step=1, sender="police", move="S", intent="truth", hint="a", timestamp=WHEN)
+        wanted = Reveal(step=1, sender="police", move="N", intent="truth", hint="b", timestamp=WHEN)
+        inboxes.audits.put(self.an_audit([forged.to_dict()], game_uid="old-or-forged"))
+        inboxes.audits.put(self.an_audit([wanted.to_dict()]))
+        assert peer.await_reveal(1).move == "N"
+        assert peer.quarantined == [forged.to_dict()]
+
+    def test_a_record_re_wrapped_in_a_matching_envelope_is_skipped_by_its_own_binding(
+        self,
+    ) -> None:
+        """The envelope agrees with us and the record does not, which only a forgery does."""
+        peer, _, inboxes = a_peer(timeout=2.0)
+        forged = Reveal(
+            step=1,
+            sender="police",
+            move="S",
+            intent="truth",
+            hint="no",
+            timestamp=WHEN,
+            game_uid="old-or-forged",
+        )
+        wanted = Reveal(step=1, sender="police", move="N", intent="truth", hint="b", timestamp=WHEN)
+        inboxes.audits.put(self.an_audit([forged.to_dict(), wanted.to_dict()]))
+        assert peer.await_reveal(1).move == "N"
+        assert peer.quarantined == [forged.to_dict()]
+
+    def test_two_reveals_for_one_step_that_disagree_are_refused_rather_than_ranked(self) -> None:
+        """Both are bound to this sub-game, so neither is foreign — and one is a lie.
+
+        Taking the first would let whichever copy arrived first decide the step,
+        which is the same "head of the queue is the truth" assumption the door
+        now refuses to underwrite.
+        """
+        peer, _, inboxes = a_peer(timeout=2.0)
+        one = Reveal(step=1, sender="police", move="S", intent="truth", hint="a", timestamp=WHEN)
+        two = Reveal(step=1, sender="police", move="N", intent="truth", hint="b", timestamp=WHEN)
+        inboxes.audits.put(self.an_audit([one.to_dict(), two.to_dict()]))
+        with pytest.raises(CeremonyError, match="conflicting reveals for step 1"):
+            peer.await_reveal(1)
+
+    def test_nothing_but_foreign_payloads_still_ends_on_the_deadline(self) -> None:
+        peer, _, inboxes = a_peer()
+        stray = Reveal(step=1, sender="police", move="S", intent="truth", hint="t", timestamp=WHEN)
+        inboxes.audits.put(self.an_audit([stray.to_dict()], sub_game=1))
+        with pytest.raises(PeerTimeout, match="audit record"):
+            peer.await_reveal(1)
 
 
 class TestASilentOpponent:
@@ -214,10 +345,18 @@ class TestReceivingACommitment:
                 sender="police",
                 records=[other.to_dict(), spare.to_dict()],
                 result_claim=UNDECIDED,
+                game_uid="series-123",
+                sub_game=2,
             )
         )
         inboxes.audits.put(
-            AuditPayload(sender="police", records=[wanted.to_dict()], result_claim=UNDECIDED)
+            AuditPayload(
+                sender="police",
+                records=[wanted.to_dict()],
+                result_claim=UNDECIDED,
+                game_uid="series-123",
+                sub_game=2,
+            )
         )
         assert peer.await_reveal(1).move == "S"
         assert peer.await_reveal(8).move == "W", "held records are searched, not just the first"

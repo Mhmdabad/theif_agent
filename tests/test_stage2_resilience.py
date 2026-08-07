@@ -228,6 +228,8 @@ class TestBarrierDeclarationCannotBeBypassed:
                 "smell_grid": {},
                 "commit": "c",
                 "timestamp": "t",
+                "game_uid": "series-123",
+                "sub_game": 1,
                 "barrier_placed": [2, 3],
             }
         )

@@ -55,6 +55,8 @@ class TurnMessage:
     smell_grid: dict[str, float]
     commit: str
     timestamp: str
+    game_uid: str = "series-123"
+    sub_game: int = 2
     barrier_placed: list[int] | None = None
     capture_claim: list[int] | None = None
     claim_response: dict[str, Any] | None = None
@@ -83,6 +85,8 @@ class TurnMessage:
             smell_grid={str(k): float(v) for k, v in smell.items()},
             commit=require_str(body, "commit"),
             timestamp=require_str(body, "timestamp"),
+            game_uid=require_str(body, "game_uid"),
+            sub_game=require_int(body, "sub_game", minimum=1, maximum=6),
             barrier_placed=optional_cell(body, "barrier_placed"),
             capture_claim=optional_cell(body, "capture_claim"),
             claim_response=body.get("claim_response"),
@@ -97,6 +101,8 @@ class AuditPayload:
     sender: str
     records: list[dict[str, Any]] = field(default_factory=list)
     result_claim: str = ""
+    game_uid: str = ""
+    sub_game: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -111,6 +117,8 @@ class AuditPayload:
             sender=_require_role(body),
             records=[require_mapping(r, "audit record") for r in records],
             result_claim=require_str(body, "result_claim"),
+            game_uid=require_str(body, "game_uid"),
+            sub_game=require_int(body, "sub_game", minimum=1, maximum=6),
         )
 
 

@@ -16,7 +16,10 @@ would otherwise index row 1.
 
 import math
 import re
+import unicodedata
 from typing import Any
+
+from ..domain.hints import FUTURE_ACTION, NUMERIC, policy_text
 
 MAX_STRING = 4096
 """Longest accepted string field. Bounded so a peer cannot be exhausted."""
@@ -64,6 +67,35 @@ def require_str(payload: dict[str, Any], key: str, *, max_length: int = MAX_STRI
         raise InvalidPayloadError(f"{key!r} must not be empty")
     if len(value) > max_length:
         raise InvalidPayloadError(f"{key!r} exceeds {max_length} characters")
+    return value
+
+
+def require_hint(payload: dict[str, Any], key: str = "hint", *, max_words: int = 15) -> str:
+    """A required, non-empty Unicode hint within the negotiated word cap.
+
+    Python strings may contain lone UTF-16 surrogates even though JSON text may
+    not.  Control characters are also not natural-language content and make
+    logs and line-oriented transports ambiguous, so both are refused.
+    """
+    value = require_str(payload, key)
+    if not value.strip():
+        raise InvalidPayloadError(f"{key!r} must not be blank")
+    for character in value:
+        category = unicodedata.category(character)
+        if category == "Cs":
+            raise InvalidPayloadError(f"{key!r} must contain Unicode scalar values")
+        if category == "Cc":
+            raise InvalidPayloadError(f"{key!r} contains a control character")
+        if category == "Cf":
+            raise InvalidPayloadError(f"{key!r} contains a Unicode format character")
+    checked = policy_text(value)
+    if NUMERIC.search(checked):
+        raise InvalidPayloadError(f"{key!r} contains numeric coordinates")
+    if FUTURE_ACTION.search(checked):
+        raise InvalidPayloadError(f"{key!r} discloses a future action")
+    count = len(value.split())
+    if count > max_words:
+        raise InvalidPayloadError(f"{key!r} has {count} words, over {max_words} words")
     return value
 
 

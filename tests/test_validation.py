@@ -112,24 +112,28 @@ class TestTheLiveInboundSurface:
 
     def test_a_boolean_coordinate_is_refused(self) -> None:
         """{"barrier_placed": [true, 3]} would otherwise index row 1."""
-        boxes = PeerInboxes()
+        boxes = PeerInboxes(game_uid="series-123", sub_game=1)
         turn = {
             "step": 1,
             "sender": "police",
             "smell_grid": {},
             "commit": "c",
             "timestamp": "t",
+            "game_uid": "series-123",
+            "sub_game": 1,
             "barrier_placed": [True, 3],
         }
         assert boxes.receive_turn(turn)["ok"] is False
 
     def test_a_valid_turn_is_accepted(self) -> None:
-        boxes = PeerInboxes()
+        boxes = PeerInboxes(game_uid="series-123", sub_game=1)
         turn = {
             "step": 1,
             "sender": "police",
             "smell_grid": {},
             "commit": "c",
             "timestamp": "t",
+            "game_uid": "series-123",
+            "sub_game": 1,
         }
         assert boxes.receive_turn(turn)["ok"] is True

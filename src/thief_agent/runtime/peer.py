@@ -44,11 +44,12 @@ belongs where the match is scored.
 """
 
 import queue
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..infra.ceremony import Acknowledgement, Commitment, FinalReveal, Reveal
+from ..infra.ceremony import Acknowledgement, CeremonyError, Commitment, FinalReveal, Reveal
 from ..infra.inboxes import PeerInboxes
 from ..infra.mcp_client import OpponentClient
 from ..infra.protocol import AuditPayload, TurnMessage
@@ -77,8 +78,11 @@ class McpPeer:
     role: str
     client: OpponentClient
     inboxes: PeerInboxes
+    game_uid: str
+    sub_game: int
     now: str = ""
     timeout: float = 30.0
+    hint_max_words: int = 15
     acks: dict[int, Acknowledgement] = field(default_factory=dict, init=False)
     result_claim: str = ""
     """What we claim the sub-game's result was. Set before the final reveal."""
@@ -100,6 +104,8 @@ class McpPeer:
             smell_grid={},
             commit=commitment.commit,
             timestamp=commitment.timestamp,
+            game_uid=commitment.game_uid,
+            sub_game=commitment.sub_game,
         )
         answer = self.client.call("receive_turn", {"message": turn.to_dict()})
         self.acks[commitment.step] = self._read_ack(commitment, answer)
@@ -124,12 +130,14 @@ class McpPeer:
         )
 
     def await_commit(self, step: int) -> Commitment:
-        turn = self._drain(self.inboxes.turns, step, "commitment")
+        turn = self._await_turn(step)
         return Commitment(
             step=turn.step,
             sender=turn.sender,
             commit=turn.commit,
             timestamp=turn.timestamp,
+            game_uid=turn.game_uid,
+            sub_game=turn.sub_game,
         )
 
     # --- phase 2: acknowledge -----------------------------------------------
@@ -150,7 +158,18 @@ class McpPeer:
         self._submit([opened.to_dict()], UNDECIDED)
 
     def await_reveal(self, step: int) -> Reveal:
-        return Reveal.from_dict(self._await_record(lambda r: r.get("step") == step and "move" in r))
+        """The reveal for ``step``, which is bound to this sub-game by construction.
+
+        The binding is enforced where a record that fails it can be *set aside*
+        — :meth:`_hold_payload` — rather than here, where the only thing left to
+        do with one is raise. Those are not the same outcome: a foreign record
+        that ends the wait costs the sub-game just as surely as one that gets
+        played, and it is the legitimate reveal queued behind it that pays.
+        """
+        return Reveal.from_dict(
+            self._await_reveal_record(step),
+            hint_max_words=self.hint_max_words,
+        )
 
     # --- phase 4: final reveal ----------------------------------------------
     def send_final(self, disclosed: FinalReveal) -> None:
@@ -161,10 +180,96 @@ class McpPeer:
 
     # --- plumbing -----------------------------------------------------------
     def _submit(self, records: list[Record], result_claim: str) -> None:
-        payload = AuditPayload(sender=self.role, records=records, result_claim=result_claim)
+        payload = AuditPayload(
+            sender=self.role,
+            records=records,
+            result_claim=result_claim,
+            game_uid=self.game_uid,
+            sub_game=self.sub_game,
+        )
         self.client.call("submit_audit", {"payload": payload.to_dict()})
 
     _held: list[Record] = field(default_factory=list, init=False)
+    quarantined: list[Record] = field(default_factory=list, init=False)
+    """Records that could not belong to this sub-game, kept rather than acted on.
+
+    The door queues only what names our exact binding, so nothing here should
+    ever arrive. *Should* is the reason it is kept: an inbox reached before it
+    was bound is precisely how a forged commitment once became the head of this
+    queue, and the evidence of an attempt is worth more than the silence of a
+    consumer that quietly dropped it.
+    """
+
+    def _await_turn(self, step: int) -> TurnMessage:
+        """The next commitment actually bound to the sub-game we are playing.
+
+        Taking the head of the queue on trust is what let one packet that should
+        never have been there cost the legitimate commitment behind it — the
+        ceremony refuses the forgery, and nothing can put the real one back. A
+        consumer that raised instead would lose the same sub-game by a longer
+        route. So a foreign turn is set aside and the wait continues on the
+        deadline it started with, which is what keeps skipping from becoming a
+        second, unbudgeted wait.
+        """
+        deadline = time.monotonic() + self.timeout
+        while True:
+            turn: TurnMessage = self._drain(self.inboxes.turns, step, "commitment", deadline)
+            if turn.game_uid == self.game_uid and turn.sub_game == self.sub_game:
+                return turn
+            self.quarantined.append(turn.to_dict())
+
+    def _await_reveal_record(self, step: int) -> Record:
+        """Return the one reveal for ``step`` after classifying every sibling."""
+        deadline = time.monotonic() + self.timeout
+        while True:
+            current: list[Record] = []
+            kept: list[Record] = []
+            for record in self._held:
+                record_step = record.get("step")
+                if "move" not in record or not isinstance(record_step, int) or record_step > step:
+                    kept.append(record)
+                elif record_step < step:
+                    self.quarantined.append(record)
+                else:
+                    current.append(record)
+            self._held = kept
+            if current:
+                canonical = current[0]
+                if any(record != canonical for record in current[1:]):
+                    raise CeremonyError(f"conflicting reveals for step {step}")
+                return canonical
+            self._hold_payload(deadline)
+
+    def _hold_payload(self, deadline: float) -> None:
+        """Take one audit payload, holding what is ours and quarantining what is not.
+
+        Both bindings are checked, and a failure of either sets the record aside
+        rather than ending the wait. The envelope can only be foreign if it
+        reached a mailbox that was not yet bound; a record can only be foreign
+        if the sender wrapped an old reveal in a current envelope, which is the
+        replay the inner binding exists to catch. Neither is a reason to stop
+        waiting for the reveal that *is* ours.
+        """
+        payload = self._drain(self.inboxes.audits, None, "audit record", deadline)
+        ours = payload.game_uid == self.game_uid and payload.sub_game == self.sub_game
+        for entry in payload.records:
+            record = dict(entry)
+            if ours and not self._foreign(record):
+                self._held.append(record)
+            else:
+                self.quarantined.append(record)
+
+    def _foreign(self, record: Record) -> bool:
+        """Whether a record names a binding that is not the one we are playing.
+
+        A record that names none — a final reveal carries nonces and no
+        sub-game — is bound by the envelope it travelled in, which has already
+        been checked, so it is ours by default rather than foreign by omission.
+        """
+        return bool(
+            record.get("game_uid", self.game_uid) != self.game_uid
+            or record.get("sub_game", self.sub_game) != self.sub_game
+        )
 
     def _await_record(self, wanted: Wanted) -> Record:
         """Find a record we are waiting for, keeping the ones we are not.
@@ -179,23 +284,34 @@ class McpPeer:
             if wanted(kept):
                 self._held.remove(kept)
                 return kept
+        deadline = time.monotonic() + self.timeout
         while True:
-            payload = self._drain(self.inboxes.audits, None, "audit record")
-            for entry in payload.records:
-                record: Record = dict(entry)
-                if wanted(record):
-                    return record
-                self._held.append(record)
+            self._hold_payload(deadline)
+            for kept in list(self._held):
+                if wanted(kept):
+                    self._held.remove(kept)
+                    return kept
 
-    def _drain(self, inbox: "queue.Queue[Any]", step: int | None, what: str) -> Any:  # noqa: ANN401
+    def _drain(
+        self,
+        inbox: "queue.Queue[Any]",
+        step: int | None,
+        what: str,
+        deadline: float | None = None,
+    ) -> Any:  # noqa: ANN401
         """Take the next message off an inbox, or say who stopped talking.
 
         Returns whatever that inbox holds — a ``TurnMessage`` or an
         ``AuditPayload``. Typed loosely because the queues are, and narrowing
         it here would mean two near-identical copies of the timeout message.
+
+        ``deadline`` is what a caller that may have to take several messages
+        waits against, so setting a foreign one aside costs no extra patience:
+        the whole search shares the one allowance the caller was given.
         """
+        remaining = self.timeout if deadline is None else max(deadline - time.monotonic(), 0.0)
         try:
-            return inbox.get(timeout=self.timeout)
+            return inbox.get(timeout=remaining)
         except queue.Empty as exc:
             where = "" if step is None else f" for step {step}"
             raise PeerTimeout(

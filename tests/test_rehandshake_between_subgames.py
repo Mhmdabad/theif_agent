@@ -216,6 +216,8 @@ def plays(after: Callable[[int], None] = lambda _: None) -> Callable[..., SubGam
             role=self.role,
             client=self.orchestrator.client,
             inboxes=self.orchestrator.inboxes,
+            game_uid=self.declaration.game_uid,
+            sub_game=number,
             now=WHEN,
             timeout=timeout,
         ).send_commit(Commitment(step=1, sender=self.role, commit=COMMIT, timestamp=WHEN))
@@ -798,6 +800,19 @@ class TestTwoRealPeersPlayASixSubGameSeriesAcrossFiveBoundaries:
     def test_nothing_was_rejected_at_either_door(self, series: tuple[Live, Live]) -> None:
         for side in series:
             assert side.inboxes.rejected == []
+
+    def test_no_boundary_had_to_be_retried_into(self, series: tuple[Live, Live]) -> None:
+        """The retryable refusal is the net, and across six sub-games nothing fell.
+
+        Each side binds its mailboxes *before* it announces the boundary, and
+        the opponent only opens a sub-game after that announcement reaches it,
+        so every packet of sub-game ``n`` arrives at a door already on ``n``.
+        A deferral here would mean the ordering had a gap in it — recoverable,
+        because the sender spends its budget rather than giving up, but no
+        longer the guarantee this asserts.
+        """
+        for side in series:
+            assert side.inboxes.deferred == []
 
     def test_every_sub_game_audited_clean(self, series: tuple[Live, Live]) -> None:
         for side in series:

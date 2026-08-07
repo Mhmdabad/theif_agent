@@ -221,6 +221,8 @@ class TestTheLogCanVerifyItself:
             "hint",
             "barrier_placed",
             "scent",
+            "game_uid",
+            "sub_game",
         }
         assert "timestamp" not in stored
 

@@ -181,7 +181,7 @@ class Side:
 
 
 def a_side(role: str, port: int, opponent_port: int) -> Side:
-    inboxes = PeerInboxes()
+    inboxes = PeerInboxes(game_uid="u-0001", sub_game=1)
     log = MatchLog(
         game_id="uoh26-s82kma9e",
         sub_game=1,
@@ -201,7 +201,15 @@ def a_side(role: str, port: int, opponent_port: int) -> Side:
     game = SubGame(
         role=role,
         brain=PlaysItsOwnPiece("cop" if role == "police" else "thief"),  # type: ignore[arg-type]
-        peer=McpPeer(role=role, client=client, inboxes=inboxes, now=WHEN, timeout=25.0),
+        peer=McpPeer(
+            role=role,
+            client=client,
+            inboxes=inboxes,
+            game_uid="u-0001",
+            sub_game=1,
+            now=WHEN,
+            timeout=25.0,
+        ),
         log=log,
         state=BoardState(grid_size=8, cop=(0, 0), thief=(6, 5), barriers=frozenset(), step=0),
         axes=AXES,
@@ -278,6 +286,12 @@ class TestTheMatchActuallyHappened:
         cop, thief, _ = played
         assert cop.inboxes.rejected == []
         assert thief.inboxes.rejected == []
+
+    def test_neither_side_had_to_knock_twice(self, played: tuple[Side, Side, Path]) -> None:
+        """Both bound their mailboxes before agreeing, so no packet beat the door open."""
+        cop, thief, _ = played
+        assert cop.inboxes.deferred == []
+        assert thief.inboxes.deferred == []
 
     def test_each_side_holds_the_others_commitments(self, played: tuple[Side, Side, Path]) -> None:
         cop, thief, _ = played

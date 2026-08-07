@@ -66,8 +66,24 @@ def outbound() -> list[tuple[str, dict[str, Any]]]:
     orchestrator.inboxes.negotiate({"config_sha256": config_sha256(parameters)})
     orchestrator.agree_config(parameters)
 
-    peer = McpPeer(role="thief", client=client, inboxes=PeerInboxes(), now=WHEN)
-    peer.send_commit(Commitment(step=1, sender="thief", commit="a" * 64, timestamp=WHEN))
+    peer = McpPeer(
+        role="thief",
+        client=client,
+        inboxes=PeerInboxes(),
+        game_uid="series-123",
+        sub_game=1,
+        now=WHEN,
+    )
+    peer.send_commit(
+        Commitment(
+            step=1,
+            sender="thief",
+            commit="a" * 64,
+            timestamp=WHEN,
+            game_uid="series-123",
+            sub_game=1,
+        )
+    )
     peer._submit([], "in_progress")
 
     return recorder.sent
@@ -75,7 +91,8 @@ def outbound() -> list[tuple[str, dict[str, Any]]]:
 
 async def deliver(tool: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Call the tool on a real server, and hand back what it answered."""
-    async with Client(build(PeerInboxes())) as client:
+    inboxes = PeerInboxes(game_uid="series-123", sub_game=1)
+    async with Client(build(inboxes)) as client:
         answer = await client.call_tool(tool, payload)
     data = answer.data
     assert isinstance(data, dict), f"{tool} answered {type(data).__name__}, not an object"

@@ -40,6 +40,7 @@ from .validation import (
     InvalidPayloadError,
     optional_cell,
     optional_scent,
+    require_hint,
     require_int,
     require_mapping,
     require_str,
@@ -57,7 +58,7 @@ NONCE_LENGTH = NONCE_BYTES * 2
 NONCE = re.compile(rf"^[0-9a-f]{{{NONCE_LENGTH}}}$")
 """A nonce as :func:`~..domain.crypto.nonce` renders it."""
 
-COMMIT_FIELDS = ("step", "sender", "commit", "timestamp")
+COMMIT_FIELDS = ("step", "sender", "commit", "timestamp", "game_uid", "sub_game")
 """Everything phase 1 may carry. The tuple is the specification, not a hint."""
 
 
@@ -78,6 +79,8 @@ class Commitment:
     sender: str
     commit: str
     timestamp: str
+    game_uid: str = "series-123"
+    sub_game: int = 2
 
     def __post_init__(self) -> None:
         if self.sender not in ROLES:
@@ -90,6 +93,10 @@ class Commitment:
                 "a malformed digest would surface later as a forgery verdict "
                 "against an opponent whose only mistake was formatting"
             )
+        if not self.game_uid:
+            raise CeremonyError("game_uid must not be empty")
+        if not 1 <= self.sub_game <= 6:
+            raise CeremonyError(f"sub_game must be between 1 and 6, got {self.sub_game}")
 
     def to_dict(self) -> dict[str, Any]:
         """The wire form. Exactly :data:`COMMIT_FIELDS` and never more."""
@@ -98,6 +105,8 @@ class Commitment:
             "sender": self.sender,
             "commit": self.commit,
             "timestamp": self.timestamp,
+            "game_uid": self.game_uid,
+            "sub_game": self.sub_game,
         }
 
     @classmethod
@@ -119,6 +128,8 @@ class Commitment:
                 sender=require_str(body, "sender"),
                 commit=require_str(body, "commit"),
                 timestamp=require_str(body, "timestamp"),
+                game_uid=require_str(body, "game_uid"),
+                sub_game=require_int(body, "sub_game", minimum=1, maximum=6),
             )
         except InvalidPayloadError as exc:
             raise CeremonyError(str(exc)) from exc
@@ -195,6 +206,8 @@ REVEAL_FIELDS = (
     "barrier_placed",
     "scent",
     "timestamp",
+    "game_uid",
+    "sub_game",
 )
 """Everything phase 3 may carry. Conspicuously not the nonce.
 
@@ -234,6 +247,8 @@ class Reveal:
     intent: str
     hint: str
     timestamp: str
+    game_uid: str = "series-123"
+    sub_game: int = 2
     barrier_placed: list[int] | None = None
     scent: dict[str, float] | None = None
     """The trail this step laid, as ``{"row,col": intensity}``.
@@ -254,6 +269,10 @@ class Reveal:
             raise CeremonyError(f"step must be >= 0, got {self.step}")
         if self.intent not in INTENTS:
             raise CeremonyError(f"intent must be one of {sorted(INTENTS)}, got {self.intent!r}")
+        if not self.game_uid:
+            raise CeremonyError("game_uid must not be empty")
+        if not 1 <= self.sub_game <= 6:
+            raise CeremonyError(f"sub_game must be between 1 and 6, got {self.sub_game}")
 
     def to_dict(self) -> dict[str, Any]:
         """The wire form. :data:`REVEAL_FIELDS`, and no nonce in it."""
@@ -266,10 +285,12 @@ class Reveal:
             "barrier_placed": self.barrier_placed,
             "scent": self.scent,
             "timestamp": self.timestamp,
+            "game_uid": self.game_uid,
+            "sub_game": self.sub_game,
         }
 
     @classmethod
-    def from_dict(cls, data: object) -> "Reveal":
+    def from_dict(cls, data: object, *, hint_max_words: int = 15) -> "Reveal":
         """Parse an inbound reveal.
 
         A nonce arriving here is **refused**, not ignored. Every other stray
@@ -294,8 +315,10 @@ class Reveal:
                 sender=require_str(body, "sender"),
                 move=require_str(body, "move"),
                 intent=require_str(body, "intent"),
-                hint=body.get("hint", "") if isinstance(body.get("hint", ""), str) else "",
+                hint=require_hint(body, max_words=hint_max_words),
                 timestamp=require_str(body, "timestamp"),
+                game_uid=require_str(body, "game_uid"),
+                sub_game=require_int(body, "sub_game", minimum=1, maximum=6),
                 barrier_placed=optional_cell(body, "barrier_placed"),
                 scent=optional_scent(body, "scent"),
             )
@@ -376,6 +399,8 @@ class StepCeremony:
         self._check_belongs(
             theirs.step, theirs.sender, expected_role=self.opponent, what="commitment"
         )
+        if self.ours is not None:
+            self._check_binding(theirs.game_uid, theirs.sub_game, self.ours, "commitment")
         self.theirs = theirs
         return theirs
 
@@ -457,6 +482,8 @@ class StepCeremony:
         if self.revealed_ours is not None:
             raise CeremonyError(f"step {self.step} is already revealed; a reveal is not revisable")
         self._check_belongs(opened.step, opened.sender, expected_role=self.role, what="reveal")
+        assert self.ours is not None
+        self._check_binding(opened.game_uid, opened.sub_game, self.ours, "reveal")
         self.revealed_ours = opened
         return opened
 
@@ -484,6 +511,8 @@ class StepCeremony:
                 "a second disclosure would replace an action we have acted on"
             )
         self._check_belongs(opened.step, opened.sender, expected_role=self.opponent, what="reveal")
+        assert self.theirs is not None
+        self._check_binding(opened.game_uid, opened.sub_game, self.theirs, "reveal")
         self.revealed_theirs = opened
         return opened
 
@@ -506,6 +535,14 @@ class StepCeremony:
             raise CeremonyError(f"{what} is for step {step}, this ceremony is step {self.step}")
         if sender != expected_role:
             raise CeremonyError(f"{what} is from {sender!r}, expected {expected_role!r}")
+
+    @staticmethod
+    def _check_binding(game_uid: str, sub_game: int, locked: Commitment, what: str) -> None:
+        if game_uid != locked.game_uid or sub_game != locked.sub_game:
+            raise CeremonyError(
+                f"{what} binding {game_uid!r}/{sub_game} does not match locked commitment "
+                f"{locked.game_uid!r}/{locked.sub_game}"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -769,6 +806,8 @@ def audit_opponent(
                 else None
             ),
             scent=opened.scent,
+            game_uid=opened.game_uid,
+            sub_game=opened.sub_game,
         )
         if not verify_step(record, nonce, ceremony.theirs.commit):
             failures.append(

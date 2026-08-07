@@ -166,11 +166,20 @@ class MatchRunner:
         replayed to open this one, and the declaration would record a
         negotiation that never happened.
 
+        **The mailboxes are bound before the first digest goes out**, because
+        this is the message the opponent is waiting for before it sends anything
+        of its own. Their opening commitment can only follow an agreement we
+        completed, and an agreement we completed can only follow one we sent, so
+        binding first is what puts their first packet after our door opening —
+        rather than in the window where the door names nothing and would have to
+        guess.
+
         Returns:
             The config digest. The scent agreement is kept on
             :attr:`scent_lock`, because it is not a digest but a set of terms
             the sub-games have to be played under.
         """
+        self.orchestrator.inboxes.bind(self.declaration.game_uid, 1)
         digest = self.orchestrator.agree_config(
             self.parameters, game_uid=self.declaration.game_uid, timeout=timeout
         )
@@ -240,7 +249,16 @@ class MatchRunner:
 
         The result replaces :attr:`peering` only once it is agreed, so a refused
         boundary leaves the series pointing where it was rather than half-moved.
+
+        **The mailboxes cross the boundary before the announcement does.** The
+        announcement is what tells the opponent we have reached ``number``, and
+        they open the sub-game by sending into our door, so a door bound after
+        the announcement is one we have invited a message through before opening
+        it. That is the same window that let a packet in before any binding
+        existed, one boundary further along, and it is closed the same way:
+        by saying where we are only once we can act on the answer.
         """
+        self.orchestrator.inboxes.bind(self.declaration.game_uid, number)
         current = self.peered()
         self.peering = self.orchestrator.rehandshake(
             current, current.ours, number, self.directory, self.game_id, timeout
@@ -284,9 +302,30 @@ class MatchRunner:
 
         The scent rules are read from the agreement before anything else, so a
         series that never locked a model costs a refusal rather than a board.
+
+        **The mailbox ledgers are not emptied here, and emptying them was a
+        bug.** Both are keyed by the sub-game a message is bound to, so a new
+        sub-game cannot collide with an old one and nothing needs forgetting.
+        Clearing them looked like a per-sub-game reset and was really a reset of
+        *shared* state on our own schedule: the opponent pushes this sub-game's
+        first turn when their thread reaches the boundary, which under load is
+        before ours does, so the clear regularly destroyed the ledger entry for
+        a turn already accepted — and the reveal that opened it was then refused
+        as uncommitted, deadlocking the series. Advancing the binding below is
+        safe in a way the clear was not: it only ever moves forward, and the
+        ledgers are keyed by it, so nothing that is still current is forgotten.
+
+        The bind here is ordinarily a repeat of the one :meth:`agree` or
+        :meth:`rehandshake` already did — those are where the boundary is
+        actually crossed, ahead of the message that invites a reply. It stays
+        because a sub-game can be played directly, and a door left on the
+        previous sub-game would defer every packet of this one until the
+        opponent's retry budget ran out.
         """
         locked = self.locked_scent()
-        self.orchestrator.inboxes.accepted_turns.clear()
+        self.orchestrator.inboxes.bind(self.declaration.game_uid, number)
+        hint_max_words = int(self.parameters.get("hint_max_words", 15))
+        self.orchestrator.inboxes.hint_max_words = hint_max_words
         log = MatchLog(
             game_id=self.game_id,
             sub_game=number,
@@ -303,11 +342,15 @@ class MatchRunner:
                 inboxes=self.orchestrator.inboxes,
                 now=self.now(),
                 timeout=timeout,
+                hint_max_words=hint_max_words,
+                game_uid=self.declaration.game_uid,
+                sub_game=number,
             ),
             log=log,
             state=self.start,
             axes=self.axes,
             max_steps=self.max_steps,
+            hint_max_words=hint_max_words,
             now=self.now,
             require_bound_scent=locked.require_bound_scent,
         )

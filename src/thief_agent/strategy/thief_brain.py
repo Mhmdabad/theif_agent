@@ -125,8 +125,11 @@ class ThiefBrain(BrainBase):
             NoLegalActionError: if no move is legal.
         """
         threat = self.threat(state, **context)
+        real_state = state
         state = replace(state, cop=threat)
-        available = self.options(state)
+        available = [m for m in self.options(real_state) if m in self.options(state)]
+        if not available:
+            available = self.options(real_state)
         if not available:
             raise NoLegalActionError("thief has no legal move")
         self.reach.observe(state, self.axes)

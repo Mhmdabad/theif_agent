@@ -52,6 +52,7 @@ opponent.
 
 import asyncio
 import contextlib
+import json
 import threading
 from dataclasses import dataclass, field
 from typing import Any
@@ -275,6 +276,11 @@ class FastMcpTransport:
                 ) from exc
             raise
         data = answer.data
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except Exception:
+                pass
         if not isinstance(data, dict):
             raise TypeError(
                 f"{tool} at {url} returned {type(data).__name__}, not an object; every "

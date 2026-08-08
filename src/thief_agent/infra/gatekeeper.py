@@ -23,29 +23,25 @@ The order is not arbitrary. Cheapest and most final first:
    *check* because a request that will be refused outright should never have
    waited for a token first.
 
-**429 is not a transient glitch.** FR-7.22 is explicit: insisting and
-immediately re-sending can get the account suspended *by the provider*. So a 429
-does not enter the ordinary retry path. It is treated as a statement about the
-window we are in, honoured with a wait, and — because the provider has just told
-us our own rate limiting was wrong — it also **spends a token from the bucket**,
-so the next request is further away than it would otherwise have been. A limiter
-that ignored the one authoritative signal about its own configuration would keep
-making the same mistake politely.
-
-There is deliberately **no path that retries a 429 without waiting**. The wait
-comes from ``Retry-After`` when the provider sends one, and from the configured
-backoff when it does not; the provider's number wins whenever it is larger,
-because it knows about its own window and we are guessing.
+The 429 rule — why a 429 is never retried immediately, and how one is
+recognised at all — lives in :mod:`.gatekeeper_429`.
 """
 
-from collections.abc import Callable
 from dataclasses import dataclass
 
 from .dos_detector import Detector
+from .gatekeeper_429 import TOO_MANY_REQUESTS, TooManyRequests, status_code_of
 from .quota import Quota
 from .token_bucket import Limiter, RateLimitError
 
-TOO_MANY_REQUESTS = 429
+__all__ = [
+    "TOO_MANY_REQUESTS",
+    "Gatekeeper",
+    "Rejected",
+    "TooManyRequests",
+    "Wait",
+    "status_code_of",
+]
 
 
 class Rejected(RuntimeError):
@@ -61,21 +57,6 @@ class Wait:
 
     def __str__(self) -> str:
         return f"wait {self.seconds:g}s — {self.because}"
-
-
-@dataclass(frozen=True, slots=True)
-class TooManyRequests(Exception):
-    """The provider said 429. Honoured, never immediately retried."""
-
-    retry_after: float
-    attempt: int
-
-    def __str__(self) -> str:
-        return (
-            f"HTTP 429 on attempt {self.attempt}; waiting {self.retry_after:g}s. "
-            "This is not a transient glitch — re-sending immediately is what gets "
-            "an account suspended"
-        )
 
 
 @dataclass
@@ -163,27 +144,3 @@ class Gatekeeper:
     def release(self) -> None:
         """Give back a queue slot once the caller has stopped waiting."""
         self.limiter.leave()
-
-
-def status_code_of(
-    error: object, reader: Callable[[object], int | None] | None = None
-) -> int | None:
-    """Best-effort HTTP status from whatever the client library raised.
-
-    Google's client raises ``HttpError`` carrying ``resp.status``; others use
-    ``status_code``, and a bare ``int`` shows up in tests and thin wrappers.
-    Reading several shapes here keeps the 429 rule from depending on which
-    library happens to be installed — a rule that only fired for one exception
-    type would silently stop firing after a dependency upgrade.
-    """
-    if reader is not None:
-        return reader(error)
-    if isinstance(error, int):
-        return error
-    for attribute in ("status_code", "code"):
-        value = getattr(error, attribute, None)
-        if isinstance(value, int):
-            return value
-    response = getattr(error, "resp", None)
-    status = getattr(response, "status", None)
-    return status if isinstance(status, int) else None

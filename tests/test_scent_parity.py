@@ -23,16 +23,25 @@ import pytest
 
 SCENT_MODULES = (
     "domain/scent.py",
+    "domain/scent_falloff.py",
     "domain/trail.py",
     "domain/memory.py",
     "domain/fixture.py",
     "domain/lock.py",
+    "domain/lock_model.py",
     "domain/scent_audit.py",
+    "domain/scent_audit_wire.py",
+    "domain/scent_audit_replay.py",
+    "domain/scent_audit_disagreement.py",
     "domain/belief.py",
+    "domain/belief_readout.py",
     "domain/inference.py",
     "domain/crypto.py",
+    "domain/crypto_record.py",
     "infra/ceremony.py",
     "infra/validation.py",
+    "infra/validation_primitives.py",
+    "infra/validation_shapes.py",
     "runtime/subgame.py",
 )
 """Every module the verified-scent feature reads or writes.

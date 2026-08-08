@@ -38,158 +38,31 @@ nothing after that point can be checked — so the audit stops and says so at
 the step it stopped, rather than continuing against a state only one side has.
 """
 
-import math
-import re
-from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
+from collections.abc import Sequence
 
-from .actions import Action, apply_action
 from .axes import AxisConvention
-from .board import Agent, BoardState, Position
-from .rules import advance_turn, position_of
-from .scent import CENTRE_INTENSITY, DEFAULT_FALLOFF, GRID_SIZE, PRECISION, Falloff, emission
+from .board import BoardState, Position
+from .scent import CENTRE_INTENSITY, DEFAULT_FALLOFF, GRID_SIZE, Falloff, emission
+from .scent_audit_disagreement import _disagreements
+from .scent_audit_replay import StepPlay, _walk, replay
+from .scent_audit_wire import CELL, ScentFieldError, check_field
 from .trail import Trail
 
-CELL = re.compile(r"^(0|[1-9][0-9]*),(0|[1-9][0-9]*)$")
-"""A wire cell key, exactly as :meth:`~.trail.Trail.snapshot` renders one.
+__all__ = [
+    "CELL",
+    "ScentFieldError",
+    "StepPlay",
+    "audit_scent",
+    "check_field",
+    "replay",
+    "trail_snapshots",
+]
+"""Everything this module exported before its parts moved into siblings.
 
-Deliberately narrower than ``int()`` would accept. ``" 1,2"``, ``"+1,2"`` and
-``"01,2"`` all parse as integers and none of them is a key we would ever emit,
-so accepting them would mean two peers whose fields compare unequal while both
-believe they agree — the failure the pre-series lock exists to prevent.
+The split is an arrangement of files, not a change to the interface: importers
+and the pre-series source offer both name ``domain/scent_audit.py``, so every
+public name it answered to stays answerable here.
 """
-
-
-class ScentFieldError(ValueError):
-    """Raised when a scent field cannot be trusted, or cannot be re-derived.
-
-    A ``ValueError`` rather than anything more dramatic because the caller's
-    job is to turn it into a recorded audit failure. An exception escaping an
-    audit would be a crash mid-match, which is a technical loss scoring zero
-    for both sides — the opponent's malformed field must cost *them* the
-    verdict, not both of us the game.
-    """
-
-
-@dataclass(frozen=True, slots=True)
-class StepPlay:
-    """One step as the audit sees it: both actions, and what they disclosed.
-
-    Frozen because it is evidence. The audit's whole claim is that these are
-    the values that crossed the wire, and a record the auditor could edit
-    proves nothing about the peer who sent it.
-    """
-
-    step: int
-    ours: Action
-    theirs: Action | None
-    disclosed: dict[str, float] | None
-
-
-def check_field(wire: dict[str, float], board_size: int) -> dict[Position, float]:
-    """Parse a received field, refusing anything we would not want to read.
-
-    Returns the field keyed by cell, so a caller that gets a value back has one
-    it may use. Nothing is dropped silently: an opponent that sends one bad
-    cell has sent a bad field, and quietly keeping the rest would let them
-    steer our belief with the half we accepted.
-
-    Raises:
-        ScentFieldError: on any structural or physical impossibility.
-    """
-    if not isinstance(wire, dict):
-        raise ScentFieldError(f"scent field must be an object, got {type(wire).__name__}")
-    if len(wire) > board_size * board_size:
-        raise ScentFieldError(
-            f"scent field has {len(wire)} cells, more than the {board_size * board_size} "
-            f"a {board_size}x{board_size} board contains"
-        )
-    field: dict[Position, float] = {}
-    for key, value in wire.items():
-        if not isinstance(key, str) or not CELL.match(key):
-            raise ScentFieldError(f"cell key {key!r} is not 'row,col'")
-        row, _, col = key.partition(",")
-        cell = (int(row), int(col))
-        if not (0 <= cell[0] < board_size and 0 <= cell[1] < board_size):
-            raise ScentFieldError(f"cell {key!r} is off a {board_size}x{board_size} board")
-        field[cell] = _intensity(key, value)
-    return field
-
-
-def _intensity(key: str, value: object) -> float:
-    """One cell's value, checked against the model both peers hash-locked.
-
-    Booleans are refused explicitly: ``isinstance(True, int)`` is true in
-    Python, so ``{"1,1": true}`` would otherwise be absorbed as an intensity of
-    one — brighter than any emission the model can produce.
-    """
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise ScentFieldError(f"intensity at {key!r} must be a number, got {type(value).__name__}")
-    number = float(value)
-    if not math.isfinite(number):
-        raise ScentFieldError(f"intensity at {key!r} must be finite, got {number!r}")
-    if number < 0.0:
-        raise ScentFieldError(
-            f"intensity at {key!r} is negative ({number!r}); the rulebook clamps at zero, "
-            "because there is no such thing as evidence the opponent was *not* somewhere"
-        )
-    if number > CENTRE_INTENSITY:
-        raise ScentFieldError(
-            f"intensity at {key!r} is {number!r}, above the Appendix F centre intensity "
-            f"of {CENTRE_INTENSITY}; no cell can be fresher than a fresh emission"
-        )
-    if number != round(number, PRECISION):
-        raise ScentFieldError(
-            f"intensity at {key!r} carries more precision than the wire transmits: "
-            f"{number!r} is not {PRECISION} decimals"
-        )
-    return number
-
-
-def _agent(role: str) -> Agent:
-    return "cop" if role == "police" else "thief"
-
-
-def _walk(
-    start: BoardState, axes: AxisConvention, role: str, plays: Sequence[StepPlay]
-) -> Iterator[tuple[StepPlay, Position, Position]]:
-    """Replay the match, yielding where each side stood after its own action.
-
-    The order mirrors :class:`~..runtime.subgame.SubGame` exactly — turn
-    counter, our action, then theirs — because a reconstruction that advanced
-    the board differently from the loop that played it would report an honest
-    peer as a forger.
-
-    Raises:
-        ScentFieldError: naming the step at which the revealed history stopped
-            being playable. Every later step is unauditable rather than clean.
-    """
-    mine, yours = _agent(role), _agent("thief" if role == "police" else "police")
-    state = start
-    for play in plays:
-        try:
-            state = advance_turn(state)
-            state = apply_action(state, mine, play.ours, axes)
-            here = position_of(state, mine)
-            if play.theirs is not None:
-                state = apply_action(state, yours, play.theirs, axes)
-        except ValueError as exc:
-            raise ScentFieldError(
-                f"step {play.step}: the revealed move cannot be replayed on the agreed "
-                f"board ({exc}); from here the two peers no longer share a board"
-            ) from exc
-        yield play, here, position_of(state, yours)
-
-
-def replay(
-    start: BoardState, axes: AxisConvention, role: str, plays: Sequence[StepPlay]
-) -> list[tuple[Position, Position]]:
-    """Where both sides stood after acting, one entry per step.
-
-    Raises:
-        ScentFieldError: if the revealed history is not playable.
-    """
-    return [(here, there) for _, here, there in _walk(start, axes, role, plays)]
 
 
 def trail_snapshots(
@@ -253,35 +126,3 @@ def audit_scent(
     except ScentFieldError as exc:
         failures.append(str(exc))
     return tuple(failures)
-
-
-def _disagreements(
-    play: StepPlay, expected: dict[str, float], board_size: int, require_bound: bool
-) -> list[str]:
-    """What is wrong with one step's disclosed field, if anything."""
-    if play.disclosed is None:
-        if not require_bound:
-            return []
-        return [
-            f"step {play.step}: no scent field was disclosed, so nothing they emitted can "
-            "be checked; unverifiable scent is refused rather than believed"
-        ]
-    try:
-        check_field(play.disclosed, board_size)
-    except ScentFieldError as exc:
-        return [f"step {play.step}: {exc}"]
-    if play.disclosed != expected:
-        return [
-            f"step {play.step}: the disclosed scent field is not the one their own revealed "
-            f"moves produce ({_where(play.disclosed)} against {_where(expected)}); a hint may "
-            "lie, a trail may not"
-        ]
-    return []
-
-
-def _where(field: dict[str, float]) -> str:
-    """The peak of a field, for an accusation the other side can check."""
-    if not field:
-        return "an empty field"
-    cell = min(field, key=lambda key: (-field[key], key))
-    return f"peak {field[cell]} at {cell}"

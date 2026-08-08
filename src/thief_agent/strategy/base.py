@@ -29,29 +29,9 @@ from ..domain.actions import Action, MoveAction, PlaceBarrier
 from ..domain.axes import AxisConvention
 from ..domain.board import Agent, BoardState, Move
 from ..domain.rules import legal_moves
+from .base_types import Decision, NoLegalActionError, StrategyContextError
 
-
-class NoLegalActionError(RuntimeError):
-    """Raised when a brain is asked to act with nothing legal available.
-
-    Not the same as being enclosed: a thief with no legal move is captured,
-    which is a terminal state the runtime should have detected before asking
-    for an action. Reaching here means the caller skipped that check.
-    """
-
-
-class StrategyContextError(TypeError):
-    """A configured brain cannot accept the documented belief context."""
-
-
-@dataclass
-class Decision:
-    """One turn's output: what to do, and what to say about it."""
-
-    action: Action
-    hint: str = ""
-    intent: str = "truth"
-    reasoning: str = ""
+__all__ = ["BrainBase", "Decision", "NoLegalActionError", "StrategyContextError"]
 
 
 @dataclass

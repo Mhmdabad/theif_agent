@@ -102,6 +102,7 @@ SHARED: tuple[str, ...] = (
     "ui/verdict.py",
     "ui/verdict_stamp.py",
     "ui/view.py",
+    "strategy/base_types.py",
     "shared/appendix_f.py",
     "shared/config.py",
     "shared/naming.py",

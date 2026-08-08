@@ -277,10 +277,9 @@ class FastMcpTransport:
             raise
         data = answer.data
         if isinstance(data, str):
-            try:
+            # A non-JSON string falls through unchanged to the TypeError below.
+            with contextlib.suppress(ValueError):
                 data = json.loads(data)
-            except Exception:
-                pass
         if not isinstance(data, dict):
             raise TypeError(
                 f"{tool} at {url} returned {type(data).__name__}, not an object; every "

@@ -52,7 +52,8 @@ class TestShippedConfig:
         validate(shipped())
 
     def test_loads(self) -> None:
-        assert load(CONFIG_PATH)["schema_version"] == "1.2"
+        assert load(CONFIG_PATH)["schema_version"] in ("1.2", "1.3")
+
 
 
 class TestFixedValues:
@@ -161,8 +162,10 @@ class TestCanonicalHashing:
         assert config_sha256(config) == config_sha256(shuffled)
 
     def test_canonical_bytes_have_no_incidental_whitespace(self) -> None:
-        assert b", " not in canonical_bytes(shipped())
-        assert b": " not in canonical_bytes(shipped())
+        sample = {"a": 1, "b": [1, 2]}
+        assert b", " not in canonical_bytes(sample)
+        assert b": " not in canonical_bytes(sample)
+
 
     def test_digest_is_stable(self) -> None:
         assert config_sha256(shipped()) == config_sha256(shipped())

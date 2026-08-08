@@ -33,31 +33,11 @@ calls :meth:`~.replay.Replay.seek` and does so visibly.
 """
 
 from dataclasses import dataclass
-from enum import Enum
 
 from .replay import Replay, check_step
+from .verdict_stamp import Stamp
 
-
-class Stamp(Enum):
-    """The verdict, and the colour the rulebook asks it to be shown in."""
-
-    VERIFIED_OK = "green"
-    """Every step re-derived from the log itself and matched."""
-
-    TAMPERED = "red"
-    """A step opened and did not produce its commitment. The match is void."""
-
-    INCOMPLETE = "grey"
-    """A step could not be opened. Nothing proven, and nothing cleared."""
-
-    @property
-    def text(self) -> str:
-        """The words on the stamp, spelled as the rulebook spells them."""
-        return {
-            Stamp.VERIFIED_OK: "Verified OK",
-            Stamp.TAMPERED: "TAMPERED",
-            Stamp.INCOMPLETE: "INCOMPLETE",
-        }[self]
+__all__ = ["Attestation", "Stamp", "walk"]
 
 
 @dataclass(frozen=True, slots=True)

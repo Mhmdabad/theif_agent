@@ -23,11 +23,18 @@ combined by the Bayes update, which multiplies this distribution by a
 likelihood and renormalises; keeping that out of here means the invariants —
 sums to one, zero on barriers, never negative — are enforced in one place and
 hold no matter what evidence is fed in.
+
+The read-only side of the map — :meth:`~.belief_readout.BeliefReadout.at` and
+the derived figures the policy and the GUI ask for — lives in
+:mod:`.belief_readout`, leaving what follows to the invariants alone.
 """
 
 from dataclasses import dataclass, field
 
+from .belief_readout import BeliefReadout
 from .board import BoardState, Position
+
+__all__ = ["Belief", "BeliefReadout"]
 
 
 def _cells(grid_size: int) -> list[Position]:
@@ -35,7 +42,7 @@ def _cells(grid_size: int) -> list[Position]:
 
 
 @dataclass
-class Belief:
+class Belief(BeliefReadout):
     """A normalised distribution over the board."""
 
     grid_size: int
@@ -49,14 +56,6 @@ class Belief:
         share = 1.0 / len(free) if free else 0.0
         belief.mass = {cell: share for cell in free}
         return belief
-
-    def at(self, cell: Position) -> float:
-        """Probability the opponent is on ``cell``. Zero if sealed or unknown."""
-        return self.mass.get(cell, 0.0)
-
-    def total(self) -> float:
-        """Should always be 1.0, or 0.0 if the board has no free cell."""
-        return sum(self.mass.values())
 
     def normalise(self) -> None:
         """Rescale to sum to one.
@@ -115,38 +114,3 @@ class Belief:
             return
         self.mass = scaled
         self.normalise()
-
-    def most_likely(self) -> Position | None:
-        """``argmax b(s)``: the cell the policy pursues.
-
-        Ties break by position so two peers replaying a match agree, and so a
-        uniform prior yields a stable target rather than a wandering one.
-        """
-        if not self.mass:
-            return None
-        return min(self.mass, key=lambda cell: (-self.mass[cell], cell))
-
-    def concentration(self) -> float:
-        """How sharply focused the belief is, in ``[0, 1]``.
-
-        The peak's share of the total, rescaled so a uniform distribution
-        reads 0 and certainty reads 1. This is the figure the barrier budget
-        curve spends against: a wall placed on a diffuse belief is a permanent
-        cost paid for a guess.
-        """
-        possible = [value for value in self.mass.values() if value > 0.0]
-        if not possible:
-            return 0.0
-        if len(possible) == 1:
-            return 1.0
-        peak = max(possible)
-        floor = 1.0 / len(possible)
-        if peak <= floor:
-            return 0.0
-        return (peak - floor) / (1.0 - floor)
-
-    def heatmap(self) -> list[list[float]]:
-        """Row-major grid for the GUI. A view of this object, not a copy."""
-        return [
-            [self.at((row, col)) for col in range(self.grid_size)] for row in range(self.grid_size)
-        ]

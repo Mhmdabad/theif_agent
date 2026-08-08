@@ -36,14 +36,10 @@ jobs:
       - name: Tests + coverage (pytest, fail under 85%)
         run: uv run pytest --cov --cov-report=term-missing
 
-      # Task 0.10 drops in scripts/check_line_limit.py; until then this skips.
+      # Budget from CONTRIBUTING.md; pre-existing offenders are grandfathered
+      # in the script's manifest and may shrink but not grow.
       - name: 150-line file check
-        run: |
-          if [ -f scripts/check_line_limit.py ]; then
-            uv run python scripts/check_line_limit.py
-          else
-            echo "line-limit check pending task 0.10 (scripts/check_line_limit.py absent)"
-          fi
+        run: uv run python scripts/check_line_limit.py
 
       # The two agents duplicate their shared logic on purpose — sharing a
       # live-state module disqualifies the solution — so nothing but this step

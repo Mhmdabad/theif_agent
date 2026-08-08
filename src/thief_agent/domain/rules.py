@@ -49,8 +49,6 @@ def is_legal_move(state: BoardState, agent: Agent, move: Move, axes: AxisConvent
     barrier. Agent occupancy is not a blocker: the cop moving onto the thief's
     cell is precisely how a capture happens.
     """
-    if move == "STAY":
-        return state.in_bounds(position_of(state, agent))
     return state.is_free(target_of(position_of(state, agent), move, axes))
 
 

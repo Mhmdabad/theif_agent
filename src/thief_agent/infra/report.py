@@ -29,13 +29,22 @@ which is what lets the exact bytes of a real report be asserted in a test.
 """
 
 import base64
-import json
 from dataclasses import dataclass, field
 from email.message import EmailMessage
-from pathlib import Path
-from typing import Any
 
-from ..shared.naming import result_filename
+from .report_document import SCHEMA_VERSION, Report
+from .report_parts import ReportError, Repositories, SubGameResult
+
+__all__ = [
+    "CONTENT_TYPE",
+    "LECTURER",
+    "SCHEMA_VERSION",
+    "Message",
+    "Report",
+    "ReportError",
+    "Repositories",
+    "SubGameResult",
+]
 
 LECTURER = "rmisegal+uoh26finalgame@gmail.com"
 """FR-7.17: the mandatory destination, hard-coded and not configurable.
@@ -47,145 +56,6 @@ zero for the side that did it.
 """
 
 CONTENT_TYPE = ("application", "json")
-SCHEMA_VERSION = "1.0.0"
-
-
-class ReportError(ValueError):
-    """Raised when a report is missing something the rulebook requires."""
-
-
-@dataclass(frozen=True, slots=True)
-class SubGameResult:
-    """One sub-game's outcome, with the commit it was played at."""
-
-    sub_game: int
-    cop_score: int
-    thief_score: int
-    commit_hash: str
-    steps: int = 0
-    technical_loss: bool = False
-
-    def __post_init__(self) -> None:
-        if self.sub_game < 1:
-            raise ReportError(f"sub-games are numbered from 1, got {self.sub_game}")
-        if not self.commit_hash:
-            raise ReportError(
-                f"sub-game {self.sub_game} has no commit hash; FR-7.28 requires one per "
-                "sub-game, and without it nobody can say which code played the game"
-            )
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "sub_game": self.sub_game,
-            "cop_score": self.cop_score,
-            "thief_score": self.thief_score,
-            "commit_hash": self.commit_hash,
-            "steps": self.steps,
-            "technical_loss": self.technical_loss,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class Repositories:
-    """Four links, both teams, both roles. FR-7.28 requires all of them."""
-
-    cop_repo: str
-    thief_repo: str
-    opponent_cop_repo: str
-    opponent_thief_repo: str
-
-    def __post_init__(self) -> None:
-        missing = [name for name, value in self.to_dict().items() if not value]
-        if missing:
-            raise ReportError(
-                f"FR-7.28 requires four repository links and {missing} are empty; a "
-                "report that cannot be traced back to the code is not a result"
-            )
-
-    def to_dict(self) -> dict[str, str]:
-        return {
-            "cop_repo": self.cop_repo,
-            "thief_repo": self.thief_repo,
-            "opponent_cop_repo": self.opponent_cop_repo,
-            "opponent_thief_repo": self.opponent_thief_repo,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class Report:
-    """A finished match, ready to be serialised and attached."""
-
-    game_id: str
-    role: str
-    team: str
-    opponent_team: str
-    repositories: Repositories
-    sub_games: tuple[SubGameResult, ...]
-    total_tokens: int
-    agreed: bool
-    game_uid: str = ""
-    started_at: str = ""
-    ended_at: str = ""
-
-    def __post_init__(self) -> None:
-        if not self.sub_games:
-            raise ReportError("a report with no sub-games describes no match")
-        numbers = [result.sub_game for result in self.sub_games]
-        if len(set(numbers)) != len(numbers):
-            raise ReportError(f"sub-game numbers repeat: {numbers}")
-        if self.total_tokens < 0:
-            raise ReportError(f"total_tokens cannot be negative, got {self.total_tokens}")
-
-    @property
-    def cop_total(self) -> int:
-        return sum(result.cop_score for result in self.sub_games)
-
-    @property
-    def thief_total(self) -> int:
-        return sum(result.thief_score for result in self.sub_games)
-
-    def to_dict(self) -> dict[str, Any]:
-        """The whole report, as the one structure a parser will read."""
-        return {
-            "schema_version": SCHEMA_VERSION,
-            "game_id": self.game_id,
-            "game_uid": self.game_uid,
-            "reported_by": {"role": self.role, "team": self.team},
-            "opponent_team": self.opponent_team,
-            "repositories": self.repositories.to_dict(),
-            "sub_games": [result.to_dict() for result in self.sub_games],
-            "totals": {
-                "cop": self.cop_total,
-                "thief": self.thief_total,
-                "sub_games_played": len(self.sub_games),
-                "total_tokens": self.total_tokens,
-            },
-            "result_agreed_with_opponent": self.agreed,
-            "started_at": self.started_at,
-            "ended_at": self.ended_at,
-        }
-
-    def to_json(self) -> str:
-        """Sorted keys and a trailing newline, so two peers produce identical bytes."""
-        return json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n"
-
-    @property
-    def filename(self) -> str:
-        return result_filename(self.game_id)
-
-    def write(self, directory: Path) -> Path:
-        """Write ``result_<game_id>.json`` — the same bytes that get attached.
-
-        The file and the attachment come from one :meth:`to_json`, so the copy
-        committed to the repository and the copy the lecturer receives cannot
-        drift. Writing the report twice, from two serialisations, is how the
-        evidence in the repository ends up disagreeing with the evidence in the
-        mailbox — and the two are meant to be the same document.
-        """
-        directory.mkdir(parents=True, exist_ok=True)
-        path = directory / self.filename
-        path.write_text(self.to_json())
-        return path
 
 
 @dataclass

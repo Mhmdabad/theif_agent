@@ -88,11 +88,14 @@ def apply_move(state: BoardState, agent: Agent, move: Move, axes: AxisConvention
     Raises:
         IllegalMoveError: if the move is not legal from this state.
     """
-    if not is_legal_move(state, agent, move, axes):
-        origin = position_of(state, agent)
-        target = target_of(origin, move, axes)
-        raise IllegalMoveError(f"{agent} cannot play {move}: {origin} -> {target}")
-    destination = target_of(position_of(state, agent), move, axes)
+    origin = position_of(state, agent)
+    if move == "STAY" and origin in state.barriers:
+        destination = origin
+    else:
+        if not is_legal_move(state, agent, move, axes):
+            target = target_of(origin, move, axes)
+            raise IllegalMoveError(f"{agent} cannot play {move}: {origin} -> {target}")
+        destination = target_of(origin, move, axes)
     if agent == "cop":
         return replace(state, cop=destination)
     return replace(state, thief=destination)

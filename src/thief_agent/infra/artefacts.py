@@ -34,30 +34,18 @@ from ..shared.naming import (
     log_filename,
     result_filename,
 )
+from .artefacts_coherence import (
+    ArtefactError,
+    Coherence,
+    identity_problems,
+    structural_problems,
+)
 from .config_file import LockedConfig
 from .declaration import MatchDeclaration
 from .match_log import MatchLog
 from .report import Report
 
-
-class ArtefactError(ValueError):
-    """Raised when a match's files do not agree about which match they describe."""
-
-
-@dataclass(frozen=True, slots=True)
-class Coherence:
-    """Whether a set of artefacts describes one match, and what disagrees if not."""
-
-    problems: tuple[str, ...] = ()
-
-    @property
-    def coherent(self) -> bool:
-        return not self.problems
-
-    def __str__(self) -> str:
-        if self.coherent:
-            return "all four artefacts agree on one match"
-        return "the artefacts disagree: " + "; ".join(self.problems)
+__all__ = ["ArtefactError", "ArtefactSet", "Coherence"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,58 +92,9 @@ class ArtefactSet:
         one mismatch only to be told about the next is being made to do a
         search this function has already done.
         """
-        problems: list[str] = []
-        for config in self.configs:
-            if config.game_id != self.game_id:
-                problems.append(
-                    f"config g{config.sub_game:02d} is for game {config.game_id!r}, "
-                    f"not {self.game_id!r}"
-                )
-            if config.game_uid != self.game_uid:
-                problems.append(f"config g{config.sub_game:02d} has a different game_uid")
-
-        for log in self.logs:
-            if log.game_id != self.game_id:
-                problems.append(
-                    f"log g{log.sub_game:02d} is for game {log.game_id!r}, not {self.game_id!r}"
-                )
-            if log.game_uid != self.game_uid:
-                problems.append(f"log g{log.sub_game:02d} has a different game_uid")
-
-        if self.result.game_id != self.game_id:
-            problems.append(f"the result is for game {self.result.game_id!r}")
-        if self.result.game_uid != self.game_uid:
-            problems.append("the result has a different game_uid")
-
-        problems.extend(self._structural())
+        problems = identity_problems(self)
+        problems.extend(structural_problems(self))
         return Coherence(tuple(problems))
-
-    def _structural(self) -> list[str]:
-        """Disagreements about *how many* sub-games there were.
-
-        A config with no log means a sub-game was agreed and never played; a log
-        with no config means one was played under parameters nobody recorded.
-        Both are holes in the evidence rather than mismatched strings, and an
-        identity check that ignored them would pass a set nobody can audit.
-        """
-        problems: list[str] = []
-        configs = {config.sub_game for config in self.configs}
-        logs = {log.sub_game for log in self.logs}
-        reported = {entry.sub_game for entry in self.result.sub_games}
-
-        if len(configs) != len(self.configs):
-            problems.append("two configs claim the same sub-game")
-        if len(logs) != len(self.logs):
-            problems.append("two logs claim the same sub-game")
-        for missing in sorted(configs - logs):
-            problems.append(f"sub-game {missing} has a config but no log")
-        for missing in sorted(logs - configs):
-            problems.append(f"sub-game {missing} has a log but no config")
-        for missing in sorted(reported - logs):
-            problems.append(f"the result reports sub-game {missing}, which has no log")
-        for missing in sorted(logs - reported):
-            problems.append(f"sub-game {missing} was played but is not in the result")
-        return problems
 
     def write(self, directory: Path) -> tuple[Path, ...]:
         """Write all four kinds of file, refusing an incoherent set.

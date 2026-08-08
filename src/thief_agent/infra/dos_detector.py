@@ -11,27 +11,10 @@ backpressure plus a circuit breaker, and the phrase worth keeping is *sacrificin
 one report*. Losing a match's points is a bad afternoon; losing the account is
 the project.
 
-**What "anomalous" means here.** Not volume — volume is what the other two gates
-are for. The signal is *regularity*. A person, or an agent playing matches, sends
-in clumps with irregular gaps: a report at the end of one game, another twenty
-minutes later. A loop sends with the spacing of its own iteration, and that
-spacing is suspiciously even. So the detector watches the **variation** in the
-intervals between sends, and trips when a burst arrives too evenly to be a
-sequence of real events.
-
-Two independent triggers, because a bug can be fast or merely relentless:
-
-* **burst** — more than ``burst_limit`` sends inside ``window_sec``;
-* **metronome** — a run of sends whose intervals are nearly identical, which is
-  what code does and people do not.
-
-The two read the same history over **different spans**, and that is deliberate.
-The burst rule asks "how many just now", so it counts inside ``window_sec``. The
-cadence rule asks "what shape", and a slow loop — one send every few minutes,
-forever — never puts enough samples inside a one-minute window to have a shape
-at all. Windowing the history before measuring cadence would leave the metronome
-trigger able to see only fast patterns, which the burst rule already catches, and
-blind to the relentless-but-slow loop it exists for.
+What "anomalous" means — regularity rather than volume — and the two triggers
+that follow from it live in :mod:`.dos_detector_cadence`, together with the
+thresholds they are measured against. This module owns the history, the clock,
+and the door.
 
 **The lock does not expire.** A circuit breaker that half-opens after a timeout
 is right for a flaky dependency and wrong here, because the fault is *ours*: the
@@ -49,28 +32,27 @@ import json
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from itertools import pairwise
 from pathlib import Path
 
-BURST_LIMIT = 5
-"""Sends inside :data:`WINDOW_SEC` that count as a burst.
+from .dos_detector_cadence import (
+    BURST_LIMIT,
+    METRONOME_RUN,
+    METRONOME_TOLERANCE,
+    WINDOW_SEC,
+    Thresholds,
+)
 
-Above anything a real match produces — one report per game — and far below the
-30/minute the token bucket would happily allow.
-"""
-
-WINDOW_SEC = 60.0
-"""The burst window."""
-
-METRONOME_RUN = 4
-"""Consecutive intervals that must be near-identical to look mechanical."""
-
-METRONOME_TOLERANCE = 0.05
-"""Relative spread below which a run of intervals is machine-regular.
-
-Five percent. Human-paced events do not land this evenly; a loop with a fixed
-sleep does almost nothing else.
-"""
+__all__ = [
+    "BURST_LIMIT",
+    "LOCK_PATH_ENV",
+    "METRONOME_RUN",
+    "METRONOME_TOLERANCE",
+    "WINDOW_SEC",
+    "Detector",
+    "DosDetected",
+    "Thresholds",
+    "lock_path",
+]
 
 LOCK_PATH_ENV = "GMAIL_LOCK_PATH"
 
@@ -96,9 +78,6 @@ class Detector:
     tolerance: float = METRONOME_TOLERANCE
     history: int = 32
     recent: list[float] = field(default_factory=list, init=False)
-
-    def _within_window(self, moment: float) -> list[float]:
-        return [at for at in self.recent if moment - at <= self.window_sec]
 
     @property
     def locked(self) -> bool:
@@ -144,38 +123,11 @@ class Detector:
         self.recent.append(moment)
         self.recent = self.recent[-self.history :]
 
-        inside = self._within_window(moment)
-        if len(inside) > self.burst_limit:
-            self._lock(
-                f"{len(inside)} sends within {self.window_sec:g}s, over the burst "
-                f"limit of {self.burst_limit}"
-            )
-        spread = self._metronome()
-        if spread is not None:
-            self._lock(
-                f"{self.metronome_run + 1} sends spaced {spread:g}s apart to within "
-                f"{self.tolerance:.0%} — that is a loop's cadence, not a match's"
-            )
-
-    def _metronome(self) -> float | None:
-        """The mean interval, if the last run of them is suspiciously even.
-
-        Returns ``None`` when there is not enough history or the spacing is
-        irregular — which is what real activity looks like. Intervals of zero
-        are treated as mechanical too: nothing human sends twice in the same
-        instant.
-        """
-        needed = self.metronome_run + 1
-        if len(self.recent) < needed:
-            return None
-        tail = self.recent[-needed:]
-        gaps = [later - earlier for earlier, later in pairwise(tail)]
-        mean = sum(gaps) / len(gaps)
-        if mean <= 0:
-            return 0.0
-        if max(abs(gap - mean) for gap in gaps) / mean > self.tolerance:
-            return None
-        return mean
+        reason = Thresholds(
+            self.burst_limit, self.window_sec, self.metronome_run, self.tolerance
+        ).anomaly(self.recent, moment)
+        if reason is not None:
+            self._lock(reason)
 
     def _lock(self, reason: str) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

@@ -35,12 +35,23 @@ daylight saving. A ceiling that shifts by an hour twice a year is a ceiling that
 is wrong twice a year.
 """
 
-import json
-import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+
+from . import quota_ledger
+from .quota_ledger import QUOTA_PATH_ENV, DayCount, QuotaError, QuotaExhausted, quota_path
+
+__all__ = [
+    "DAILY_LIMIT",
+    "QUOTA_PATH_ENV",
+    "DayCount",
+    "Quota",
+    "QuotaError",
+    "QuotaExhausted",
+    "quota_path",
+]
 
 DAILY_LIMIT = 50
 """Sends permitted per UTC day.
@@ -57,34 +68,6 @@ Google's limit: a threshold set just under the provider's does not protect
 anything, because by the time it trips the damage is already interesting.
 """
 
-QUOTA_PATH_ENV = "GMAIL_QUOTA_PATH"
-"""Explicit location for the ledger, mainly so tests never touch a real one."""
-
-
-class QuotaError(RuntimeError):
-    """Raised when a send must not proceed, or when the ledger cannot be trusted."""
-
-
-class QuotaExhausted(QuotaError):
-    """Raised when today's ceiling has been reached. Not retryable today."""
-
-
-def quota_path(package: str, environ: "dict[str, str] | None" = None) -> Path:
-    """Where this agent's ledger lives. Per agent, like the token."""
-    chosen = (environ if environ is not None else dict(os.environ)).get(QUOTA_PATH_ENV)
-    return Path(chosen) if chosen else Path(f".quota_{package.split('_')[0]}.json")
-
-
-@dataclass(frozen=True, slots=True)
-class DayCount:
-    """What the ledger says about one UTC day."""
-
-    day: str
-    used: int
-
-    def to_dict(self) -> dict[str, object]:
-        return {"day": self.day, "used": self.used}
-
 
 @dataclass
 class Quota:
@@ -98,35 +81,8 @@ class Quota:
         return self.now().astimezone(UTC).date().isoformat()
 
     def _read(self) -> DayCount:
-        """Read the ledger, treating an unreadable one as an error rather than zero.
-
-        Raises:
-            QuotaError: if the file exists but cannot be parsed. A missing file
-                is a first run and counts as zero; a *damaged* file is a count
-                we do not have, and guessing zero would make corruption the way
-                to get an unlimited day.
-        """
-        today = self.today()
-        try:
-            body = json.loads(self.path.read_text())
-        except FileNotFoundError:
-            return DayCount(today, 0)
-        except (OSError, json.JSONDecodeError) as exc:
-            raise QuotaError(
-                f"the quota ledger at {self.path} cannot be read ({exc}), so this agent "
-                "cannot show it is under today's ceiling and will not send. Inspect it, "
-                "then clear it deliberately with quota.reset() if the count is genuinely "
-                "unknown"
-            ) from exc
-
-        if not isinstance(body, dict) or not isinstance(body.get("used"), int):
-            raise QuotaError(
-                f"the quota ledger at {self.path} is not a count ({body!r}); refusing to "
-                "send rather than assume zero"
-            )
-        if body.get("day") != today:
-            return DayCount(today, 0)
-        return DayCount(today, int(body["used"]))
+        """Today's count, read fresh from the ledger on every call."""
+        return quota_ledger.read_day_count(self.path, self.today())
 
     def used(self) -> int:
         """Sends already taken today. Rolls over at UTC midnight."""
@@ -176,11 +132,7 @@ class Quota:
         return taken.used
 
     def _write(self, count: DayCount) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        handle = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(handle, "w") as stream:
-            json.dump(count.to_dict(), stream, sort_keys=True)
-            stream.write("\n")
+        quota_ledger.write_day_count(self.path, count)
 
     def reset(self) -> None:
         """Clear the ledger. A deliberate act, never taken by a failure path."""

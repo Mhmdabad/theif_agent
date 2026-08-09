@@ -9,11 +9,12 @@ stated once, next to the record it consumes.
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 
-from .actions import Action, apply_action
+from .actions import Action
 from .axes import AxisConvention
 from .board import Agent, BoardState, Position
 from .rules import advance_turn, position_of
 from .scent_audit_wire import ScentFieldError
+from .turn_order import advance_both
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,10 +55,8 @@ def _walk(
     for play in plays:
         try:
             state = advance_turn(state)
-            state = apply_action(state, mine, play.ours, axes)
+            state = advance_both(state, mine, play.ours, play.theirs, axes, yours)
             here = position_of(state, mine)
-            if play.theirs is not None:
-                state = apply_action(state, yours, play.theirs, axes)
         except ValueError as exc:
             raise ScentFieldError(
                 f"step {play.step}: the revealed move cannot be replayed on the agreed "

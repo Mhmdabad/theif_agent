@@ -9,9 +9,10 @@ action the board will accept.
 from dataclasses import dataclass
 from typing import cast
 
-from ..domain.actions import Action, MoveAction, PlaceBarrier, apply_action
+from ..domain.actions import Action, MoveAction, PlaceBarrier
 from ..domain.board import Move
 from ..domain.outcome import is_capture_by_overlap, is_enclosure_capture, is_trapping_capture
+from ..domain.turn_order import advance_both
 from .subgame_state import SubGameState
 from .subgame_types import MOVES, UnplayableReveal
 
@@ -41,17 +42,25 @@ class SubGameMoves(SubGameState):
         return MoveAction(move=cast("Move", opened.move))
 
     def _advance(self, ours: Action, theirs: Action | None) -> None:
-        """Apply both moves to one board.
+        """Apply both actions to one board, each judged against the pre-turn state.
 
-        Ours first, then theirs, and both against the same starting state as
-        far as legality is concerned — the two were chosen simultaneously and
-        neither saw the other. Applying them in sequence is the only thing a
-        single board can do; what must not happen is either side *deciding*
-        with knowledge of the other, and the ceremony above is what prevents it.
+        The two were chosen simultaneously and neither saw the other, so
+        neither may be refused for colliding with the other. This used to
+        apply ours and then judge theirs against the result, which turned a
+        legally committed move into an illegal one whenever the two actions
+        touched the same cell — and aborted the match for both sides when it
+        did. :func:`~..domain.turn_order.advance_both` is that rule written
+        once, because the audit replays the same sequence and the two peers'
+        boards have to agree.
         """
-        self.state = apply_action(self.state, self._agent(self.role), ours, self.axes)
-        if theirs is not None:
-            self.state = apply_action(self.state, self._agent(self.opponent), theirs, self.axes)
+        self.state = advance_both(
+            self.state,
+            self._agent(self.role),
+            ours,
+            theirs,
+            self.axes,
+            self._agent(self.opponent),
+        )
 
     def _captured(self) -> bool:
         """Any of the three capture conditions the rulebook defines."""

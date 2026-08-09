@@ -30,6 +30,15 @@ class MatchDeclaration:
     llm_model: str
     token_ceiling: int
     started_at: str
+    games_already_played: int = 0
+    """Appendix E rule 37: league games behind us when this one opened.
+
+    Inside :meth:`content`, so the signature covers it — rule 38 makes a false
+    count a breach, and a number nobody signed is one that can be revised after
+    the fact. Counted from :class:`~.match_ledger.MatchLedger`, which sits beside
+    the artefacts a reader can check it against.
+    """
+
     ended_at: str = ""
     signature: str = ""
 
@@ -47,6 +56,11 @@ class MatchDeclaration:
             )
         if not self.started_at:
             raise DeclarationError("a declaration with no start time fixes nothing in time")
+        if self.games_already_played < 0:
+            raise DeclarationError(
+                f"games_already_played cannot be negative, got {self.games_already_played}; "
+                "Appendix E rule 37 wants the exact number of games behind us"
+            )
         if self.us.name == self.them.name:
             raise DeclarationError(f"both teams are called {self.us.name!r}")
 
@@ -72,6 +86,7 @@ class MatchDeclaration:
             "machine": statement(self.hardware, self.provenance),
             "llm_model": self.llm_model,
             "token_ceiling": self.token_ceiling,
+            "games_already_played": self.games_already_played,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
         }

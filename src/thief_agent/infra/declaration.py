@@ -60,6 +60,7 @@ def build(
     llm_model: str,
     token_ceiling: int,
     started_at: str,
+    games_already_played: int = 0,
     key: str | None = None,
 ) -> MatchDeclaration:
     """Assemble and sign a declaration in one call."""
@@ -76,6 +77,7 @@ def build(
             llm_model=llm_model,
             token_ceiling=token_ceiling,
             started_at=started_at,
+            games_already_played=games_already_played,
         ),
         key,
     )

@@ -78,7 +78,7 @@ def private_config(strategy: dict[str, Any] | None = None) -> dict[str, Any]:
 
 PARAMETERS: dict[str, Any] = {
     "board_and_agents": {"grid_size": 8, "cop_start": [0, 0], "thief_start": [6, 5]},
-    "movement_and_barriers": {"max_moves": 40},
+    "movement_and_barriers": {"max_moves": 35},
     "network_and_league": {"token_budget_per_series": 200_000},
 }
 """Stands in for ``config/game.json`` so the test does not depend on the cwd."""
@@ -125,6 +125,17 @@ class RecordingRunner:
 
     def agree_result(self) -> bool:
         return True
+
+    @property
+    def directory(self) -> Path:
+        """Where a real runner writes, and where the league ledger sits beside it."""
+        value = self.kwargs["directory"]
+        assert isinstance(value, Path)
+        return value
+
+    def failures(self) -> list[str]:
+        """Empty on a clean series, as the real runner's is."""
+        return []
 
     def result(self, **kwargs: object) -> None:
         return None

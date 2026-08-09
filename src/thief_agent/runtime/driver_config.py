@@ -11,6 +11,7 @@ from typing import Any
 
 from ..domain.board import BoardState
 from ..infra.declaration import Team
+from ..shared.appendix_f import book_int
 
 
 def _side(block: dict[str, Any]) -> Team:
@@ -54,6 +55,20 @@ def _cell(value: object, fallback: tuple[int, int]) -> tuple[int, int]:
     if isinstance(value, (list, tuple)) and len(value) == 2:
         return (int(value[0]), int(value[1]))
     return fallback
+
+
+def _max_moves(parameters: dict[str, Any]) -> int:
+    """How many steps a sub-game may run to, from the agreed configuration.
+
+    The fallback is the book's own value rather than a number typed here. It was
+    ``40``, which is not a rounding of Appendix F table 6's minimum of 35 but a
+    different rule — unreachable, because :func:`~...shared.config.load`
+    validates the key before this runs, and exactly the drift the ``book_value``
+    doctrine exists to prevent. A default that disagrees with the book is one
+    that becomes the truth the day the validation moves.
+    """
+    movement = parameters.get("movement_and_barriers", {})
+    return int(movement.get("max_moves", book_int("movement_and_barriers", "max_moves")))
 
 
 def _start_board(board: dict[str, Any]) -> BoardState:

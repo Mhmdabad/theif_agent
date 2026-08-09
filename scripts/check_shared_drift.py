@@ -85,6 +85,7 @@ SHARED: tuple[str, ...] = (
     "infra/ceremony_commit.py",
     "infra/ceremony_errors.py",
     "infra/report_reload.py",
+    "infra/match_ledger.py",
     "runtime/match.py",
     "runtime/match_play.py",
     "runtime/match_agreement.py",

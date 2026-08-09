@@ -25,9 +25,11 @@ first always fails. :func:`await_opponent` retries the announcement until the
 other side appears or the patience runs out, so the two commands only have to be
 started within a couple of minutes of each other rather than simultaneously.
 
-**It writes and stops.** No mail. FR-7.16 requires both sides to agree the
-result before either reports one, so the report goes to disk with ``agreed``
-false and a person sends it later, having actually agreed.
+**It agrees, writes, and stops.** Appendix E rule 35 requires both sides to
+agree the result before either reports one, so the last thing the match does is
+publish our score and read theirs, recording the answer rather than assuming it.
+Mailing is still a separate, deliberate act — ``report --send`` — because a
+person has to stand behind a report.
 """
 
 from pathlib import Path
@@ -116,17 +118,21 @@ def open_match(
         peering=peering,
     )
 
+    agreed = False
     try:
         runner.agree()
         runner.play_series()
+        agreed = runner.agree_result()
     finally:
         transport.close()
 
     if not runner.opponent_played_fairly:
         for failure in runner.failures():
             print(f"  AUDIT FAILURE: {failure}")
+    if not agreed:
+        print("  RESULT NOT AGREED: the opponent did not publish the score we did")
 
-    return _conclude(runner, declaration, us, them)
+    return _conclude(runner, declaration, us, them, agreed)
 
 
 __all__ = [

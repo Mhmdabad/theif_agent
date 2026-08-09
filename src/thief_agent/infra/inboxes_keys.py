@@ -59,6 +59,29 @@ answering the physics question with the parameters answer — so they travel
 under separate keys and are routed to separate mailboxes.
 """
 
+RESULT_KEY = "result_claim"
+"""What makes a negotiation message a final-result claim.
+
+Appendix E rule 35: both sides agree the result before either reports one. A
+fourth body on the one negotiation channel, routed on content exactly as the
+digest and the lock are, and for the same reason — the wire cannot distinguish
+them, because greeting, digest, lock and claim all arrive as ``negotiate``.
+
+It travels here rather than as a control signal because ``receive_control``
+carries the reference's four fixed kinds, and inventing a fifth would be a
+message a reference opponent parses as malformed. A negotiation body it does
+not recognise is one it acknowledges and ignores, which is the failure we want:
+no agreement recorded, rather than a match lost at the final gate.
+"""
+
+RESULT_DIGEST_KEY = "result_sha256"
+"""The digest of the offered claim. Named apart from the other two digests.
+
+Three digests over three different agreements — parameters, physics, outcome —
+and conflating any two would be a peer answering one question with another
+question's answer, so each travels under its own key into its own mailbox.
+"""
+
 RETRY_KEY = "retry"
 """Marks a refusal the sender should repeat rather than one it must accept.
 

@@ -7,7 +7,15 @@ class, so every method below is a real, typed method of it.
 from typing import Any
 
 from .inboxes_gate import InboxGate
-from .inboxes_keys import ACK, DIGEST_KEY, SCENT_DIGEST_KEY, SCENT_KEY, SERIES_KEY
+from .inboxes_keys import (
+    ACK,
+    DIGEST_KEY,
+    RESULT_DIGEST_KEY,
+    RESULT_KEY,
+    SCENT_DIGEST_KEY,
+    SCENT_KEY,
+    SERIES_KEY,
+)
 from .validation import (
     InvalidPayloadError,
     optional_scent,
@@ -21,19 +29,26 @@ class NegotiateInbox(InboxGate):
     """:class:`~.inboxes_gate.InboxGate` plus the one negotiation channel's three bodies."""
 
     def negotiate(self, message: object) -> dict[str, Any]:
-        """Receive a greeting, a config digest or a scent lock, and file it by what it is.
+        """Receive a greeting, digest, scent lock or result claim, and file it by what it is.
 
-        Routed on content because the wire cannot distinguish them: all three
+        Routed on content because the wire cannot distinguish them: all four
         arrive as ``negotiate``. A message carrying ``scent_lock`` is an offer,
-        one carrying ``config_sha256`` is a digest; anything else is treated as
-        a greeting and validated as one downstream, so a malformed message still
-        fails where greetings are understood rather than being silently filed as
-        something nobody reads.
+        one carrying ``result_claim`` is a final result, one carrying
+        ``config_sha256`` is a digest; anything else is treated as a greeting and
+        validated as one downstream, so a malformed message still fails where
+        greetings are understood rather than being silently filed as something
+        nobody reads.
+
+        The result claim is tested before the digest because it carries one of
+        its own, under a different key: a claim reaching the digest branch would
+        be filed as a set of parameters nobody proposed.
         """
         try:
             body = require_mapping(message, "agreement")
             if SCENT_KEY in body:
                 self.scent_locks.put(self._scent_lock(body))
+            elif RESULT_KEY in body:
+                self.results.put(self._result(body))
             elif DIGEST_KEY in body:
                 self.digests.put(self._digest(body))
             else:
@@ -41,6 +56,25 @@ class NegotiateInbox(InboxGate):
         except InvalidPayloadError as exc:
             return self._refuse("negotiate", exc)
         return ACK
+
+    def _result(self, body: dict[str, Any]) -> dict[str, Any]:
+        """A final-result claim, checked for shape, or a refusal before it is filed.
+
+        Shape only, exactly as :meth:`_scent_lock` is. Whether their result is
+        *ours* is a question about the match and belongs to the gate that holds
+        our own outcomes; splitting them keeps one validator per question.
+
+        The series binding is required rather than optional. Unlike the config
+        digest, this body is this project's dialect and not the reference's, so
+        a peer speaking it at all is speaking ours — and a claim that will not
+        say which series it settles is one we have no honest reading of.
+        """
+        return {
+            **body,
+            RESULT_KEY: require_mapping(body[RESULT_KEY], RESULT_KEY),
+            RESULT_DIGEST_KEY: require_digest(body, RESULT_DIGEST_KEY),
+            SERIES_KEY: require_str(body, SERIES_KEY),
+        }
 
     def _scent_lock(self, body: dict[str, Any]) -> dict[str, Any]:
         """A scent-model offer, checked for shape, or a refusal before it is filed.

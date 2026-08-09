@@ -175,7 +175,83 @@ tests/           pytest suite
      structure of the uncertainty. Specific to our implementation, not generic
      textbook prose. Source: Rulebook ch. 1. Produced by: PRD-1, PRD-4.        -->
 
-*To be written — see PRD-1 (state space) and PRD-4 (observations, belief).*
+The race is a decentralised partially observable Markov decision process —
+the octuple ⟨n, S, {Aᵢ}, P, R, {Ωᵢ}, O, γ⟩ of Rulebook ch. 1 — and every
+component of that octuple is a concrete object in this repository rather than
+a notational courtesy. What follows maps the formalism onto the code that
+carries it.
+
+**The state S exists nowhere.** S is the full picture: both positions, the
+barrier layout, the accumulated scent field. No process holds it. The two
+agents run as separate OS processes under separate configuration directories
+(Appendix E rules 1–2), with shared memory and shared live modules forbidden
+outright — which is what makes this a *Dec*-POMDP rather than two POMDPs that
+happen to share a board. With no environment process to ask, the true state is
+only ever the **agreement** between two local truths: established before the
+series by the config digest (`runtime/orchestrator_config.py`), maintained
+per turn by Commit-Reveal, and checked after the fact by mutual audit.
+`BoardState` in `domain/board.py` is this side's local reconstruction of S —
+frozen, because the Commit hash is taken over a specific snapshot — not a
+window onto S itself.
+
+**The thief's actions mix physics and psychology.** The physical action space
+is five moves — `N`, `S`, `E`, `W`, `STAY` (`domain/actions.py`), diagonals
+illegal, with `legal_moves` in the domain layer as the single source of
+legality. The communicative action is the verbal hint: free natural language,
+permitted to be a deliberate lie, composed by the bluff modules
+(`domain/bluff.py` and its siblings). Even `STAY` is not a null action,
+because emission continues while decay only fades — a cell sat on becomes a
+beacon, which is why the strategy prices waiting rather than treating it as
+free. The cop's barrier placements enter this repository only as declarations
+to be verified, never as actions to be taken.
+
+**The transition P is deterministic, and therefore must be shared.** With no
+referee, two peers running different transition functions are playing
+different games without knowing it. P is encoded in the shared configuration,
+validated against Appendix F at startup, and agreed by SHA-256 digest at
+negotiation — a mismatch is refused, not reconciled.
+
+**R is the scoring table, verbatim** (`domain/scoring.py`): capture 20/5,
+survival 5/10, technical loss 0/0. For this agent the gradient points at
+survival — thirty-five valid steps at 10 points — and the 0/0 row is load-
+bearing: it is why so much of section 2 below is about not deadlocking.
+
+**The observation Ωₜₕᵢₑ𝒻 is the heart of the model.** Per turn the thief
+observes exactly: its own position, the legality of its own candidates, the
+opponent's disclosed scent field, and the opponent's hint. The cop's cell is
+never in it. The Live GUI's `render()` has no parameter for the opponent's
+true position — the observation model enforced as an API signature, not as a
+promise.
+
+**O is two witnesses of unequal honesty.** Scent is physics: emitted every
+turn by presence itself, impossible to suppress or to plant elsewhere
+(`domain/scent.py`), fading multiplicatively so that intensity encodes
+recency (`domain/trail.py`), and re-derivable at audit from the revealed
+movement history (`domain/scent_audit.py`) — noisy, but incapable of lying. A
+hint is a claim (`domain/hints.py`): it may be true or a lie, so it enters
+the update weighted by a reliability earned by checking past claims against
+the trail (`domain/credibility.py`).
+
+**The belief state is the posterior the formalism calls for.**
+`domain/belief.py` maintains a normalised distribution over cells: uniform
+over free cells as the honest prior, zero on barriers always, one Bayes step
+per piece of evidence. Two of its invariants come straight from the model. A
+cell the evidence does not mention is multiplied by one, not zero — silence
+is absent information, not negative information. And reliability is applied
+by flattening toward uniform rather than by scaling
+(`domain/inference.py`), because the belief renormalises, so a uniformly
+scaled likelihood has no effect and an unreliable hint would become
+indistinguishable from a reliable one.
+
+**γ appears structurally, not as a constant.** The thief's horizon is finite
+and known — `survival_threshold` steps — and its future-regard lives in
+`strategy/containment.py`: barriers only accumulate, so the reachable region
+only shrinks, and the *rate* of shrinkage is the cop's plan becoming visible.
+Reacting to how small the region is reacts too late by construction; reacting
+to how fast it is closing is what the discount factor means here. The same
+symmetry the rulebook calls *uncertainty as a resource* is this side's
+weapon: the cop's Ω is just as blind, and the hint channel exists so the
+thief can spend that blindness.
 
 ## 2. FastMCP orchestration dilemmas
 
@@ -185,8 +261,98 @@ tests/           pytest suite
      grader is looking for reasoning and rejected alternatives, not a
      description of the final code. Source: ch. 2, ch. 8. From: PRD-2, PRD-5.  -->
 
-*To be written — see PRD-2 (Orchestrator, state machine, reliability patterns)
-and PRD-5 (tunnelling, latency, failure handling).*
+Ch. 2's architecture — every agent simultaneously server and client, no
+referee anywhere — is one sentence to state and was most of the engineering
+to build. Each dilemma below is one this codebase actually hit, the decision
+taken, and why; the rejected alternative is stated because in most cases we
+built it first.
+
+### Async FastMCP under a synchronous match loop
+
+`fastmcp.Client` is asynchronous. The retry and deadline logic decides
+matches — a mishandled timeout is the technical loss that scores zero for
+both sides — so it has to be testable without an event loop, and letting
+`async` leak upward would mean every one of those tests needed one. The
+decision, in `infra/mcp_transport.py`: the bridge lives in exactly one
+module, each call runs its own loop start to finish, and nothing above that
+line knows. The accepted cost is a fresh connection per call instead of a
+session held open for the match. That is the right trade here: sub-games are
+turn-based with seconds between messages, so connection setup is not the
+bottleneck — and a long-lived session is precisely the thing that fails
+silently when a tunnel restarts between sub-games, which the handshake
+rotation in `infra/handshake.py` exists because it *does* happen.
+
+### What a failure means, and which layer gets to say so
+
+`infra/mcp_client.py` decides what a failure *means* — what is retried, when
+the budget is spent, when a timeout becomes a technical loss — and it decides
+by exception type, retrying `TimeoutError`, `ConnectionError` and `OSError`.
+FastMCP throws that distinction away: a peer that is simply not there
+surfaces as a bare `RuntimeError` reading *"Client failed to connect"*, which
+would skip the retry budget entirely and crash the turn instead of becoming
+the technical loss the rules define. Through a tunnel it is worse: the
+connection *succeeds*, because ngrok is up and answers `502` on the absent
+peer's behalf — an HTTP status error that is neither `OSError` nor
+`RuntimeError`, so the retry logic was correct and unreachable. It worked in
+every localhost test and could not work in the one situation it was written
+for. The decision: translate exactly two things — connection failures become
+`ConnectionError` with the original chained, and the `UPSTREAM_DEAD` gateway
+statuses are recognised as an unreachable opponent, whatever layer says so —
+and nothing else. A tool that answers badly answers with a value, and our own
+`TypeError` is our own bug; neither deserves three retries before being
+misreported as an absent peer.
+
+### One gateway, when FastMCP wants tool functions everywhere
+
+FastMCP's natural shape puts logic inside `@mcp.tool` handlers, which is a
+short road to peripheral modules referencing each other — exactly what
+Appendix E rule 3 forbids. The decision: the four exposed tools
+(`negotiate`, `receive_turn`, `submit_audit`, `receive_control`) are dumb
+mailboxes (`infra/inboxes.py`) that validate at the door, enqueue, and return
+immediately; the runtime drains them through the `Orchestrator`
+(`runtime/orchestrator.py`), the single entry point to every subsystem, which
+coordinates and does not decide. The payoff is more than architectural
+hygiene: accepting a message costs nothing, so a busy runtime never makes the
+opponent's send time out, and an inbound message can never block on our
+decision-making — which is where the language-model deadline lives. The
+Gatekeeper (`infra/gatekeeper.py`) is the same pattern facing the other
+direction, three gates in front of every API request, ordered cheapest and
+most final first.
+
+### Deadlines, the watchdog, and the deadlock nobody reports
+
+In a P2P game a deadlock produces no error, no result, and 0/0 — for the
+thief, thirty-five turns of successful evasion evaporating into nothing.
+The decision is three layers answering three different questions. The
+Deadline Tracker (`runtime/deadline.py`) asks *did this call take too long*:
+every request carries an expiry, and a missed deadline is a failure, not an
+invitation to wait longer. The Watchdog (`runtime/watchdog.py`) asks *is
+anything still happening at all*, because the failures that kill matches are
+rarely one slow request — a hung model or a transport that neither returns
+nor errors trips no per-request timeout — and on a stall it persists state
+and shuts down cleanly rather than losing the sub-game. The state machine
+(`runtime/state_machine.py`) raises on any transition not in its table,
+converting a logic bug into a development-time failure instead of a silent
+in-match stall. The wiring between them was a dilemma of its own: client
+retries feed the watchdog's heartbeat (`runtime/orchestrator.py`), because a
+client patiently retrying a dead tunnel is otherwise silent for longer than
+the watchdog's patience — a stall reported over a recovery that was working
+exactly as designed.
+
+### Starting up: two humans, two rooms, one deadline
+
+Nothing guarantees the peers start together — the two people running these
+commands are typing them in different rooms. Fail on the first `502` and the
+faster team always aborts; wait indefinitely and the startup is itself a
+deadlock. The decision, in `runtime/driver_startup.py`: announce repeatedly
+for a 180-second patience window, and retry *only* the announcement. Once it
+lands, a handshake failure is a real failure — an opponent who accepted our
+greeting and then went quiet is a different problem from one who had not
+started yet, and collapsing the two would hide the first. An opponent who
+never appears raises `StartupTimeout`, named as such rather than surfacing
+the transport's `502 Bad Gateway`, which describes a proxy and not the
+situation — and it is not recorded as a technical loss, because no match ever
+began.
 
 ## 3. Strategies implemented
 

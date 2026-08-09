@@ -21,13 +21,19 @@ match:
    table comes from Appendix F. The scores are *fixed* parameters: inventing
    them here, or carrying a placeholder into a result file, is a deviation an
    audit finds.
-6. **Record** — the four artefacts, checked for coherence before anything is
+6. **Agree the result** — publish the score we arrived at, read the score they
+   arrived at, and record whether the two are the same. Appendix E rule 35
+   requires this *before* either side reports, and it is the one step whose
+   failure is not an abort: two honest peers can disagree, and the answer to
+   that is a conversation between two teams rather than a verdict from either
+   agent.
+7. **Record** — the four artefacts, checked for coherence before anything is
    written.
 
-**Nothing here mails anybody.** The report is built and written to disk; sending
-it is a separate, deliberate act by a person who has agreed the result with the
-opponent first (FR-7.16). A match runner that mailed on completion would send a
-report for a result the other side had not yet accepted.
+**Nothing here mails anybody.** The report is built and written to disk carrying
+the agreement it actually reached; sending it is a separate, deliberate act
+(FR-7.16, and ``report --send``). A match runner that mailed on completion would
+be reporting before the human who has to stand behind the result has seen it.
 """
 
 from dataclasses import dataclass
@@ -35,8 +41,10 @@ from pathlib import Path
 
 from ..infra.artefacts import ArtefactSet
 from ..infra.report import Report, Repositories, SubGameResult
+from ..shared.result_claim import claim_sha256, result_claim
 from .match_outcome import SubGameOutcome
 from .match_play import MatchPlay
+from .orchestrator_book import RESULT_TIMEOUT_SEC
 
 __all__ = [
     "MatchRunner",
@@ -58,10 +66,12 @@ class MatchRunner(MatchPlay):
     ) -> Report:
         """The binding report, scored from what was actually played.
 
-        ``agreed`` is a parameter and has no default. FR-7.16 requires both
-        sides to accept the result *before* either reports one, and a runner
-        that assumed agreement would produce a report claiming something no
-        human had checked. It is the one field only a person can fill in.
+        ``agreed`` is a parameter and has no default. FR-7.16 and Appendix E
+        rule 35 require both sides to accept the result *before* either reports
+        one, and a runner that assumed agreement would produce a report claiming
+        something nobody had checked. :meth:`agree_result` is what answers it;
+        passing a literal here would be asserting agreement rather than
+        establishing it.
         """
         return Report(
             game_id=self.game_id,
@@ -84,6 +94,25 @@ class MatchRunner(MatchPlay):
             agreed=agreed,
             started_at=self.declaration.started_at,
             ended_at=self.now(),
+        )
+
+    def agree_result(self, timeout: float = RESULT_TIMEOUT_SEC) -> bool:
+        """Step 6: publish what we scored, and learn whether they scored it too.
+
+        Appendix E rule 35. The claim is built from :attr:`outcomes`, which are
+        what this runner actually played, so the thing offered to the opponent
+        is the thing the report will carry rather than a summary of it.
+
+        A series whose audit found forgery is **not** offered for agreement.
+        There is nothing to agree about a match one side did not play honestly,
+        and asking would invite a peer whose commitments did not open to sign
+        off on the score anyway.
+        """
+        if not self.opponent_played_fairly:
+            return False
+        claim = result_claim(self.declaration.game_uid, [o.scores() for o in self.outcomes])
+        return self.orchestrator.agree_result(
+            claim, claim_sha256(claim), self.declaration.game_uid, timeout
         )
 
     def artefacts(self, result: Report) -> ArtefactSet:

@@ -102,6 +102,7 @@ class Side:
         self.inboxes.agreements = queue.Queue[dict[str, Any]]()
         self.inboxes.digests = queue.Queue[dict[str, Any]]()
         self.inboxes.scent_locks = queue.Queue[dict[str, Any]]()
+        self.inboxes.results = queue.Queue[dict[str, Any]]()
         self.inboxes.turns = queue.Queue[TurnMessage]()
         self.inboxes.accepted_turns.clear()
         self.inboxes.rejected.clear()

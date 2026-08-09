@@ -16,10 +16,11 @@ without binding anything, which is the question somebody actually has five
 minutes before a match. ``play`` is the other half — it starts the server *and*
 opens a match against an opponent who has already started theirs.
 
-``play`` writes the four artefacts and stops. **It does not send anything.**
-FR-7.16 requires both sides to agree the result before either reports, so the
-report is written to disk with ``agreed`` false and mailing it is a separate,
-later, human act.
+``play`` writes the four artefacts and stops. **It does not send anything.** It
+does agree the result on the wire first (Appendix E rule 35), so the report is
+written carrying whether the opponent confirmed the score — and ``report``, run
+deliberately with ``--send``, is what mails it. Rule 32 wants the reporting
+automated; rule 35 wants it agreed first. Two commands is how both hold.
 
 **It prints where it is reachable, and says plainly when that is nowhere.**
 Advertising a loopback address to another team is not a small mistake — every
@@ -29,16 +30,16 @@ opens, so the failure is a line on our own terminal rather than a mystery in
 somebody else's match.
 """
 
-import argparse
 import sys
 from collections.abc import Sequence
-from pathlib import Path
 
 from .cli_announce import describe, require_playable, where_we_are
+from .cli_arguments import parse
 from .cli_config import StartupError, load_private, resolve_series_length
 from .cli_failures import MAX_DEPTH, describe_failure, safely_describe
 from .cli_identity import CONFIG, PACKAGE, ROLE
 from .cli_play import play
+from .cli_report import report
 from .infra.inboxes import TOOL_NAMES, PeerInboxes
 from .infra.mcp_client import ClientSettings
 from .infra.mcp_server import SERVER_NAME, ServerSettings, build, serve
@@ -65,9 +66,11 @@ __all__ = [
     "discover",
     "load_private",
     "load_shared",
+    "parse",
     "main",
     "play",
     "read_ngrok_api",
+    "report",
     "require_playable",
     "resolve_series_length",
     "safely_describe",
@@ -79,35 +82,7 @@ __all__ = [
 
 def main(argv: Sequence[str] | None = None, environ: dict[str, str] | None = None) -> int:
     """Run the command. Returns an exit code rather than raising."""
-    parser = argparse.ArgumentParser(prog=f"python -m {PACKAGE}", description=__doc__)
-    parser.add_argument(
-        "command",
-        nargs="?",
-        default="serve",
-        choices=("serve", "check", "play"),
-        help=(
-            "serve: run the peer and answer. check: report the configuration and exit. "
-            "play: serve and open a match against an opponent who has already started."
-        ),
-    )
-    parser.add_argument("--config", type=Path, default=CONFIG, help="private per-peer TOML")
-    parser.add_argument("--game-id", default="", help="agreed with the opponent beforehand")
-    parser.add_argument("--out", type=Path, default=Path("artefacts"), help="where to write")
-    parser.add_argument(
-        "--sub-games",
-        type=int,
-        default=None,
-        help="sub-games in the series. Appendix F table 18 row 1 fixes this at six and "
-        "deviating disqualifies the team, so the length comes from the shared config; "
-        "the flag exists only so that asking for another is refused out loud",
-    )
-    parser.add_argument(
-        "--rehearse",
-        action="store_true",
-        help="play this project's other agent over loopback, no tunnel — practice only, "
-        "never against another team",
-    )
-    arguments = parser.parse_args(argv)
+    arguments = parse(argv, __doc__)
 
     import os  # noqa: PLC0415 - read once, here, so tests can supply their own
 
@@ -121,6 +96,8 @@ def main(argv: Sequence[str] | None = None, environ: dict[str, str] | None = Non
         print(f"  series         {sub_games} sub-games (Appendix F table 18 row 1, fixed)")
         if arguments.command == "check":
             return 0
+        if arguments.command == "report":
+            return report(arguments, private)
         settings = ServerSettings.from_config(private.get("network", {}))
         if arguments.command == "play":
             require_playable(arguments, source, read_ngrok_api)

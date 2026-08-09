@@ -123,6 +123,9 @@ class RecordingRunner:
     def play_series(self) -> list[None]:
         return []
 
+    def agree_result(self) -> bool:
+        return True
+
     def result(self, **kwargs: object) -> None:
         return None
 

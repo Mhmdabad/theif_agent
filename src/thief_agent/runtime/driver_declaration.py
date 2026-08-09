@@ -61,14 +61,19 @@ def _declaration(
 
 
 def _conclude(
-    runner: MatchRunner, declaration: MatchDeclaration, us: Team, them: Team
+    runner: MatchRunner, declaration: MatchDeclaration, us: Team, them: Team, agreed: bool
 ) -> tuple[Path, ...]:  # pragma: no cover - reached only with an opponent on the wire
-    """Write the played match to disk, and answer with the files written."""
+    """Write the played match to disk, and answer with the files written.
+
+    ``agreed`` is passed in rather than decided here: it is the outcome of a
+    conversation with the opponent (Appendix E rule 35), and this function only
+    does paperwork.
+    """
     return runner.write(
         runner.result(
             commit_hash=declaration.provenance.github_commit or "unknown",
             total_tokens=0,
-            agreed=False,
+            agreed=agreed,
             repositories=Repositories(
                 cop_repo=us.cop_repo,
                 thief_repo=us.thief_repo,

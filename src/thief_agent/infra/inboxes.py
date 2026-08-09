@@ -31,6 +31,8 @@ from typing import Any, Protocol
 from .inboxes_keys import (
     ACK,
     DIGEST_KEY,
+    RESULT_DIGEST_KEY,
+    RESULT_KEY,
     RETRY_KEY,
     SCENT_DIGEST_KEY,
     SCENT_KEY,
@@ -43,6 +45,8 @@ from .inboxes_turns import TurnInbox
 __all__ = [
     "ACK",
     "DIGEST_KEY",
+    "RESULT_DIGEST_KEY",
+    "RESULT_KEY",
     "RETRY_KEY",
     "SCENT_DIGEST_KEY",
     "SCENT_KEY",

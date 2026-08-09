@@ -9,6 +9,7 @@ __all__ = [
     "CONFIG_TIMEOUT_SEC",
     "GREETING_TIMEOUT_SEC",
     "PROTOCOL_VERSION",
+    "RESULT_TIMEOUT_SEC",
     "SCENT_TIMEOUT_SEC",
 ]
 
@@ -29,6 +30,14 @@ The same Appendix F response timeout, for the same reason: nobody has moved
 yet, so an unbounded wait here produces a hang with no board to explain it. An
 opponent who never answers has not agreed to our parameters, and the only safe
 reading of silence at this gate is refusal."""
+
+RESULT_TIMEOUT_SEC = 30.0
+"""How long to wait for the opponent's final-result claim.
+
+The Appendix F response timeout once more, and here silence is *not* read as a
+refusal to play — the match is already over — but as a refusal to agree, which
+is a fact the report records rather than an outcome anybody scores. Waiting
+longer would only delay a report that is honest either way."""
 
 SCENT_TIMEOUT_SEC = 30.0
 """How long to wait for the opponent's scent-model offer.

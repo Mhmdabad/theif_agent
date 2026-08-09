@@ -33,10 +33,12 @@ from .orchestrator_book import (
     CONFIG_TIMEOUT_SEC,
     GREETING_TIMEOUT_SEC,
     PROTOCOL_VERSION,
+    RESULT_TIMEOUT_SEC,
     SCENT_TIMEOUT_SEC,
 )
 from .orchestrator_config import ConfigMixin
 from .orchestrator_core import MatchAborted, OrchestratorCore
+from .orchestrator_result import ResultMixin
 from .orchestrator_rotation import RotationMixin
 from .orchestrator_scent import ScentMixin
 
@@ -44,6 +46,7 @@ __all__ = [
     "CONFIG_TIMEOUT_SEC",
     "GREETING_TIMEOUT_SEC",
     "PROTOCOL_VERSION",
+    "RESULT_TIMEOUT_SEC",
     "SCENT_TIMEOUT_SEC",
     "MatchAborted",
     "Orchestrator",
@@ -51,7 +54,7 @@ __all__ = [
 
 
 @dataclass
-class Orchestrator(RotationMixin, ConfigMixin, ScentMixin, OrchestratorCore):
+class Orchestrator(RotationMixin, ConfigMixin, ScentMixin, ResultMixin, OrchestratorCore):
     """Coordinates the subsystems behind one entry point."""
 
     inboxes: PeerInboxes

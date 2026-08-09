@@ -42,6 +42,17 @@ class InboxState:
     untouched while the digest gate drains its own queue.
     """
 
+    results: "queue.Queue[dict[str, Any]]" = field(default_factory=queue.Queue)
+    """Final-result claims, kept apart from the other three negotiation bodies.
+
+    A fourth mailbox rather than a flag on any of the others, for the reason the
+    second and third exist: ``latest_agreement`` takes the *newest* item because
+    a newer greeting supersedes an older one, and every message sharing that
+    queue inherits a rule written for greetings. This one also arrives at the
+    opposite end of the match from the rest, so it must survive a series' worth
+    of draining untouched.
+    """
+
     turns: "queue.Queue[TurnMessage]" = field(default_factory=queue.Queue)
     audits: "queue.Queue[AuditPayload]" = field(default_factory=queue.Queue)
     controls: "queue.Queue[ControlMessage]" = field(default_factory=queue.Queue)

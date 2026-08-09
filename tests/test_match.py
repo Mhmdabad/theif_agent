@@ -36,6 +36,7 @@ from thief_agent.runtime.match import MatchRunner, SubGameOutcome
 from thief_agent.runtime.orchestrator import PROTOCOL_VERSION, MatchAborted, Orchestrator
 from thief_agent.runtime.subgame import Played, SubGame
 from thief_agent.shared.config import config_sha256
+from thief_agent.shared.result_claim import result_claim
 from thief_agent.strategy.thief_brain import ThiefBrain
 
 REPO = Path(__file__).resolve().parent.parent
@@ -437,6 +438,37 @@ class TestWhatTheMatchConcludesAboutTheOpponent:
 
     def test_an_empty_match_is_vacuously_fair(self, tmp_path: Path) -> None:
         assert a_runner(tmp_path).opponent_played_fairly
+
+
+class TestAgreeingTheResultBeforeAnybodyReportsIt:
+    """Appendix E rule 35, at the runner: what is offered, and when nothing is.
+
+    The exchange itself is covered over two real sockets in
+    ``test_result_agreement``. What is left here is the runner's own decision —
+    which series it claims, from which outcomes, and the one case where it
+    declines to ask at all.
+    """
+
+    def test_a_forged_series_is_never_offered_for_agreement(self, tmp_path: Path) -> None:
+        """There is nothing to agree about a match one side did not play honestly.
+
+        Asking anyway would invite a peer whose commitments did not open to sign
+        off on the score, which is the one signature that would be worthless.
+        """
+        transport = Answering({"ok": True})
+        runner = a_runner(tmp_path, transport=transport)
+        runner.outcomes.extend([an_outcome(1), an_outcome(2, clean=False)])
+        assert runner.agree_result() is False
+        assert transport.calls == []
+
+    def test_the_claim_carries_the_scores_actually_played(self, tmp_path: Path) -> None:
+        """What is offered to the opponent is what the report will carry."""
+        runner = a_runner(tmp_path)
+        runner.outcomes.extend([an_outcome(1), an_outcome(2)])
+        claim = result_claim(runner.declaration.game_uid, [o.scores() for o in runner.outcomes])
+        assert claim["game_uid"] == "u-0001"
+        assert [entry["sub_game"] for entry in claim["sub_games"]] == [1, 2]
+        assert claim["cop_total"] == sum(o.scores()[0] for o in runner.outcomes)
 
 
 class TestWritingTheEvidence:

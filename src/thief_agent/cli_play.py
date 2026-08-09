@@ -10,6 +10,7 @@ import sys
 from typing import Any
 
 from .cli_failures import safely_describe
+from .cli_identity import PACKAGE
 from .infra.inboxes import PeerInboxes
 from .infra.mcp_server import ServerSettings, build, serve
 
@@ -49,6 +50,9 @@ def play(
         return 1
     for path in written:
         print(f"  wrote {path}")
-    print("\nNothing has been emailed. Agree the result with the opponent first,")
-    print("then send it deliberately — FR-7.16.")
+    result = next((path for path in written if path.name.startswith("result_")), None)
+    print("\nNothing has been emailed. The result was offered to the opponent and the")
+    print("report records whether they confirmed it (Appendix E rule 35); sending is a")
+    print("separate, deliberate act:")
+    print(f"  python -m {PACKAGE} report --report {result} --send")
     return 0

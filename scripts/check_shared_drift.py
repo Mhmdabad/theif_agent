@@ -220,6 +220,8 @@ DIVERGENT: dict[str, str] = {
     "strategy/barriers.py": "cop-only; the thief places no barriers",
     "strategy/containment.py": "thief-only; the cop builds the trap rather than reading it",
     "strategy/police_brain.py": "the cop's policy; no counterpart here",
+    "strategy/thief_brain_geometry.py": "thief-only; the cop has no counterpart policy",
+    "strategy/thief_brain_ranking.py": "thief-only; the cop has no counterpart policy",
     "strategy/thief_brain.py": "the thief's policy; no counterpart there",
 }
 """Files that differ on purpose, each with the reason. Not a suppression list."""

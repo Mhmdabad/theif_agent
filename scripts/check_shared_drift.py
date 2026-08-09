@@ -223,6 +223,7 @@ SHARED: tuple[str, ...] = (
 """Modules that must be identical once the package name is normalised."""
 
 DIVERGENT: dict[str, str] = {
+    "strategy/thief_search.py": "this role's searching brain: the thief maximises survival",
     "runtime/driver.py": "names this role and its private config path",
     "cli_identity.py": "holds this role, its private config path and its package name",
     "__main__.py": "names this role, its private config path and its default port",

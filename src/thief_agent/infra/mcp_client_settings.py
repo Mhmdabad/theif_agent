@@ -13,9 +13,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from ..shared.appendix_f import book_int
 from .tunnel import normalise
 
 __all__ = [
+    "DEFAULT_MAX_RETRIES",
+    "DEFAULT_RESPONSE_TIMEOUT_SEC",
+    "DEFAULT_RETRY_BACKOFF_SEC",
     "OPPONENT_URL_ENV",
     "ClientSettings",
 ]
@@ -23,6 +27,18 @@ __all__ = [
 
 OPPONENT_URL_ENV = "OPPONENT_URL"
 """Overrides ``opponent_url`` in the private TOML. See :meth:`ClientSettings.from_config`."""
+
+NETWORK_SECTION = "network_and_league"
+LIMITER_SECTION = "rate_limiter_gatekeeper"
+
+DEFAULT_RESPONSE_TIMEOUT_SEC = float(book_int(NETWORK_SECTION, "response_timeout_sec"))
+DEFAULT_MAX_RETRIES = book_int(LIMITER_SECTION, "max_retries")
+DEFAULT_RETRY_BACKOFF_SEC = float(book_int(LIMITER_SECTION, "retry_backoff_sec"))
+"""The three Appendix F numbers this client spends, read from the table.
+
+Restating them as literals here would leave a copy that agrees with the book
+today and can disagree with it silently tomorrow.
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,9 +51,9 @@ class ClientSettings:
     """
 
     opponent_url: str
-    response_timeout_sec: float = 30.0
-    max_retries: int = 3
-    retry_backoff_sec: float = 5.0
+    response_timeout_sec: float = DEFAULT_RESPONSE_TIMEOUT_SEC
+    max_retries: int = DEFAULT_MAX_RETRIES
+    retry_backoff_sec: float = DEFAULT_RETRY_BACKOFF_SEC
 
     def __post_init__(self) -> None:
         if not self.opponent_url.strip():

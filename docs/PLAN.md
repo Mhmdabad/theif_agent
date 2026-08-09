@@ -63,8 +63,10 @@ trail — the environment cannot be faked, so a clumsy lie *reveals* us).
 
 Hard rules that shape this design (Appendix E):
 
-- The **Orchestrator is the single entry point** to every subsystem; peripheral
-  modules never talk to each other directly (rule 3).
+- The **Orchestrator is the single entry point** to every subsystem; no
+  peripheral module drives another — cross-subsystem control flow goes through
+  the Orchestrator (rule 3). Passive reads of a lower layer (`domain`,
+  `shared`, or the ceremony state the banner renders) are not that traffic.
 - Game phases run through a **strict state machine**; illegal transitions are
   rejected immediately (rules 4–5).
 - **Deadline Tracker** on every MCP request and a **Watchdog** over the main loop

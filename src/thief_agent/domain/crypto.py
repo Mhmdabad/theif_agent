@@ -1,7 +1,7 @@
 """Commit-Reveal sealing, in the wire form the cohort uses.
 
 Every step a peer seals its true record under
-``commit = SHA256(canonical_json(payload) | nonce)`` and sends **only** the
+``commit = SHA256(canonical_json({**payload, "nonce": nonce}))`` and sends **only** the
 commit. Nonces are withheld until the end-of-game audit, where both sides
 re-verify every step — so no position or action can be rewritten afterwards.
 
@@ -18,9 +18,11 @@ Three details carry that compatibility, and each is easy to get silently wrong:
     Identical bytes for an English hint, different bytes the moment a hint
     carries a non-ASCII character — and hints are free natural language.
 
-The nonce is **appended after a pipe**, not folded into the payload
-    ``SHA256(canonical | "|" | nonce)``. Putting it inside the object changes
-    both the canonical string and the digest.
+The nonce is **folded into the payload**, not appended after it
+    It joins the record as a ``nonce`` field and the whole object is serialised
+    once — which is what the rulebook's ``|`` operator means here. Concatenating
+    it onto the canonical string instead would produce a different digest, so
+    this is the detail that has to match the opponent exactly.
 
 ``sort_keys=True`` with tight separators
     So key order and incidental whitespace cannot change the digest.

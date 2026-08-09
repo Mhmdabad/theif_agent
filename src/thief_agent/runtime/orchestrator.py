@@ -1,10 +1,19 @@
 """The single gateway to every subsystem.
 
 Appendix E rule 3: the orchestrator is the **only** entry point to the
-subsystems, and peripheral modules never reference one another. That is not
-architectural taste — a decision module that reaches directly into the MCP
+subsystems, and no peripheral subsystem *drives* another — none of them calls
+into another to make something happen; that traffic goes through here. That is
+not architectural taste — a decision module that reaches directly into the MCP
 connector cannot be replaced without touching both, and the rulebook grades
 the ability to swap one component in isolation.
+
+What the rule does not forbid is a passive dependency on a lower layer: the
+strategy, ui and infra modules all read shared vocabulary out of ``domain``
+and ``shared``, and ``ui/banner.py`` reads a ceremony's state to decide whether
+the window may still accept a click. Those are one-directional reads with no
+control flow, and none of them is a route around this gateway. Stating the rule
+as "peripheral modules never reference one another" overstates it, and an
+overstated rule is one that quietly stops being checked.
 
 It **coordinates and does not decide**. No game rule lives here; move choice
 belongs to the strategy module, legality to the domain layer, transport to the

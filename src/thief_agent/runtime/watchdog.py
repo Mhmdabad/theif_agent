@@ -20,8 +20,16 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 
-DEFAULT_WATCHDOG_TIMEOUT_SEC = 60.0
-"""Appendix F. Negotiable, so a parameter rather than a constant."""
+from ..shared.appendix_f import book_int
+
+SECTION = "network_and_league"
+
+DEFAULT_WATCHDOG_TIMEOUT_SEC = float(book_int(SECTION, "watchdog_timeout_sec"))
+"""Appendix F. Negotiable, so a parameter rather than a constant.
+
+Read from the table rather than restated here: a literal that merely agrees
+with Appendix F today is a literal that can silently disagree tomorrow.
+"""
 
 
 class WatchdogVerdict(Enum):

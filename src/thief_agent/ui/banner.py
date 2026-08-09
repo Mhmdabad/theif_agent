@@ -11,6 +11,11 @@ alongside it. A separate ``self.locked`` flag would be a second source of truth
 about a question the ceremony already answers, and the two would disagree on
 exactly the turn where a retry or a re-handshake made things interesting.
 
+Reading the ceremony means importing it, which is a one-directional read and
+not a route around the orchestrator: nothing here calls into the ceremony to
+make something happen, so Appendix E rule 3 — no peripheral subsystem drives
+another — still holds. See :mod:`..runtime.orchestrator` for the full statement.
+
 Colours are named rather than hex-coded here. The rulebook asks for green and
 grey; which green is a question for the widget, and a model that decided it
 could not be reused by a terminal fallback.

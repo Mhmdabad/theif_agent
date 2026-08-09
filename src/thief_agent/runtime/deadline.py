@@ -14,8 +14,16 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-DEFAULT_RESPONSE_TIMEOUT_SEC = 30.0
-"""Appendix F. Negotiable, so a parameter rather than a constant."""
+from ..shared.appendix_f import book_int
+
+SECTION = "network_and_league"
+
+DEFAULT_RESPONSE_TIMEOUT_SEC = float(book_int(SECTION, "response_timeout_sec"))
+"""Appendix F. Negotiable, so a parameter rather than a constant.
+
+Read from the table rather than restated here: a literal that merely agrees
+with Appendix F today is a literal that can silently disagree tomorrow.
+"""
 
 
 class DeadlineExpiredError(TimeoutError):

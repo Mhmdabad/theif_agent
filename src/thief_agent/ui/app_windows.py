@@ -9,6 +9,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from ..cli_identity import ROLE
 from ..domain.belief import Belief
 from .app_frames import draw_live, draw_replay
 from .app_painter import CanvasPainter
@@ -26,11 +27,16 @@ def run_live(argv: Sequence[str]) -> int:  # pragma: no cover - needs a display
     belief = Belief.uniform(state)
     width, height = board_size(state.grid_size)
 
+    # Our own role and our own cell, never the opponent's: the live window shows
+    # local truth only (mandatory rules 8 and 9). ``ROLE`` comes from
+    # :mod:`..cli_identity`, so each repository draws the side it plays.
+    ours = state.cop if ROLE == "police" else state.thief
+
     root = tk.Tk()
     root.title(f"{__package__} — live")
     canvas = tk.Canvas(root, width=width, height=height, background="#111318", highlightthickness=0)
     canvas.pack()
-    draw_live(state, belief, "police", state.cop, CanvasPainter(canvas))
+    draw_live(state, belief, ROLE, ours, CanvasPainter(canvas))
     root.mainloop()
     return 0
 

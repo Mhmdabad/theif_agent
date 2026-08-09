@@ -191,6 +191,13 @@ SHARED: tuple[str, ...] = (
     "ui/view.py",
     "ui/view_heat.py",
     "strategy/base_types.py",
+    "cli_config.py",
+    "cli_announce.py",
+    "cli_failures.py",
+    "cli_play.py",
+    "ui/app_painter.py",
+    "ui/app_frames.py",
+    "ui/app_windows.py",
     "shared/appendix_f.py",
     "shared/config.py",
     "shared/config_validation.py",
@@ -201,6 +208,7 @@ SHARED: tuple[str, ...] = (
 
 DIVERGENT: dict[str, str] = {
     "runtime/driver.py": "names this role and its private config path",
+    "cli_identity.py": "holds this role, its private config path and its package name",
     "__main__.py": "names this role, its private config path and its default port",
     "infra/authorize.py": "stamps the role into the token; both agents share one OAuth client",
     "__init__.py": "package docstring names the role this repo implements",

@@ -230,7 +230,10 @@ recency (`domain/trail.py`), and re-derivable at audit from the revealed
 movement history (`domain/scent_audit.py`) — noisy, but incapable of lying. A
 hint is a claim (`domain/hints.py`): it may be true or a lie, so it enters
 the update weighted by a reliability earned by checking past claims against
-the trail (`domain/credibility.py`).
+the trail (`domain/credibility.py`). The two witnesses meet in
+`runtime/subgame_hint.py`, which scores the sentence against the trail
+*before* it reaches the belief, so a contradicted claim arrives already
+discounted rather than believed and regretted.
 
 **The belief state is the posterior the formalism calls for.**
 `domain/belief.py` maintains a normalised distribution over cells: uniform

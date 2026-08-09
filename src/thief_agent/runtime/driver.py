@@ -109,7 +109,7 @@ def open_match(
         orchestrator=orchestrator,
         declaration=declaration,
         parameters=parameters,
-        brain=load_brain(private.get("strategy")),
+        brain=load_brain(private.get("strategy"), trash_talk=private.get("trash_talk")),
         axes=AxisConvention(),
         start=_start_board(parameters.get("board_and_agents", {})),
         max_steps=_max_moves(parameters),

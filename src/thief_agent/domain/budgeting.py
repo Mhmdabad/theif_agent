@@ -46,11 +46,17 @@ TOKEN_BUDGET: int = book_int("network_and_league", "token_budget_per_series")
 """Appendix F series budget. *Negotiable*, so it is read rather than restated."""
 
 ESTIMATED_TOKENS_PER_CALL = 1250
-"""Charged per call when the provider reports no usage.
+"""Charged per call **only when the provider reports no usage**.
 
 Deliberately an over-estimate. Under-counting spends a budget we have already
 agreed, and being caught over the limit at audit is worse than sending a few
 template lines we did not have to.
+
+The cloud model reports what it actually spent, and that measurement is
+preferred wherever it exists: Appendix E rule 54 puts the total in the final
+report, and a number derived from arithmetic rather than from the provider is
+one no reader can check. A local model and the CLI cost the *series* budget
+nothing, so the estimate stands in for them and errs high.
 """
 
 
@@ -94,7 +100,7 @@ class Ration:
         started = time.monotonic()
         spoken = self.bluffer.dress(bluff)
         elapsed = time.monotonic() - started
-        self.spent += ESTIMATED_TOKENS_PER_CALL
+        self.spent += self.bluffer.last_tokens or ESTIMATED_TOKENS_PER_CALL
 
         if elapsed > self.deadline:
             self.late += 1

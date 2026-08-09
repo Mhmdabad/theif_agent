@@ -2,18 +2,17 @@
 
 This is where the grade lives. Everything else in the repository is
 infrastructure both teams must build identically from the same rulebook; the
-brain is the only place one agent can out-think another.
-
-It plugs into the runtime at exactly one point — **after the incoming hint is
-decoded, before the outgoing Commit is packed** — and everything between those
-two points is the agent's intelligence: belief update, action choice, and the
-deception text.
+brain is the only place one agent can out-think another. It plugs into the
+runtime at exactly one point — **after the incoming hint is decoded, before the
+outgoing Commit is packed** — and everything between those two points is the
+agent's intelligence: belief update, action choice, and the deception text.
 
 **The move is always chosen here, in Python.** Language models hallucinate in
 Cartesian space: they confuse directions, distances and coordinates, and will
 return an illegal or self-destructive action with complete confidence. The
-model writes text and profiles the opponent's language; the algorithm owns
-every spatial decision.
+model writes text; the algorithm owns every spatial decision. ``_hint`` runs
+*after* the action is chosen and guarded, so the sentence describes a decision
+rather than making one.
 
 Two overrides exist because the cop has two kinds of turn. ``_pick_move``
 chooses a relocation; ``_decide_move`` chooses between relocating and
@@ -23,13 +22,14 @@ overrides only the first and inherits the default.
 
 import random
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
-from ..domain.actions import Action, MoveAction, PlaceBarrier
+from ..domain.actions import Action, MoveAction, PlaceBarrier, apply_action
 from ..domain.axes import AxisConvention
 from ..domain.board import Agent, BoardState, Move
 from ..domain.rules import legal_moves
 from .base_types import Decision, NoLegalActionError, StrategyContextError
+from .voice import Voice
 
 __all__ = ["BrainBase", "Decision", "NoLegalActionError", "StrategyContextError"]
 
@@ -48,10 +48,15 @@ class BrainBase(ABC):
 
     axes: AxisConvention = field(default_factory=AxisConvention)
     seed: int = 0
+    voice: Voice = field(default_factory=Voice)
+    """Who speaks, and what speech costs. Defaults to the zero-token template."""
+
     rng: random.Random = field(init=False)
 
     def __post_init__(self) -> None:
         self.rng = random.Random(self.seed)
+        if self.voice.seed != self.seed:
+            self.voice = replace(self.voice, seed=self.seed)
 
     @property
     @abstractmethod
@@ -77,9 +82,14 @@ class BrainBase(ABC):
         return Decision(action=action, hint=self._hint(state, action, **context))
 
     def _hint(self, state: BoardState, action: Action, **context: object) -> str:
-        """Supply one deterministic safe verbal hint for this accepted turn."""
-        del state, action, context
-        return "I am watching the streets"
+        """Compose this turn's hint for the action already chosen and guarded.
+
+        The claim is about where this action leaves us — re-derived with the
+        same :func:`~..domain.actions.apply_action` the runtime will apply for
+        real, so a hint cannot describe a board that never happened.
+        """
+        del context
+        return self.voice.about(state, self.role, apply_action(state, self.role, action, self.axes))
 
     def _decide_move(self, state: BoardState, **context: object) -> Action:
         """Choose between relocating and any role-specific alternative.

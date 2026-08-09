@@ -98,13 +98,18 @@ def _conclude(
     conversation with the opponent (Appendix E rule 35), and this function only
     does paperwork.
 
+    The token total is read off the brain's voice rather than written as a
+    literal. It was a hardcoded ``0`` — true while the language model never
+    ran, and a false statement under Appendix E rule 54 the moment a provider
+    other than ``template`` is configured.
+
     The ledger is written **after** the artefacts, so a match that failed to
     produce evidence is not counted as one that was played.
     """
     written = runner.write(
         runner.result(
             commit_hash=declaration.provenance.github_commit or "unknown",
-            total_tokens=0,
+            total_tokens=runner.brain.voice.spent,
             agreed=agreed,
             repositories=Repositories(
                 cop_repo=us.cop_repo,

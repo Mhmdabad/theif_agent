@@ -15,7 +15,8 @@ from thief_agent.infra.mcp_client import (
     OpponentUnreachableError,
     PeerNotReadyError,
 )
-from thief_agent.strategy.base import BrainBase, Decision
+from thief_agent.infra.validation import require_hint
+from thief_agent.strategy.base import BrainBase
 
 
 @dataclass
@@ -29,9 +30,18 @@ class StayingBrain(BrainBase):
 
 
 def test_default_brain_emits_one_safe_hint_even_when_staying() -> None:
+    """A hint the wire will accept, on the turn that emits no movement.
+
+    Asserted as a property rather than as one literal sentence. The hint used
+    to be a constant, so the constant *was* the implementation; now it is
+    composed per turn, and what has to hold is what the door checks on arrival
+    — present, inside the word cap, and naming no coordinates (rule 27).
+    """
     state = BoardState(cop=(0, 0), thief=(3, 3), grid_size=7)
     decision = StayingBrain().decide(state)
-    assert decision == Decision(MoveAction("STAY"), "I am watching the streets", "truth")
+    assert decision.action == MoveAction("STAY")
+    assert decision.intent == "truth"
+    require_hint({"hint": decision.hint}, max_words=15)
 
 
 def reveal(**changes: object) -> dict[str, object]:

@@ -20,13 +20,12 @@ The LLM never decides a move. It writes at most fifteen words.
 """
 
 import logging
-import shutil
-import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from .bluff import Bluff
 from .hints import MAX_WORDS, truncate
+from .providers_backends import Backends
 
 logger = logging.getLogger(__name__)
 
@@ -38,20 +37,9 @@ DEFAULT_MODEL = "claude-haiku-4-5"
 """The rulebook asks for a *small* cloud model; a fifteen-word hint needs no
 more, and the cheapest option leaves the series budget for more turns."""
 
-PROMPT = (
-    "You are taunting an opponent in a pursuit game. Rewrite this hint in at "
-    "most {cap} words, keeping its meaning and naming no coordinates: {text}"
-)
-"""The model rephrases a hint we already composed. It never invents the claim.
-
-Handing it the board and asking where to point would put a language model in
-charge of a spatial decision, which the rulebook reserves for the algorithm —
-and which models are demonstrably bad at.
-"""
-
 
 @dataclass
-class Bluffer:
+class Bluffer(Backends):
     """Produces hint text under a selected provider, falling back on failure."""
 
     provider: str = DEFAULT_PROVIDER
@@ -60,6 +48,14 @@ class Bluffer:
     timeout: float = 10.0
     failures: int = 0
     calls: int = field(default=0)
+    last_tokens: int | None = field(default=None)
+    """What the last call actually cost, when the provider says.
+
+    ``None`` means unmeasured rather than free — a local model and the CLI
+    both spend nothing from the *series* budget, and the ration substitutes its
+    over-estimate. The cloud model reports real usage, and Appendix E rule 54's
+    total is built from that rather than from arithmetic nobody can check.
+    """
 
     def __post_init__(self) -> None:
         if self.provider not in PROVIDERS:
@@ -76,6 +72,7 @@ class Bluffer:
         if self.provider == DEFAULT_PROVIDER:
             return baseline
         self.calls += 1
+        self.last_tokens = None
         try:
             spoken = self._backends()[self.provider](baseline)
         except Exception as failure:  # noqa: BLE001 - no hint is worth a lost turn
@@ -90,60 +87,6 @@ class Bluffer:
             "claude_api": self._claude_api,
             "claude_cli": self._claude_cli,
         }
-
-    def _prompt(self, text: str) -> str:
-        return PROMPT.format(cap=MAX_WORDS, text=text)
-
-    def _ollama(self, text: str) -> str:
-        """A local model. Zero API tokens and no rate limit."""
-        import json
-        import urllib.request
-
-        payload = json.dumps(
-            {"model": self.model, "prompt": self._prompt(text), "stream": False}
-        ).encode()
-        request = urllib.request.Request(
-            f"{self.endpoint}/api/generate",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:  # noqa: S310
-            body = json.loads(response.read())
-        return str(body.get("response", ""))
-
-    def _claude_api(self, text: str) -> str:
-        """A small cloud model. Counted against the series token budget.
-
-        The key is read from the environment by the SDK and never from config
-        — a committed key is permanently leaked, and the submission checklist
-        makes that a hard gate.
-        """
-        import anthropic  # type: ignore[import-not-found]
-
-        message = anthropic.Anthropic().messages.create(
-            model=self.model,
-            max_tokens=64,
-            messages=[{"role": "user", "content": self._prompt(text)}],
-        )
-        return "".join(block.text for block in message.content if block.type == "text")
-
-    def _claude_cli(self, text: str) -> str:
-        """``claude -p``. The highest cost, and subscription-bound.
-
-        Guarded by a timeout well inside the turn deadline: a CLI that hangs
-        would cost the match, not the hint.
-        """
-        binary = shutil.which("claude")
-        if binary is None:
-            raise FileNotFoundError("claude CLI not on PATH")
-        finished = subprocess.run(
-            [binary, "-p", self._prompt(text)],
-            capture_output=True,
-            text=True,
-            timeout=self.timeout,
-            check=True,
-        )
-        return finished.stdout
 
     def __str__(self) -> str:
         return f"{self.provider}: {self.calls} call(s), {self.failures} fallback(s)"

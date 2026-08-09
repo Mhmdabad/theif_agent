@@ -46,8 +46,16 @@ turn_timeout_seconds = 180
 
 # [trash_talk] -- optional: HOW the banter is produced. The MOVE is always
 # pure Python; the language model never touches the spatial decision.
-# provider = "template"   # template (0 tokens, default) | ollama | claude_api | claude_cli
-# every_n_steps = 1
+#
+# Uncomment to switch providers. claude_api reads ANTHROPIC_API_KEY from the
+# environment -- never put a key in this file, which is committed (Appendix C
+# makes a leaked key a submission gate). Spend is charged from the usage the
+# API reports and counted against the Appendix F series budget; when the budget
+# runs out the provider drops to template for the rest of the series.
+[trash_talk]
+provider = "template"     # template (0 tokens, default) | ollama | claude_api | claude_cli
+model = "claude-haiku-4-5"  # the rulebook asks for a small cloud model
+every_n_steps = 3         # a call every Nth turn; 1 exceeds the series budget
 
 [llm]
 model = "template"                 # zero-token default; see Appendix F table 21

@@ -195,6 +195,8 @@ SHARED: tuple[str, ...] = (
     "ui/view.py",
     "ui/view_heat.py",
     "strategy/base_types.py",
+    "strategy/voice.py",
+    "domain/providers_backends.py",
     "cli_config.py",
     "cli_announce.py",
     "cli_failures.py",

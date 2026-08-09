@@ -137,6 +137,13 @@ class RecordingRunner:
         """Empty on a clean series, as the real runner's is."""
         return []
 
+    @property
+    def brain(self) -> BrainBase:
+        """The brain a real runner holds, and reads the token total off."""
+        value = self.kwargs["brain"]
+        assert isinstance(value, BrainBase)
+        return value
+
     def result(self, **kwargs: object) -> None:
         return None
 
@@ -159,9 +166,10 @@ def match(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Match:
             strategy: dict[str, Any] | None,
             axes: AxisConvention | None = None,
             seed: int = 0,
+            trash_talk: dict[str, Any] | None = None,
         ) -> BrainBase:
             seen.append(strategy)
-            return load_brain(strategy, axes, seed)
+            return load_brain(strategy, axes, seed, trash_talk)
 
         RecordingRunner.built.clear()
         monkeypatch.setattr(driver, "load_brain", spy)

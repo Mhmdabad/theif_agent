@@ -156,10 +156,11 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done · **🚪 GATE** = milesto
 - [x] `every_n_steps` throttle; `step_deadline_seconds` = 30 cap with template fallback
       (`domain/budgeting.py:Ration`)
 - [x] Token metering (`infra/token_ledger.py`)
-- [ ] **Wire the received hint into the belief.** `runtime/subgame.py` stores
-      `received_hints`, but nothing reads them: `subgame_scent._observe` calls
-      `inference.update` with the scent field only. Parse the hint, run it past
-      `Credibility`, and pass it as `claim=` / `reliability=`.
+- [x] **Wire the received hint into the belief.** Done in
+      `runtime/subgame_hint.py`: the sentence is parsed, scored against the
+      trail by `Credibility`, and passed to `inference.update` as `claim=` /
+      `reliability=`. Reliability is held for the whole sub-game, so a peer
+      caught lying is cheaper to disbelieve on its next sentence.
 - [ ] **Wire the hint generator into the live loop.** `strategy/base.py:_hint`
       returns a constant string, so `Intent`, `bluff_vetting`, `Bluffer`, `Ration`
       and `TokenLedger` never execute during a match.

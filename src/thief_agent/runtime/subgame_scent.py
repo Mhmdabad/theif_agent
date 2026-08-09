@@ -12,11 +12,11 @@ from ..domain.actions import Action, apply_action
 from ..domain.inference import update as absorb_evidence
 from ..domain.rules import position_of
 from ..domain.scent_audit import ScentFieldError, StepPlay, audit_scent, check_field
-from .subgame_moves import SubGameMoves
+from .subgame_hint import SubGameHint
 
 
 @dataclass
-class SubGameScent(SubGameMoves):
+class SubGameScent(SubGameHint):
     """The pheromone half of a sub-game: emit, absorb, and re-derive."""
 
     def _emit(self, action: Action) -> dict[str, float]:
@@ -97,7 +97,11 @@ class SubGameScent(SubGameMoves):
         ):
             return
         self.scent.absorb(opened.scent, self.state.grid_size)
-        absorb_evidence(self.belief, self.scent.opponent.values)
+        field = self.scent.opponent.values
+        claim = self.weigh_hint(opened.hint, field)
+        absorb_evidence(
+            self.belief, field, claim=claim or None, reliability=self.credibility.reliability
+        )
 
     def _audit_scent(self) -> tuple[str, ...]:
         """Re-derive their trail from the agreed start and the revealed moves.

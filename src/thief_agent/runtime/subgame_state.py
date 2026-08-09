@@ -16,6 +16,7 @@ from ..domain.actions import Action
 from ..domain.axes import AxisConvention
 from ..domain.belief import Belief
 from ..domain.board import Agent, BoardState
+from ..domain.credibility import Credibility
 from ..domain.memory import ScentMemory
 from ..domain.rules import position_of
 from ..infra.ceremony import FinalReveal, MatchCeremony, Reveal
@@ -50,6 +51,17 @@ class SubGameState:
     their_final: FinalReveal | None = field(default=None, init=False)
     received_hints: dict[int, str] = field(default_factory=dict, init=False)
     """Opponent language, retained verbatim and separate from verified scent."""
+
+    credibility: Credibility = field(default_factory=Credibility, init=False)
+    """What the opponent's word is currently worth, across this sub-game.
+
+    Held for the sub-game rather than rebuilt per turn, because remembering is
+    the whole point: a reliability that reset every step could not remember a
+    lie, and an opponent caught once would be trusted again on its next
+    sentence. Not an ``init`` argument for the same reason the ceremony is not
+    — a caller supplying one would be supplying an opinion about a peer nobody
+    has heard from yet.
+    """
 
     require_bound_scent: bool = True
     """Whether a peer must disclose a scent field bound to its commitment.

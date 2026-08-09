@@ -100,6 +100,7 @@ SHARED: tuple[str, ...] = (
     "runtime/subgame_audit.py",
     "runtime/subgame_commit.py",
     "runtime/subgame_scent.py",
+    "runtime/subgame_hint.py",
     "runtime/subgame_moves.py",
     "runtime/subgame_state.py",
     "runtime/subgame_types.py",

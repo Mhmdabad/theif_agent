@@ -168,7 +168,7 @@ def match(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Match:
             axes: AxisConvention | None = None,
             seed: int = 0,
             trash_talk: dict[str, Any] | None = None,
-        ) -> BrainBase:
+        ) -> dict[str, BrainBase]:
             seen.append(strategy)
             return load_brains(strategy, axes, seed, trash_talk)
 
@@ -207,7 +207,7 @@ class TestTheStrategyTableReachesTheLoader:
     def test_a_configured_brain_is_the_one_that_plays(self, match: Match) -> None:
         """The point of the key: our class, not the shipped heuristic."""
         _, runner = match(private_config(STRATEGY))
-        assert isinstance(runner.kwargs["brains"]["thief"], SpyBrain)
+        assert isinstance(runner.kwargs["brains"]["thief"], SpyBrain)  # type: ignore[index]
 
     def test_an_absent_section_still_runs_the_shipped_brain(self, match: Match) -> None:
         """The documented default has to survive the fix."""

@@ -90,7 +90,7 @@ def main(argv: Sequence[str] | None = None, environ: dict[str, str] | None = Non
 
     try:
         private = load_private(arguments.config)
-        for line in describe(private, source):
+        for line in describe(private, source, getattr(arguments, "rehearse", False)):
             print(line)
         sub_games = resolve_series_length(arguments.sub_games, SHARED_CONFIG)
         print(f"  series         {sub_games} sub-games (Appendix F table 18 row 1, fixed)")

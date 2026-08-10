@@ -15,7 +15,7 @@ from .cli_identity import ROLE
 from .infra.inboxes import TOOL_NAMES
 from .infra.mcp_client import ClientSettings
 from .infra.mcp_server import SERVER_NAME, ServerSettings
-from .infra.tunnel import NotPublicError, discover, read_ngrok_api
+from .infra.tunnel import NotPublicError, discover, read_ngrok_api, rehearsal_url
 
 _DEFAULT: Any = object()
 """Stands in for "use the real ngrok probe", resolved at call time.
@@ -29,9 +29,22 @@ available as a meaningful value: *do not probe at all*.
 
 
 def where_we_are(
-    environ: dict[str, str], reader: Callable[[], str | bytes] | None = _DEFAULT
+    environ: dict[str, str],
+    reader: Callable[[], str | bytes] | None = _DEFAULT,
+    *,
+    rehearsal: bool = False,
+    port: int = 8801,
 ) -> str:
     """The address to advertise, or a sentence explaining that there is none.
+
+    ``rehearsal`` relaxes the public-address rule exactly as ``--rehearse``
+    already means it to be relaxed, and it has to be relaxed *here*. The
+    driver calls :func:`~.infra.tunnel.rehearsal_url`, which excuses a private
+    host — but this banner is printed before any command dispatch, so a
+    ``PUBLIC_URL`` of ``192.168.x.x`` was refused before the rehearsal path
+    could be reached. The effect was that two machines on one LAN could not
+    rehearse against each other at all: the support existed, and nothing could
+    get far enough to use it.
 
     ``reader`` is the ngrok probe, exposed so a test can be hermetic. Without
     it these checks pass or fail depending on whether the developer happens to
@@ -44,6 +57,8 @@ def where_we_are(
     somebody set an address and got it wrong, which is worse than not setting it.
     """
     try:
+        if rehearsal:
+            return rehearsal_url(environ, port)
         endpoint = discover(environ, read_ngrok_api if reader is _DEFAULT else reader)
     except NotPublicError as exc:
         raise StartupError(f"the address we would advertise is unusable: {exc}") from exc
@@ -52,15 +67,23 @@ def where_we_are(
     return endpoint.url
 
 
-def describe(private: dict[str, Any], environ: dict[str, str]) -> list[str]:
-    """Everything worth printing before a socket opens, in order of usefulness."""
+def describe(
+    private: dict[str, Any], environ: dict[str, str], rehearsal: bool = False
+) -> list[str]:
+    """Everything worth printing before a socket opens, in order of usefulness.
+
+    ``rehearsal`` is threaded through rather than read from a global so this
+    stays a pure function of its arguments; the port comes off the server
+    settings we have already built, so a rehearsal advertises the port it is
+    about to bind rather than a default that could disagree with it.
+    """
     network = private.get("network", {})
     server = ServerSettings.from_config(network)
     client = ClientSettings.from_config(network, environ)
     return [
         f"{SERVER_NAME} ({ROLE})",
         f"  listening on   {server.host}:{server.port} ({server.transport})",
-        f"  reachable at   {where_we_are(environ)}",
+        f"  reachable at   {where_we_are(environ, rehearsal=rehearsal, port=server.port)}",
         f"  opponent at    {client.opponent_url}",
         f"  tools          {', '.join(sorted(TOOL_NAMES))}",
     ]

@@ -16,7 +16,12 @@ from thief_agent.domain.scoring import BOOK_TIE_SCORE
 class TestTheSchedule:
     def test_natural_role_on_odd_opposite_on_even(self) -> None:
         assert [role_for("thief", n) for n in range(1, 7)] == [
-            "thief", "police", "thief", "police", "thief", "police",
+            "thief",
+            "police",
+            "thief",
+            "police",
+            "thief",
+            "police",
         ]
 
     def test_the_two_peers_schedules_interlock(self) -> None:
@@ -74,9 +79,7 @@ class TestTheGroupTally:
 
     def test_an_empty_series_is_a_tie_of_nothing(self) -> None:
         standing = tally([], "thief", BOOK_TIE_SCORE)
-        assert standing == SeriesStanding(
-            BOOK_TIE_SCORE, BOOK_TIE_SCORE, 0, 0, 0, series_tie=True
-        )
+        assert standing == SeriesStanding(BOOK_TIE_SCORE, BOOK_TIE_SCORE, 0, 0, 0, series_tie=True)
 
     def test_the_two_sides_compute_the_same_standing_mirrored(self) -> None:
         """What rule 35 actually needs: our 'us' is their 'them', byte for byte."""

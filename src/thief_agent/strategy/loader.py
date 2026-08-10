@@ -81,8 +81,7 @@ def load_brains(
     both, read by whoever assembles it.
     """
     return {
-        role: load_brain(strategy, role, axes, seed, trash_talk)
-        for role in sorted(DEFAULT_BRAINS)
+        role: load_brain(strategy, role, axes, seed, trash_talk) for role in sorted(DEFAULT_BRAINS)
     }
 
 

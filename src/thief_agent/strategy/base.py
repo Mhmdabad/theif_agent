@@ -132,8 +132,7 @@ class BrainBase(ABC):
         if isinstance(action, PlaceBarrier):
             if self.role != "cop":
                 raise NoLegalActionError(
-                    f"thief cannot place a barrier at {action.at}; only the cop may "
-                    "place barriers"
+                    f"thief cannot place a barrier at {action.at}; only the cop may place barriers"
                 )
             try:
                 place_barrier(state, action.at, self.axes, self.max_barriers)

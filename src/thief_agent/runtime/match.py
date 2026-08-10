@@ -51,12 +51,10 @@ class MatchRunner(MatchPlay):
     ) -> Report:
         """The binding report, scored from what was actually played.
 
-        ``agreed`` is a parameter and has no default. FR-7.16 and Appendix E
-        rule 35 require both sides to accept the result *before* either reports
-        one, and a runner that assumed agreement would produce a report claiming
-        something nobody had checked. :meth:`agree_result` is what answers it;
-        passing a literal here would be asserting agreement rather than
-        establishing it.
+        ``agreed`` is a parameter with no default: rule 35 requires both sides
+        to accept the result before either reports one, and :meth:`agree_result`
+        is what answers it — a literal here would assert agreement rather than
+        establish it.
         """
         return Report(
             game_id=self.game_id,
@@ -86,33 +84,26 @@ class MatchRunner(MatchPlay):
     def series_result(self) -> dict[str, object]:
         """The group-keyed standing; :mod:`.match_standing` says why it is wire format.
 
-        Keyed by the **wire-exchanged group ids**, not the names in our private
-        config: each side spells the other's display name however its own TOML
-        does, and the first rehearsal after this block was added proved two
-        honest peers can disagree about nothing but spelling. The greeting's
-        ``group_id`` is a fact both sides received in the same bytes.
+        Keyed by the **wire-exchanged group ids**, not our private config's
+        names: each side spells the other's display name its own way, and a
+        rehearsal proved two honest peers can disagree about nothing but
+        spelling. The greeting's ``group_id`` arrived in the same bytes twice.
         """
         ours, theirs = self.declaration.us.name, self.declaration.them.name
         if self.peering is not None:
             ours = self.peering.ours.group_id or ours
             theirs = self.peering.theirs.group_id or theirs
-        if ours == theirs:
-            # A rehearsal: both repositories are one group. Suffixing by the
-            # starting role keeps the keys distinct and identical on both sides.
+        if ours == theirs:  # a rehearsal: both repositories are one group
             ours, theirs = f"{ours}-{self.role}", f"{theirs}-{opposite(self.role)}"
         return series_block([o.scores() for o in self.outcomes], self.role, ours, theirs)
 
     def agree_result(self, timeout: float = RESULT_TIMEOUT_SEC) -> bool:
         """Step 6: publish what we scored, and learn whether they scored it too.
 
-        Appendix E rule 35. The claim is built from :attr:`outcomes`, which are
-        what this runner actually played, so the thing offered to the opponent
-        is the thing the report will carry rather than a summary of it.
-
-        A series whose audit found forgery is **not** offered for agreement.
-        There is nothing to agree about a match one side did not play honestly,
-        and asking would invite a peer whose commitments did not open to sign
-        off on the score anyway.
+        Appendix E rule 35, built from :attr:`outcomes` — what was actually
+        played, not a summary. A series whose audit found forgery is **not**
+        offered for agreement: there is nothing to agree about a match one
+        side did not play honestly.
         """
         if not self.opponent_played_fairly:
             return False

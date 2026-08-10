@@ -350,3 +350,35 @@ class TestRehearsalIsExemptFromTheTunnelRequirement:
     def test_without_the_flag_a_tunnel_is_still_required(self) -> None:
         with pytest.raises(StartupError, match="Start a tunnel"):
             require_playable(argparse.Namespace(game_id="uoh26-x", rehearse=False), {}, NO_NGROK)
+
+
+class TestARehearsalMayAdvertiseAPrivateAddress:
+    """Two machines on one LAN, which the banner used to make impossible.
+
+    ``require_playable`` already exempted a rehearsal, but the banner is
+    printed before any command dispatch and refused the address first — so the
+    exemption below it was unreachable and a LAN rehearsal could not start.
+    """
+
+    LAN = {"PUBLIC_URL": "http://192.168.1.192:8802"}
+
+    def test_a_lan_address_is_announced_rather_than_refused(self) -> None:
+        assert where_we_are(self.LAN, NO_NGROK, rehearsal=True) == "http://192.168.1.192:8802/mcp"
+
+    def test_the_league_path_still_refuses_the_same_address(self) -> None:
+        """The exemption is keyed on the flag, never on the address."""
+        with pytest.raises(StartupError, match="not reachable from another machine"):
+            where_we_are(self.LAN, NO_NGROK, rehearsal=False)
+
+    def test_a_rehearsal_falls_back_to_loopback_on_its_own_port(self) -> None:
+        assert where_we_are({}, NO_NGROK, rehearsal=True, port=8801) == "http://127.0.0.1:8801/mcp"
+
+    def test_being_a_rehearsal_still_does_not_excuse_a_typo(self) -> None:
+        with pytest.raises(StartupError, match="unusable"):
+            where_we_are({"PUBLIC_URL": "not a url"}, NO_NGROK, rehearsal=True)
+
+    def test_describe_advertises_the_port_it_is_about_to_bind(self) -> None:
+        """Not a default that could disagree with the server settings."""
+        network = {"my_port": 8801, "opponent_url": "http://127.0.0.1:8802/mcp"}
+        lines = describe({"network": network}, {}, True)
+        assert "  reachable at   http://127.0.0.1:8801/mcp" in lines

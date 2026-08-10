@@ -123,49 +123,57 @@ class TestCanonicalForm:
         """The property that makes it portable, stated directly."""
         assert canonical({"hint": "רחוב", "note": "café", "emoji": "🚓"}).isascii()
 
-    def test_there_is_only_one_canonical_form_in_the_codebase(self) -> None:
+    def test_there_is_only_one_canonical_form_for_our_own_artefacts(self) -> None:
         """Two that disagree is the same defect as none.
 
-        Both sides serialise "canonically", both get different bytes, and the
-        audit calls an honest match tampered. The config digest, the scent
-        lock, the commitments and the transport freeze all hash through the
-        same function.
+        The config digest, the scent lock and the transport freeze all hash
+        through this one function. Step commitments are the deliberate
+        exception — they are shared with the opponent, so ``commit_of``
+        reproduces the reference implementation's serialisation instead, and
+        ``TestCommitFormula`` pins that divergence rather than letting it
+        look like an accident.
         """
         payload = {"b": "רחוב", "a": 1}
         assert canonical(payload).encode("utf-8") == canonical_bytes(payload)
 
 
 class TestCommitFormula:
-    def test_it_matches_the_rulebooks_own_commit(self) -> None:
-        """The book serialises the nonce *inside* the record and hashes once.
+    def test_it_matches_the_reference_implementations_own_commit(self) -> None:
+        """The cohort's code appends the nonce after a pipe, unescaped.
 
-        This module used to append ``"|" + nonce`` to the serialised string —
-        a perfectly good commitment scheme, and the wrong one. It yields a
-        different digest from the same inputs, so two honest peers disagree
-        and the audit calls the match tampered.
+        This module used to fold the nonce into the record — the book's p. 37
+        construction, perfectly sound, and the wrong one to send: the
+        reference's auditor recomputes only its own form, so a cohort-derived
+        opponent would fail every one of our steps and report a clean match
+        as tampered.
         """
         secret = "abc123"
-        book = hashlib.sha256(
-            json.dumps({**SAMPLE, "nonce": secret}, sort_keys=True, separators=(",", ":")).encode(
-                "utf-8"
-            )
-        ).hexdigest()
-        assert commit_of(SAMPLE, secret) == book
+        text = json.dumps(SAMPLE, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+        wire = hashlib.sha256(f"{text}|{secret}".encode()).hexdigest()
+        assert commit_of(SAMPLE, secret) == wire
 
-    def test_appending_the_nonce_would_give_a_different_digest(self) -> None:
-        """The construction we used to have, pinned as *not* ours."""
-        secret = "abc123"
-        appended = hashlib.sha256(f"{canonical(SAMPLE)}|{secret}".encode()).hexdigest()
-        assert commit_of(SAMPLE, secret) != appended
+    def test_folding_the_nonce_into_the_record_gives_a_different_digest(self) -> None:
+        """The book's construction, pinned as *not* what we send.
 
-    def test_a_payload_carrying_its_own_nonce_is_refused(self) -> None:
-        """Merging would drop one of the two silently.
-
-        Which one is dropped decides whether the commitment can ever be
-        reopened, so it is not a choice to make by dictionary ordering.
+        ``verify`` still opens it — an opponent that implemented the book
+        literally is honest — but what leaves this agent is the wire form.
         """
-        with pytest.raises(CryptoError, match="pass it once"):
-            commit_of({**SAMPLE, "nonce": "already"}, "abc123")
+        secret = "abc123"
+        folded = hashlib.sha256(canonical_bytes({**SAMPLE, "nonce": secret})).hexdigest()
+        assert commit_of(SAMPLE, secret) != folded
+        verify(SAMPLE, secret, folded)
+
+    def test_a_payload_carrying_its_own_nonce_still_hashes(self) -> None:
+        """Total over dicts, exactly like the reference.
+
+        ``verify`` recomputes *opponents'* payloads through this function. A
+        guard here would turn a record their sealer accepted into a tampering
+        verdict; the guard against double-noncing our own records lives at
+        ``seal``, the only door our records come through.
+        """
+        weird = {**SAMPLE, "nonce": "already-in-the-record"}
+        assert commit_of(weird, "abc123") == commit_of(weird, "abc123")
+        assert commit_of(weird, "abc123") != commit_of(weird, "different")
 
     def test_is_stable_across_calls(self) -> None:
         assert commit_of(SAMPLE, "n") == commit_of(SAMPLE, "n")
@@ -183,7 +191,7 @@ class TestCommitFormula:
     def test_a_known_fixture_pins_the_digest(self) -> None:
         """Exchange this with an opponent before the first counted match."""
         digest = commit_of({"move": "N", "step": 1}, "0" * 32)
-        expected = hashlib.sha256(b'{"move":"N","nonce":"' + b"0" * 32 + b'","step":1}').hexdigest()
+        expected = hashlib.sha256(b'{"move":"N","step":1}|' + b"0" * 32).hexdigest()
         assert digest == expected
         assert len(digest) == 64
 
@@ -203,6 +211,16 @@ class TestSeal:
     def test_the_sealed_commit_verifies(self) -> None:
         sealed = seal(SAMPLE)
         verify(SAMPLE, sealed["nonce"], sealed["commit"])
+
+    def test_a_payload_carrying_its_own_nonce_is_refused_at_sealing(self) -> None:
+        """Our records never legitimately arrive here with one.
+
+        Sealing draws its own nonce; a caller passing a payload that already
+        holds a ``nonce`` key has confused the record shape with this layer,
+        and the confusion is better refused loudly than double-nonced.
+        """
+        with pytest.raises(CryptoError, match="draws its own"):
+            seal({**SAMPLE, "nonce": "already"})
 
 
 class TestVerify:

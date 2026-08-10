@@ -179,12 +179,14 @@ class TestUnverifiableIsNotAnAccusation:
 
 
 class TestTheVerdictDoesNotReadEnglish:
-    def test_a_record_that_cannot_be_hashed_at_all_is_tampered(self, tmp_path: Path) -> None:
-        """A 'nonce' inside the record is a shape the committer never produces.
+    def test_a_nonce_injected_into_the_record_is_tampered(self, tmp_path: Path) -> None:
+        """A 'nonce' inside the record is a shape our sealer never produces.
 
-        ``commit_of`` refuses it rather than silently dropping one of the two
-        nonces. The viewer has to turn that refusal into a verdict — crashing
-        on a hand-edited log would report the edit as our own bug.
+        The wire form hashes it without complaint — the reference's would too —
+        so the edit is caught the way every edit is caught: the digest no
+        longer matches. What matters is that the viewer answers with a verdict
+        rather than crashing, since a crash on a hand-edited log would report
+        the edit as our own bug.
         """
         path = sealed_log(tmp_path)
 
@@ -194,7 +196,27 @@ class TestTheVerdictDoesNotReadEnglish:
         result = walk(load(hand_edited(path, edit)))
         assert result.stamp is Stamp.TAMPERED
         assert result.at_step == 1
-        assert "cannot be hashed as the committer hashed it" in result.reason
+        assert "produces" in result.reason
+
+    def test_a_book_form_log_is_genuine_not_tampered(self, tmp_path: Path) -> None:
+        """Liberal-in extends to the Replay App.
+
+        A log this team sealed before the wire flip — or an opponent's log
+        sealed by a literal implementation of the book — re-derives under the
+        book's convention. Its dialect is not evidence of fraud, and a viewer
+        that stamped it TAMPERED would void an honest match at the archive.
+        """
+        from thief_agent.domain.crypto import book_commit_of
+
+        path = sealed_log(tmp_path)
+
+        def reseal(body: dict[str, Any]) -> None:
+            for step in body["steps"]:
+                if step.get("reveal") is not None and step.get("nonce"):
+                    step["commit"] = book_commit_of(step["reveal"], step["nonce"])
+
+        result = walk(load(hand_edited(path, reseal)))
+        assert result.stamp is not Stamp.TAMPERED
 
     def test_check_step_answers_rather_than_raising(self, tmp_path: Path) -> None:
         path = sealed_log(tmp_path)

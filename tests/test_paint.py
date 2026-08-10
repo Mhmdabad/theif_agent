@@ -243,13 +243,13 @@ def sealed_log(tmp_path: Path, corrupt: bool = False) -> Path:
 class TestTheReplayStamp:
     def test_a_clean_log_stamps_green(self, tmp_path: Path) -> None:
         painter = Recording()
-        summary = draw_replay(load(sealed_log(tmp_path)), painter)  # type: ignore[arg-type]
+        summary = draw_replay(load(sealed_log(tmp_path)), 7, painter)  # type: ignore[arg-type]
         assert painter.rects[0].fill == STAMP_COLOUR[Stamp.VERIFIED_OK]
         assert "Verified OK" in summary
 
     def test_a_tampered_log_stamps_blazing_red(self, tmp_path: Path) -> None:
         painter = Recording()
-        summary = draw_replay(load(sealed_log(tmp_path, corrupt=True)), painter)  # type: ignore[arg-type]
+        summary = draw_replay(load(sealed_log(tmp_path, corrupt=True)), 7, painter)  # type: ignore[arg-type]
         assert painter.rects[0].fill == STAMP_COLOUR[Stamp.TAMPERED]
         assert "TAMPERED" in summary
 
@@ -258,12 +258,12 @@ class TestTheReplayStamp:
         replay = load(sealed_log(tmp_path, corrupt=True))
         assert replay.current.step == 1, "the reader is on an honest step"
         painter = Recording()
-        draw_replay(replay, painter)  # type: ignore[arg-type]
+        draw_replay(replay, 7, painter)  # type: ignore[arg-type]
         assert painter.rects[0].fill == STAMP_COLOUR[Stamp.TAMPERED]
 
     def test_the_stamp_says_the_words_the_rulebook_uses(self, tmp_path: Path) -> None:
         painter = Recording()
-        draw_replay(load(sealed_log(tmp_path)), painter)  # type: ignore[arg-type]
+        draw_replay(load(sealed_log(tmp_path)), 7, painter)  # type: ignore[arg-type]
         assert painter.texts[0].body == "Verified OK"
 
 

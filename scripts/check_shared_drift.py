@@ -195,6 +195,7 @@ SHARED: tuple[str, ...] = (
     "ui/app.py",
     "ui/paint.py",
     "ui/replay.py",
+    "ui/replay_frame.py",
     "ui/replay_check.py",
     "ui/replay_model.py",
     "ui/verdict.py",

@@ -13,8 +13,9 @@ from ..cli_identity import ROLE
 from ..domain.belief import Belief
 from .app_frames import draw_live, draw_replay
 from .app_painter import CanvasPainter
-from .paint import BANNER_HEIGHT, HEAT, board_size
+from .paint import HEAT, TEXT, board_size
 from .replay import ReplayError, load
+from .replay_frame import grid_of
 
 
 def run_live(argv: Sequence[str]) -> int:  # pragma: no cover - needs a display
@@ -42,7 +43,18 @@ def run_live(argv: Sequence[str]) -> int:  # pragma: no cover - needs a display
 
 
 def run_replay(path: Path) -> int:  # pragma: no cover - needs a display
-    """Open the Replay App on ``path``, arrow keys to step."""
+    """Open the Replay App on ``path``. Buttons or arrow keys walk the log.
+
+    The rulebook asks for control buttons, and they earn their place beyond
+    compliance: an examiner opening this window has no reason to guess that the
+    arrow keys do anything, and a viewer whose controls are invisible is one
+    that gets reported as broken.
+
+    The canvas is sized from the log's own board rather than a constant. The
+    side is negotiable above the book's floor, so a fixed number renders a
+    convincing picture of the wrong board for every pair that agreed a larger
+    one — and this window's whole purpose is to be believed.
+    """
     import tkinter as tk
 
     try:
@@ -51,29 +63,58 @@ def run_replay(path: Path) -> int:  # pragma: no cover - needs a display
         print(f"cannot replay {path}: {exc}", file=sys.stderr)
         return 1
 
+    grid = grid_of(replay)
     root = tk.Tk()
     root.title(f"{__package__} — replay {path.name}")
-    width, height = board_size(8)
-    canvas = tk.Canvas(root, width=width, height=height + BANNER_HEIGHT, background=HEAT[0])
+    width, height = board_size(grid)
+    canvas = tk.Canvas(root, width=width, height=height, background=HEAT[0], highlightthickness=0)
     canvas.pack()
     painter = CanvasPainter(canvas)
-    label = tk.Label(root, text="", anchor="w", background=HEAT[0], foreground="#f8f9fa")
-    label.pack(fill="x")
+    caption = tk.Label(root, text="", anchor="w", background=HEAT[0], foreground=TEXT)
+    caption.pack(fill="x")
+    status = tk.Label(root, text="", anchor="w", background=HEAT[0], foreground=TEXT)
+    status.pack(fill="x")
+    controls = tk.Frame(root, background=HEAT[0])
+    controls.pack(fill="x")
 
     def refresh() -> None:
-        summary = draw_replay(replay, painter)
-        label.config(text=f"step {replay.current.step} of {replay.numbers()} — {summary}")
+        summary = draw_replay(replay, grid, painter)
+        reveal = replay.current.reveal or {}
+        caption.config(
+            text=f"{replay.role} · sub-game {replay.sub_game} · "
+            f"{reveal.get('move', '-')} · {reveal.get('intent', '-')} · "
+            f'"{reveal.get("hint", "")}"'
+        )
+        status.config(text=f"step {replay.current.step} of {replay.numbers()[-1]} — {summary}")
 
-    def step_forward(_: object) -> None:
-        replay.forward()
+    def first(_: object = None) -> None:
+        replay.seek(replay.numbers()[0])
         refresh()
 
-    def step_back(_: object) -> None:
+    def previous(_: object = None) -> None:
         replay.back()
         refresh()
 
-    root.bind("<Right>", step_forward)
-    root.bind("<Left>", step_back)
+    def following(_: object = None) -> None:
+        replay.forward()
+        refresh()
+
+    def last(_: object = None) -> None:
+        replay.seek(replay.numbers()[-1])
+        refresh()
+
+    for text, command in (
+        ("|< first", first),
+        ("< prev", previous),
+        ("next >", following),
+        ("last >|", last),
+    ):
+        tk.Button(controls, text=text, command=command).pack(side="left", padx=2, pady=2)
+
+    root.bind("<Left>", previous)
+    root.bind("<Right>", following)
+    root.bind("<Home>", first)
+    root.bind("<End>", last)
     refresh()
     root.mainloop()
     return 0

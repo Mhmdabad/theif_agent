@@ -14,7 +14,7 @@ from thief_agent.domain.board import MOVES, BoardState, Move
 from thief_agent.domain.rules import legal_moves, target_of
 from thief_agent.domain.search import reachable_area
 from thief_agent.strategy.base import BrainBase, Decision, NoLegalActionError
-from thief_agent.strategy.loader import DEFAULT_BRAIN, StrategyError, load_brain
+from thief_agent.strategy.loader import DEFAULT_BRAINS, StrategyError, load_brain
 from thief_agent.strategy.thief_brain import (
     MIN_OPEN_NEIGHBOURS,
     ThiefBrain,
@@ -250,7 +250,7 @@ class TestLoader:
         assert isinstance(load_brain({}), ThiefBrain)
 
     def test_the_default_reference_resolves(self) -> None:
-        assert isinstance(load_brain({"thief_class": DEFAULT_BRAIN}), ThiefBrain)
+        assert isinstance(load_brain({"thief_class": DEFAULT_BRAINS["thief"]}), ThiefBrain)
 
     def test_a_custom_brain_is_loaded(self) -> None:
         spec = "thief_agent.strategy.thief_brain:ThiefBrain"

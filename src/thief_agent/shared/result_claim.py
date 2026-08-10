@@ -26,15 +26,23 @@ from .config import canonical_bytes
 __all__ = ["claim_sha256", "result_claim"]
 
 
-def result_claim(game_uid: str, scores: Sequence[tuple[int, int]]) -> dict[str, Any]:
+def result_claim(
+    game_uid: str,
+    scores: Sequence[tuple[int, int]],
+    series: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """The agreeable part of a result: the series, and every sub-game's score.
 
     Args:
         game_uid: the series this claim is about, so a result agreed for one
             series cannot be replayed to close another.
         scores: ``(cop, thief)`` per sub-game, in the order they were played.
+        series: the group-keyed standing — totals, winner, tie rule, who opened
+            as police — computed by the runner so this module stays below the
+            domain layer. Group-name keys keep it objective: both peers name
+            the same two groups, so both produce identical bytes.
     """
-    return {
+    claim = {
         "game_uid": game_uid,
         "sub_games": [
             {"sub_game": number, "cop_score": cop, "thief_score": thief}
@@ -43,6 +51,9 @@ def result_claim(game_uid: str, scores: Sequence[tuple[int, int]]) -> dict[str, 
         "cop_total": sum(cop for cop, _ in scores),
         "thief_total": sum(thief for _, thief in scores),
     }
+    if series is not None:
+        claim["series"] = series
+    return claim
 
 
 def claim_sha256(claim: dict[str, Any]) -> str:

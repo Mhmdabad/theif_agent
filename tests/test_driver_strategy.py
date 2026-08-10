@@ -32,7 +32,7 @@ from thief_agent.infra.inboxes import PeerInboxes
 from thief_agent.runtime import driver
 from thief_agent.runtime.orchestrator import PROTOCOL_VERSION
 from thief_agent.strategy.base import BrainBase
-from thief_agent.strategy.loader import load_brain
+from thief_agent.strategy.loader import load_brains
 from thief_agent.strategy.thief_brain import ThiefBrain
 
 
@@ -116,6 +116,7 @@ class RecordingRunner:
         RecordingRunner.built.append(self)
 
     opponent_played_fairly = True
+    spent_tokens = 0
 
     def agree(self) -> None:
         return None
@@ -169,10 +170,10 @@ def match(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Match:
             trash_talk: dict[str, Any] | None = None,
         ) -> BrainBase:
             seen.append(strategy)
-            return load_brain(strategy, axes, seed, trash_talk)
+            return load_brains(strategy, axes, seed, trash_talk)
 
         RecordingRunner.built.clear()
-        monkeypatch.setattr(driver, "load_brain", spy)
+        monkeypatch.setattr(driver, "load_brains", spy)
         monkeypatch.setattr(driver, "MatchRunner", RecordingRunner)
         monkeypatch.setattr(driver, "Orchestrator", StubOrchestrator)
         monkeypatch.setattr(driver, "FastMcpTransport", StubTransport)
@@ -206,12 +207,12 @@ class TestTheStrategyTableReachesTheLoader:
     def test_a_configured_brain_is_the_one_that_plays(self, match: Match) -> None:
         """The point of the key: our class, not the shipped heuristic."""
         _, runner = match(private_config(STRATEGY))
-        assert isinstance(runner.kwargs["brain"], SpyBrain)
+        assert isinstance(runner.kwargs["brains"]["thief"], SpyBrain)
 
     def test_an_absent_section_still_runs_the_shipped_brain(self, match: Match) -> None:
         """The documented default has to survive the fix."""
         _, runner = match(private_config())
-        brain = runner.kwargs["brain"]
+        brain = runner.kwargs["brains"]["thief"]  # type: ignore[index]
         assert isinstance(brain, ThiefBrain) and not isinstance(brain, SpyBrain)
 
     def test_an_absent_section_hands_the_loader_nothing(self, match: Match) -> None:

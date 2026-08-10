@@ -166,7 +166,7 @@ def a_runner(tmp_path: Path, transport: ScriptedPeer, peering: Peering | None) -
         ),
         declaration=build_declaration(ROLE, GAME_ID, GAME_UID),
         parameters=parameters(),
-        brain=ThiefBrain(),
+        brains={"thief": ThiefBrain(), "police": ThiefBrain()},
         axes=AXES,
         start=BoardState(grid_size=8, cop=(0, 0), thief=(6, 5), barriers=frozenset(), step=0),
         max_steps=2,
@@ -721,7 +721,7 @@ def a_live_side(role: str, port: int, opponent_port: int, where: Path) -> Live:
         orchestrator=Orchestrator(inboxes=inboxes, client=client, role=role),
         declaration=build_declaration(role, GAME_ID, GAME_UID),
         parameters=parameters(),
-        brain=PlaysItsOwnPiece("cop" if role == "police" else "thief"),  # type: ignore[arg-type]
+        brains={"police": PlaysItsOwnPiece("cop"), "thief": PlaysItsOwnPiece("thief")},  # type: ignore[dict-item]
         axes=AXES,
         start=BoardState(grid_size=8, cop=(0, 0), thief=(6, 5), barriers=frozenset(), step=0),
         max_steps=STEPS,

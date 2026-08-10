@@ -128,7 +128,7 @@ def a_runner(
         ),
         declaration=build_declaration("thief", "uoh26-s82kma9e", "u-0001"),
         parameters=parameters(),
-        brain=ThiefBrain(),
+        brains={"thief": ThiefBrain(), "police": ThiefBrain()},
         axes=AXES,
         start=BoardState(grid_size=8, cop=(0, 0), thief=(6, 5), barriers=frozenset(), step=0),
         max_steps=2,

@@ -220,7 +220,7 @@ def a_side(role: str, port: int, opponent_port: int) -> Side:
         orchestrator=Orchestrator(inboxes=inboxes, client=client, role=role),
         declaration=build_declaration(role, "uoh26-s82kma9e", "u-0001"),
         parameters=parameters(),
-        brain=PlaysItsOwnPiece("cop" if role == "police" else "thief"),  # type: ignore[arg-type]
+        brains={"police": PlaysItsOwnPiece("cop"), "thief": PlaysItsOwnPiece("thief")},  # type: ignore[dict-item]
         axes=AXES,
         start=BoardState(grid_size=8, cop=(0, 0), thief=(6, 5), barriers=frozenset(), step=0),
         max_steps=STEPS,
@@ -491,7 +491,7 @@ class TestAWholeMatchRunsThroughTheRunner:
             orchestrator=Orchestrator(inboxes=side.inboxes, client=side.client, role=side.role),
             declaration=build_declaration(side.role, "uoh26-s82kma9e", "u-0001"),
             parameters=parameters(),
-            brain=PlaysItsOwnPiece("cop" if side.role == "police" else "thief"),  # type: ignore[arg-type]
+            brains={"police": PlaysItsOwnPiece("cop"), "thief": PlaysItsOwnPiece("thief")},  # type: ignore[dict-item]
             axes=AXES,
             start=BoardState(grid_size=8, cop=(0, 0), thief=(6, 5), barriers=frozenset(), step=0),
             max_steps=STEPS,

@@ -31,6 +31,11 @@ class Report:
     game_uid: str = ""
     started_at: str = ""
     ended_at: str = ""
+    starting_role: str = ""
+    """The role played in sub-game 1; the alternation schedule follows from it."""
+
+    series_result: dict[str, Any] | None = None
+    """The group-keyed standing — the book scores a group pair, not a role."""
 
     def __post_init__(self) -> None:
         if not self.sub_games:
@@ -68,6 +73,8 @@ class Report:
             "result_agreed_with_opponent": self.agreed,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
+            "starting_role": self.starting_role or self.role,
+            "series_result": self.series_result,
         }
 
     def to_json(self) -> str:

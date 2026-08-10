@@ -32,8 +32,12 @@ def play(
     """
     import threading
 
-    from .runtime.driver import open_match
+    from .runtime.driver import ROLE, open_match
 
+    if arguments.opponent:
+        environ = {**environ, "OPPONENT_URL": arguments.opponent}
+    if arguments.public:
+        environ = {**environ, "PUBLIC_URL": arguments.public}
     threading.Thread(target=serve, args=(build(inboxes), settings), daemon=True).start()
     print(f"serving on {settings.host}:{settings.port}", flush=True)
     try:
@@ -44,6 +48,7 @@ def play(
             game_id=arguments.game_id,
             directory=arguments.out,
             rehearsal=arguments.rehearse,
+            starting_role=arguments.starting_role or ROLE,
         )
     except Exception as exc:  # noqa: BLE001 - a match failure is a message, not a traceback
         print(f"the match did not finish: {safely_describe(exc)}", file=sys.stderr)

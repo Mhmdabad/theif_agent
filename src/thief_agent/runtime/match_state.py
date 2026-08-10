@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..domain.alternation import role_for
 from ..domain.axes import AxisConvention
 from ..domain.board import BoardState
 from ..domain.lock import ScentAgreement
@@ -38,7 +39,7 @@ class MatchState:
     orchestrator: Orchestrator
     declaration: MatchDeclaration
     parameters: dict[str, Any]
-    brain: BrainBase
+    brains: dict[str, BrainBase]
     axes: AxisConvention
     start: BoardState
     max_steps: int
@@ -87,7 +88,24 @@ class MatchState:
 
     @property
     def role(self) -> str:
+        """Our **natural** role: the one played in sub-game 1 and named in the
+        declaration. Which role a given sub-game is played in is
+        :meth:`role_in` — natural on odd numbers, the opposite on even."""
         return self.orchestrator.role
+
+    def role_in(self, number: int) -> str:
+        """The role we play in sub-game ``number``, under the agreed schedule."""
+        return role_for(self.role, number)
+
+    def brain_for(self, number: int) -> BrainBase:
+        """The brain that plays sub-game ``number`` — chosen by that sub-game's role."""
+        return self.brains[self.role_in(number)]
+
+    @property
+    def spent_tokens(self) -> int:
+        """Rule 54's total: every voice's spend, summed once per distinct voice."""
+        voices = {id(brain.voice): brain.voice for brain in self.brains.values()}
+        return sum(voice.spent for voice in voices.values())
 
     def config_for(self, number: int) -> LockedConfig:
         return lock(

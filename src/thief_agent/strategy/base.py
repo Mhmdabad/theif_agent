@@ -14,17 +14,23 @@ model writes text; the algorithm owns every spatial decision. ``_hint`` runs
 *after* the action is chosen and guarded, so the sentence describes a decision
 rather than making one.
 
-Two overrides exist because the cop has two kinds of turn. ``_pick_move``
-chooses a relocation; ``_decide_move`` chooses between relocating and
-forfeiting movement to place a barrier. This agent never places one, so it
-overrides only the first and inherits the default.
+Two overrides exist because the cop has two kinds of turn: ``_pick_move``
+relocates; ``_decide_move`` weighs relocating against placing a barrier.
 """
 
 import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
 
-from ..domain.actions import Action, MoveAction, PlaceBarrier, apply_action
+from ..domain.actions import (
+    DEFAULT_MAX_BARRIERS,
+    Action,
+    IllegalActionError,
+    MoveAction,
+    PlaceBarrier,
+    apply_action,
+    place_barrier,
+)
 from ..domain.axes import AxisConvention
 from ..domain.board import Agent, BoardState, Move
 from ..domain.rules import legal_moves
@@ -48,6 +54,7 @@ class BrainBase(ABC):
 
     axes: AxisConvention = field(default_factory=AxisConvention)
     seed: int = 0
+    max_barriers: int = DEFAULT_MAX_BARRIERS
     voice: Voice = field(default_factory=Voice)
     """Who speaks, and what speech costs. Defaults to the zero-token template."""
 
@@ -70,8 +77,8 @@ class BrainBase(ABC):
         and before Commit packing. Subclasses override the hooks below rather
         than this method, so the legality guard cannot be bypassed.
 
-        At runtime ``state.cop`` is the belief peak, not private truth, and
-        ``context`` contains stable ``threat``, ``concentration``, and
+        At runtime ``state.thief`` is the belief peak, not private truth, and
+        ``context`` contains stable ``target``, ``concentration``, and
         ``uncertainty`` keys. Configured brains should accept ``**context``.
 
         Raises:
@@ -84,19 +91,15 @@ class BrainBase(ABC):
     def _hint(self, state: BoardState, action: Action, **context: object) -> str:
         """Compose this turn's hint for the action already chosen and guarded.
 
-        The claim is about where this action leaves us — re-derived with the
-        same :func:`~..domain.actions.apply_action` the runtime will apply for
-        real, so a hint cannot describe a board that never happened.
+        The claim describes where this action leaves us, re-derived with the
+        same :func:`~..domain.actions.apply_action` the runtime applies for
+        real — so a hint cannot describe a board that never happened.
         """
         del context
         return self.voice.about(state, self.role, apply_action(state, self.role, action, self.axes))
 
     def _decide_move(self, state: BoardState, **context: object) -> Action:
-        """Choose between relocating and any role-specific alternative.
-
-        The default is to relocate. The cop overrides this to weigh a barrier
-        placement against a move; the thief has no alternative and inherits it.
-        """
+        """Relocate by default; the cop overrides to weigh a barrier instead."""
         return MoveAction(self._pick_move(state, **context))
 
     @abstractmethod
@@ -115,26 +118,28 @@ class BrainBase(ABC):
         it here costs a local error rather than a rejected move and a technical
         loss.
 
-        Two different questions, and only the first is about this board.
-
-        A **barrier is never legal for the thief**, in any position, under any
-        configuration. Only the cop may forfeit movement to seal a cell, so
-        there is nothing here to validate against the state — the action is
-        refused because of who is taking it. Letting it through on the grounds
-        that "placement legality belongs to the domain layer" is exactly the
-        mistake this guard exists to prevent: the domain layer would reject it
-        too, but only after it had gone out on the wire, where the cop rejects
-        it and we take a technical loss worth zero to both sides.
-
-        A **move** is checked against the legal set for this position.
+        Both kinds of turn are checked, because the cop has two. A placement
+        is validated by *attempting* it against :func:`~..domain.actions.
+        place_barrier` and discarding the result, rather than by restating
+        reach, occupancy and quota here. Restating them would mean two
+        definitions of a legal placement that agree until one is edited — and
+        the one that decides the match is the opponent's copy of the rules,
+        not ours.
 
         Raises:
-            NoLegalActionError: if the action is not one the thief may take.
+            NoLegalActionError: if the action is not legal in this state.
         """
         if isinstance(action, PlaceBarrier):
-            raise NoLegalActionError(
-                f"thief cannot place a barrier at {action.at}; only the cop may place barriers"
-            )
+            if self.role != "cop":
+                raise NoLegalActionError(
+                    f"thief cannot place a barrier at {action.at}; only the cop may "
+                    "place barriers"
+                )
+            try:
+                place_barrier(state, action.at, self.axes, self.max_barriers)
+            except IllegalActionError as exc:
+                raise NoLegalActionError(f"{self.role} chose an illegal barrier: {exc}") from exc
+            return
         available = self.options(state)
         if not available:
             raise NoLegalActionError(f"{self.role} has no legal move")

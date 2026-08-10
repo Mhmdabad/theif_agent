@@ -6,29 +6,12 @@ addresses, ``agree_config`` compared digests, ``SubGame`` played, ``ArtefactSet`
 wrote the evidence — and nothing ran them in order.
 
 The order is not negotiable and each step exists because skipping it costs a
-match:
-
-1. **Handshake** — trade public addresses and write both into the declaration.
-   The address in the private config is only a bootstrap; what the opponent
-   *announces* is where they are.
-2. **Agree the config** — exchange ``config_sha256`` and refuse to play on any
-   mismatch. Two peers with different parameters are playing different games
-   and will report incompatible results, which scores zero for both.
-3. **Play** — each sub-game through the four ceremony phases.
-4. **Audit** — re-derive every step the opponent committed to, once their
-   nonces arrive. This is the only moment the question is answerable.
-5. **Score** — classify the final board through :mod:`..domain.scoring`, whose
-   table comes from Appendix F. The scores are *fixed* parameters: inventing
-   them here, or carrying a placeholder into a result file, is a deviation an
-   audit finds.
-6. **Agree the result** — publish the score we arrived at, read the score they
-   arrived at, and record whether the two are the same. Appendix E rule 35
-   requires this *before* either side reports, and it is the one step whose
-   failure is not an abort: two honest peers can disagree, and the answer to
-   that is a conversation between two teams rather than a verdict from either
-   agent.
-7. **Record** — the four artefacts, checked for coherence before anything is
-   written.
+match: **handshake** (announced addresses, not configured ones), **agree the
+config** (refuse any digest mismatch), **play** (the four ceremony phases),
+**audit** (re-derive every commitment once nonces arrive), **score** (Appendix
+F's fixed table via :mod:`..domain.scoring`), **agree the result** (rule 35,
+before either side reports — the one step whose failure is a recorded fact
+rather than an abort), and **record** (four artefacts, coherence-checked).
 
 **Nothing here mails anybody.** The report is built and written to disk carrying
 the agreement it actually reached; sending it is a separate, deliberate act
@@ -39,11 +22,13 @@ be reporting before the human who has to stand behind the result has seen it.
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..domain.alternation import opposite
 from ..infra.artefacts import ArtefactSet
 from ..infra.report import Report, Repositories, SubGameResult
 from ..shared.result_claim import claim_sha256, result_claim
 from .match_outcome import SubGameOutcome
 from .match_play import MatchPlay
+from .match_standing import series_block
 from .orchestrator_book import RESULT_TIMEOUT_SEC
 
 __all__ = [
@@ -94,7 +79,28 @@ class MatchRunner(MatchPlay):
             agreed=agreed,
             started_at=self.declaration.started_at,
             ended_at=self.now(),
+            starting_role=self.role,
+            series_result=self.series_result(),
         )
+
+    def series_result(self) -> dict[str, object]:
+        """The group-keyed standing; :mod:`.match_standing` says why it is wire format.
+
+        Keyed by the **wire-exchanged group ids**, not the names in our private
+        config: each side spells the other's display name however its own TOML
+        does, and the first rehearsal after this block was added proved two
+        honest peers can disagree about nothing but spelling. The greeting's
+        ``group_id`` is a fact both sides received in the same bytes.
+        """
+        ours, theirs = self.declaration.us.name, self.declaration.them.name
+        if self.peering is not None:
+            ours = self.peering.ours.group_id or ours
+            theirs = self.peering.theirs.group_id or theirs
+        if ours == theirs:
+            # A rehearsal: both repositories are one group. Suffixing by the
+            # starting role keeps the keys distinct and identical on both sides.
+            ours, theirs = f"{ours}-{self.role}", f"{theirs}-{opposite(self.role)}"
+        return series_block([o.scores() for o in self.outcomes], self.role, ours, theirs)
 
     def agree_result(self, timeout: float = RESULT_TIMEOUT_SEC) -> bool:
         """Step 6: publish what we scored, and learn whether they scored it too.
@@ -110,7 +116,11 @@ class MatchRunner(MatchPlay):
         """
         if not self.opponent_played_fairly:
             return False
-        claim = result_claim(self.declaration.game_uid, [o.scores() for o in self.outcomes])
+        claim = result_claim(
+            self.declaration.game_uid,
+            [o.scores() for o in self.outcomes],
+            series=self.series_result(),
+        )
         return self.orchestrator.agree_result(
             claim, claim_sha256(claim), self.declaration.game_uid, timeout
         )

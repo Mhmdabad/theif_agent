@@ -15,14 +15,11 @@ here, because the boundaries between sub-games are the *series*' business. A
 peering that stopped at this line is a series that cannot re-handshake, which is
 a series a rotated tunnel ends.
 
-**Somebody has to start first, and it must not be punished for it.** Two peers
-opening a match are each other's prerequisite: the first one up announces to a
-server that does not exist yet. ``open_series`` announces unforgivingly, which
-is right *during* a match — an unreachable opponent is a technical loss and
-should stay one — and wrong at startup, where it means whoever types the command
-first always fails. :func:`await_opponent` retries until the other side appears
-or the patience runs out, so the two commands only have to be started within a
-couple of minutes of each other rather than simultaneously.
+**Somebody has to start first, and it must not be punished for it.**
+``open_series`` announces unforgivingly, right during a match and wrong at
+startup, where whoever types the command first would always fail —
+:func:`await_opponent` retries until the other side appears, so the two
+commands need only start within a couple of minutes of each other.
 
 **It agrees, writes, and stops.** Rule 35 requires both sides to agree the
 result before either reports one, so the match ends by publishing our score and
@@ -42,7 +39,7 @@ from ..infra.mcp_transport import FastMcpTransport
 from ..infra.tunnel import discover, rehearsal_url
 from ..shared.config import SHARED_CONFIG
 from ..shared.config import load as load_shared
-from ..strategy.loader import load_brain
+from ..strategy.loader import load_brains
 from .driver_config import _cell, _max_moves, _side, _start_board, _them, _us
 from .driver_declaration import _conclude, _declaration, _now
 from .driver_startup import DEFAULT_PATIENCE, StartupTimeout, await_opponent
@@ -50,6 +47,8 @@ from .match import MatchRunner
 from .orchestrator import Orchestrator
 
 ROLE = "thief"
+"""This repository's natural role: the sub-game-1 default. Alternation gives
+even sub-games to the opposite brain regardless of where we start."""
 
 
 def open_match(
@@ -60,6 +59,7 @@ def open_match(
     game_id: str,
     directory: Path,
     rehearsal: bool = False,
+    starting_role: str = ROLE,
 ) -> tuple[Path, ...]:  # pragma: no cover - the other side of this is another team
     """Run a whole match and write its evidence. Returns the files written.
 
@@ -80,7 +80,7 @@ def open_match(
     client = OpponentClient(
         transport=transport, settings=ClientSettings.from_config(network, environ)
     )
-    orchestrator = Orchestrator(inboxes=inboxes, client=client, role=ROLE)
+    orchestrator = Orchestrator(inboxes=inboxes, client=client, role=starting_role)
 
     if rehearsal:
         address = rehearsal_url(environ, int(network.get("my_port", 8801)))
@@ -94,7 +94,7 @@ def open_match(
     us, them = _us(private), _them(private)
     declaration = _declaration(
         game_id=game_id,
-        role=ROLE,
+        role=starting_role,
         private=private,
         environ=environ,
         parameters=parameters,
@@ -109,7 +109,7 @@ def open_match(
         orchestrator=orchestrator,
         declaration=declaration,
         parameters=parameters,
-        brain=load_brain(private.get("strategy"), trash_talk=private.get("trash_talk")),
+        brains=load_brains(private.get("strategy"), trash_talk=private.get("trash_talk")),
         axes=AxisConvention(),
         start=_start_board(parameters.get("board_and_agents", {})),
         max_steps=_max_moves(parameters),

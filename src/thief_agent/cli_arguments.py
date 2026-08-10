@@ -47,6 +47,25 @@ def parse(argv: Sequence[str] | None, description: str | None) -> argparse.Names
         "the flag exists only so that asking for another is refused out loud",
     )
     parser.add_argument(
+        "--starting-role",
+        choices=("police", "thief"),
+        default=None,
+        help="the role WE play in sub-game 1, agreed with the opponent (they start as "
+        "the opposite). Roles alternate every sub-game either way; omitted, this "
+        "repository's natural role opens",
+    )
+    parser.add_argument(
+        "--opponent",
+        default="",
+        help="the opponent's public MCP URL (…/mcp). Overrides OPPONENT_URL",
+    )
+    parser.add_argument(
+        "--public",
+        default="",
+        help="our own public URL as the opponent should call it. Overrides PUBLIC_URL; "
+        "omitted, a locally running ngrok is asked for it",
+    )
+    parser.add_argument(
         "--rehearse",
         action="store_true",
         help="play this project's other agent over loopback, no tunnel — practice only, "

@@ -109,7 +109,7 @@ def _conclude(
     written = runner.write(
         runner.result(
             commit_hash=declaration.provenance.github_commit or "unknown",
-            total_tokens=runner.brain.voice.spent,
+            total_tokens=runner.spent_tokens,
             agreed=agreed,
             repositories=Repositories(
                 cop_repo=us.cop_repo,

@@ -83,18 +83,19 @@ class MatchPlay(MatchAgreement):
         self.orchestrator.inboxes.bind(self.declaration.game_uid, number)
         hint_max_words = int(self.parameters.get("hint_max_words", 15))
         self.orchestrator.inboxes.hint_max_words = hint_max_words
+        role = self.role_in(number)
         log = MatchLog(
             game_id=self.game_id,
             sub_game=number,
-            role=self.role,
+            role=role,
             game_uid=self.declaration.game_uid,
             config_sha256=config_sha256(self.parameters),
         )
         game = SubGame(
-            role=self.role,
-            brain=self.brain,
+            role=role,
+            brain=self.brain_for(number),
             peer=McpPeer(
-                role=self.role,
+                role=role,
                 client=self.orchestrator.client,
                 inboxes=self.orchestrator.inboxes,
                 now=self.now(),
@@ -113,7 +114,7 @@ class MatchPlay(MatchAgreement):
         )
         played = game.play()
         outcome = SubGameOutcome(
-            number=number, played=played, audit=game.audit(), log=log, game=game
+            number=number, played=played, audit=game.audit(), log=log, game=game, our_role=role
         )
         self.outcomes.append(outcome)
         return outcome

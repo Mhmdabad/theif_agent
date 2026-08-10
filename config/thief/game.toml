@@ -49,6 +49,7 @@ turn_timeout_seconds = 180
 # ~41 ms a move against a 30 s deadline. Comment this out to fall back.
 [strategy]
 thief_class = "thief_agent.strategy.thief_search:SearchingThief"
+police_class = "thief_agent.strategy.police_search:SearchingPolice"  # even sub-games: roles alternate
 
 # [trash_talk] -- optional: HOW the banter is produced. The MOVE is always
 # pure Python; the language model never touches the spatial decision.

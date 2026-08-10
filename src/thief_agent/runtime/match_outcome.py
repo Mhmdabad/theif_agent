@@ -29,6 +29,10 @@ class SubGameOutcome:
     Optional because an outcome can be reconstructed from files without one.
     """
 
+    our_role: str = ""
+    """Which role we played this sub-game — the alternation schedule's answer,
+    recorded so the group tally never has to re-derive it."""
+
     @property
     def clean(self) -> bool:
         return self.audit.clean

@@ -210,7 +210,7 @@ def a_runner(side: Side, config: dict[str, Any], directory: Path) -> MatchRunner
         orchestrator=side.orchestrator,
         declaration=build_declaration(side.role, GAME_ID, GAME_UID),
         parameters=config,
-        brain=PlaysItsOwnPiece("cop" if side.role == "police" else "thief"),  # type: ignore[arg-type]
+        brains={"police": PlaysItsOwnPiece("cop"), "thief": PlaysItsOwnPiece("thief")},  # type: ignore[dict-item]
         axes=AxisConvention(),
         start=BoardState(grid_size=8, cop=(0, 0), thief=(6, 5), barriers=frozenset(), step=0),
         max_steps=3,

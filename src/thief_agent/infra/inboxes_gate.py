@@ -44,6 +44,11 @@ class InboxGate(InboxState):
         series. :meth:`bind` orders the two sides so it should not arise at all;
         this is what happens when it does anyway.
         """
+        if not game_uid and not sub_game:
+            # A peer running the cohort's protocol sends no binding at all.
+            # Absent is not a mismatch: we key off the binding we hold, which
+            # we know better than any claim on the wire could tell us.
+            return None
         if not self.game_uid:
             return (
                 f"{what} arrived before this mailbox was bound to a series; nothing is "

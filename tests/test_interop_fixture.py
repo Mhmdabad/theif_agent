@@ -108,3 +108,60 @@ class TestTheTwoRepositoriesShareTheseVectors:
             pytest.skip("sibling repository not checked out beside this one")
         ours = Path(__file__).parent / "fixtures" / "commit_vectors.json"
         assert theirs.read_bytes() == ours.read_bytes()
+
+
+class TestTheCohortDisagreesWithItsOwnBook:
+    """The reference implementation and the PDF compute different digests.
+
+    Discovered by diffing against ``rmisegal/Game-P2P-Cop-Chase`` rather than
+    by reasoning: the book's ``commit()`` (p. 37) folds the nonce into the
+    record and leaves ``ensure_ascii`` at its default; the reference appends it
+    after a pipe with ``ensure_ascii=False``. The book's precedence rule says
+    the PDF wins, so that is what we send — but an opponent running the
+    reference is honest, and refusing its commitments would be an unappealable
+    rule 19 verdict against a clean match.
+    """
+
+    RECORD = {"step": 4, "move": "N", "intent": "truth", "hint": "past the harbour"}
+    NONCE = "0123456789abcdef0123456789abcdef"
+
+    def test_the_two_conventions_really_do_differ(self) -> None:
+        from thief_agent.domain.crypto import reference_commit_of
+
+        assert commit_of(self.RECORD, self.NONCE) != reference_commit_of(self.RECORD, self.NONCE)
+
+    def test_we_send_the_books_form(self) -> None:
+        expected = hashlib.sha256(
+            json.dumps(
+                {**self.RECORD, "nonce": self.NONCE}, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")
+        ).hexdigest()
+        assert commit_of(self.RECORD, self.NONCE) == expected
+
+    def test_the_reference_form_matches_the_cohorts_code(self) -> None:
+        from thief_agent.domain.crypto import reference_commit_of
+
+        canonical_text = json.dumps(
+            self.RECORD, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        )
+        expected = hashlib.sha256(f"{canonical_text}|{self.NONCE}".encode()).hexdigest()
+        assert reference_commit_of(self.RECORD, self.NONCE) == expected
+
+    def test_verify_accepts_an_honest_peer_running_either(self) -> None:
+        from thief_agent.domain.crypto import reference_commit_of, verify
+
+        verify(self.RECORD, self.NONCE, commit_of(self.RECORD, self.NONCE))
+        verify(self.RECORD, self.NONCE, reference_commit_of(self.RECORD, self.NONCE))
+
+    def test_verify_still_refuses_a_digest_neither_produces(self) -> None:
+        from thief_agent.domain.crypto import CryptoError, verify
+
+        with pytest.raises(CryptoError):
+            verify(self.RECORD, self.NONCE, "f" * 64)
+
+    def test_a_non_ascii_hint_is_where_they_diverge_in_practice(self) -> None:
+        """Hints are free natural language, so this arrives eventually."""
+        from thief_agent.domain.crypto import reference_commit_of
+
+        hebrew = {**self.RECORD, "hint": "ליד הפארק"}
+        assert commit_of(hebrew, self.NONCE) != reference_commit_of(hebrew, self.NONCE)

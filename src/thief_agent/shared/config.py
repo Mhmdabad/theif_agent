@@ -88,16 +88,18 @@ def canonical_bytes(payload: dict[str, Any]) -> bytes:
         No incidental whitespace.
 
     ``ensure_ascii`` left at its default of **True**
-        Non-ASCII is escaped to ``\\uXXXX``, so the output is pure ASCII
-        whatever went in. This looks like the setting to turn off — raw UTF-8
-        reads better and is just as deterministic *on its own*. It is the wrong
-        call here, because determinism alone is not the requirement:
-        interoperability is. The rulebook's own ``commit()`` leaves the default
-        (p. 37), so an opponent running that code escapes where we would not,
-        and the first hint carrying a non-ASCII character produces two
-        different digests from two honest peers — a ``TAMPERED`` verdict, no
-        appeal, zero for both sides. Hints are free natural language, so that
-        character will arrive eventually.
+        The rulebook's ``commit()`` (PDF p. 37) calls ``json.dumps`` with
+        ``sort_keys`` and ``separators`` and does *not* pass ``ensure_ascii``,
+        so it escapes non-ASCII to ``\\uXXXX``. We match the book.
+
+        The cohort's reference implementation does **not**: it passes
+        ``ensure_ascii=False``. The two disagree, and the book's own precedence
+        rule settles it — the PDF is authoritative over the reference. The cost
+        of the disagreement is real and lands on hints, which are free natural
+        language: the first Hebrew place name in a hint makes two honest peers
+        compute two different digests. That is why :func:`~..domain.crypto.verify`
+        accepts either convention on the way *in*, while this stays strict on
+        the way out.
     """
     return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
 

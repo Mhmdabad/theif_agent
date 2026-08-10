@@ -44,7 +44,10 @@ class PeerRecords(PeerMailbox):
         deadline = time.monotonic() + self.timeout
         while True:
             turn: TurnMessage = self._drain(self.inboxes.turns, step, "commitment", deadline)
-            if turn.game_uid == self.game_uid and turn.sub_game == self.sub_game:
+            # Absent binding means the cohort's protocol; see peer_mailbox.
+            if (not turn.game_uid or turn.game_uid == self.game_uid) and (
+                not turn.sub_game or turn.sub_game == self.sub_game
+            ):
                 return turn
             self.quarantined.append(turn.to_dict())
 

@@ -1,43 +1,31 @@
-"""Commit-Reveal sealing, in the wire form the cohort uses.
+"""Commit-Reveal sealing, in the rulebook's form.
 
 Every step a peer seals its true record under
-``commit = SHA256(canonical_json({**payload, "nonce": nonce}))`` and sends **only** the
-commit. Nonces are withheld until the end-of-game audit, where both sides
-re-verify every step — so no position or action can be rewritten afterwards.
+``commit = SHA256(canonical_json({**payload, "nonce": nonce}))`` and sends
+**only** the commit. Nonces are withheld until the end-of-game audit, where
+both sides re-verify every step, so no position or action can be rewritten
+afterwards.
 
-**This formula is not ours to choose.** It has to match the opponent's byte for
-byte, or two peers who both played honestly produce a ``TAMPERED`` verdict on a
-clean match — voided, no appeal, zero for both sides. The shape here follows the
-course reference implementation, which is the only thing resembling a shared
-standard across the cohort.
-
-Three details carry that compatibility, and each is easy to get silently wrong:
-
-``ensure_ascii=False``
-    ``json.dumps`` defaults to ``True``, escaping non-ASCII to ``\\uXXXX``.
-    Identical bytes for an English hint, different bytes the moment a hint
-    carries a non-ASCII character — and hints are free natural language.
-
-The nonce is **folded into the payload**, not appended after it
-    It joins the record as a ``nonce`` field and the whole object is serialised
-    once — which is what the rulebook's ``|`` operator means here. Concatenating
-    it onto the canonical string instead would produce a different digest, so
-    this is the detail that has to match the opponent exactly.
-
-``sort_keys=True`` with tight separators
-    So key order and incidental whitespace cannot change the digest.
+**The two sources we have disagree about this formula.** :mod:`.crypto_wire`
+documents that and carries the other side of it; ``verify`` accepts either.
+``tests/fixtures/commit_vectors.json`` lists both digests, to be exchanged
+before a counted match.
 """
 
 import hashlib
+import logging
 import secrets
 from typing import Any
 
 from ..shared.config import canonical_bytes
 from .crypto_record import CryptoError, board_terms, step_record
+from .crypto_wire import reference_commit_of
 
 NONCE_BYTES = 16
 """Matches the reference. ``secrets.token_hex(16)`` gives a 32-char nonce."""
 
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "NONCE_BYTES",
@@ -46,6 +34,7 @@ __all__ = [
     "board_terms",
     "canonical",
     "commit_of",
+    "reference_commit_of",
     "nonce",
     "seal",
     "step_record",
@@ -56,25 +45,18 @@ __all__ = [
 def nonce() -> str:
     """A fresh 128-bit nonce, from the CSPRNG and never from :mod:`random`.
 
-    The rulebook names the module: ``secrets``, *not* ``random``, which it
-    calls too predictable. That is not stylistic advice.
+    The rulebook names the module: ``secrets``, *not* ``random``. A nonce makes
+    repeating an action produce a different digest and defeats a dictionary
+    attack — the move space is five moves and a handful of cells, so without one
+    an opponent cracks every commitment in microseconds.
 
-    A nonce does two jobs. It makes repeating an action produce a different
-    digest, and it defeats a dictionary attack — the move space is tiny, five
-    moves and a handful of barrier cells, so without a nonce an opponent hashes
-    every possibility and cracks each commitment in microseconds.
+    Both jobs need the value **unguessable**, and :mod:`random` is reproducible
+    by construction: a Mersenne Twister whose future follows from its state, and
+    whose state follows from enough observed output. A series hands the opponent
+    hundreds of nonces at the final reveal — anything that lets them predict the
+    next lets them read our move before we make it.
 
-    Both jobs need the value to be **unguessable**, and :mod:`random` is
-    reproducible by construction: it is a Mersenne Twister whose entire future
-    follows from its state, and the state follows from enough observed output.
-    A series hands the opponent hundreds of nonces at the final reveal. Anything
-    that lets them predict the next one lets them pre-image our commitments and
-    read our move before we make it — which is the whole thing this mechanism
-    exists to prevent.
-
-    Sixteen bytes because the reference uses sixteen. Collision resistance is
-    not the point at this size — unpredictability is — but a shared length is
-    one less thing for two implementations to disagree about.
+    Sixteen bytes because the reference uses sixteen.
     """
     return secrets.token_hex(NONCE_BYTES)
 
@@ -92,10 +74,12 @@ def canonical(payload: dict[str, Any]) -> str:
 
 
 def commit_of(payload: dict[str, Any], nonce: str) -> str:
-    """The commitment for ``payload`` under ``nonce``.
+    """The commitment for ``payload`` under ``nonce``, in the rulebook's form.
 
-    The nonce joins the record as a field and the whole thing is serialised
-    once, which is what the rulebook's ``|`` operator means here.
+    ``SHA-256(canonical_json({**payload, "nonce": nonce}))`` — the nonce joins
+    the record as a field and the whole object is serialised once, exactly as
+    the book's ``commit()`` spells it (PDF p. 37). The cohort's reference
+    implementation computes something else; see :mod:`.crypto_wire`.
 
     Raises:
         CryptoError: if the payload already carries a ``nonce``. Merging would
@@ -119,16 +103,27 @@ def seal(payload: dict[str, Any]) -> dict[str, str]:
 
 
 def verify(payload: dict[str, Any], nonce: str, commit: str) -> None:
-    """Re-derive the commitment and compare.
+    """Re-derive the commitment, accepting either cohort convention.
+
+    Strict out, liberal in. We send the book's form; we accept the reference's
+    too, because a peer running it is honest and refusing its commitments would
+    report a clean match as tampered — a rule 19 verdict with no appeal.
+
+    This costs nothing in security: a forger still has to invert SHA-256, and
+    being offered two functions to collide with does not help. What the second
+    attempt buys is the difference between "our code disagrees with yours" and
+    "you cheated".
 
     Raises:
-        CryptoError: on any mismatch. There is no near-miss — SHA-256 is
-            sensitive to every bit, so a difference is proof of tampering and
-            costs the responsible team the match.
+        CryptoError: only when *neither* convention reproduces the digest.
     """
-    actual = commit_of(payload, nonce)
-    if not secrets.compare_digest(actual, commit):
-        raise CryptoError(f"commit mismatch: declared {commit[:16]}…, recomputed {actual[:16]}…")
+    ours = commit_of(payload, nonce)
+    if secrets.compare_digest(ours, commit):
+        return
+    if secrets.compare_digest(reference_commit_of(payload, nonce), commit):
+        logger.info("commitment opened under the reference convention, not the book's")
+        return
+    raise CryptoError(f"commit mismatch: declared {commit[:16]}…, recomputed {ours[:16]}…")
 
 
 def audit(records: list[dict[str, Any]]) -> None:

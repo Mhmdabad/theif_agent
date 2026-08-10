@@ -99,8 +99,12 @@ class McpPeer(PeerRecords):
             sender=turn.sender,
             commit=turn.commit,
             timestamp=turn.timestamp,
-            game_uid=turn.game_uid,
-            sub_game=turn.sub_game,
+            # A peer on the cohort's protocol sends no binding. Our records
+            # still carry one — the audit is keyed by it — so the boundary
+            # fills in the binding we are playing rather than leaving a record
+            # that cannot say which sub-game it belongs to.
+            game_uid=turn.game_uid or self.game_uid,
+            sub_game=turn.sub_game or self.sub_game,
         )
 
     # --- phase 2: acknowledge -----------------------------------------------

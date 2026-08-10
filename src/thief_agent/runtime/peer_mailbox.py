@@ -63,7 +63,12 @@ class PeerMailbox:
         waiting for the reveal that *is* ours.
         """
         payload = self._drain(self.inboxes.audits, None, "audit record", deadline)
-        ours = payload.game_uid == self.game_uid and payload.sub_game == self.sub_game
+        # A peer running the cohort's protocol sends no binding at all, so
+        # absent is "the sub-game we are in" rather than a mismatch. Only a
+        # binding that is present *and* different belongs to another series.
+        ours = (not payload.game_uid or payload.game_uid == self.game_uid) and (
+            not payload.sub_game or payload.sub_game == self.sub_game
+        )
         for entry in payload.records:
             record = dict(entry)
             if ours and not self._foreign(record):

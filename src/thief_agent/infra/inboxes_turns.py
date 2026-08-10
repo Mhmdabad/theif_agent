@@ -41,7 +41,12 @@ class TurnInbox(NegotiateInbox):
         closed = self._closed("turn", turn.game_uid, turn.sub_game)
         if closed is not None:
             return self._shut("receive_turn", closed)
-        key = (turn.sender, turn.step, turn.game_uid, turn.sub_game)
+        key = (
+            turn.sender,
+            turn.step,
+            turn.game_uid or self.game_uid,
+            turn.sub_game or self.sub_game,
+        )
         digest = fingerprint(turn)
         taken = self.accepted_turns.get(key)
         if taken == digest:
@@ -87,7 +92,12 @@ class TurnInbox(NegotiateInbox):
                         f"but travelled in an audit for {audit.game_uid!r} sub-game "
                         f"{audit.sub_game}",
                     )
-                key = (opened.sender, opened.step, opened.game_uid, opened.sub_game)
+                key = (
+                    opened.sender,
+                    opened.step,
+                    opened.game_uid or self.game_uid,
+                    opened.sub_game or self.sub_game,
+                )
                 if key not in self.accepted_turns:
                     return self._reject(
                         "submit_audit",

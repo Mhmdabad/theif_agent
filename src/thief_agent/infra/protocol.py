@@ -41,6 +41,22 @@ __all__ = [
 ]
 
 
+def _wire(body: dict[str, Any], game_uid: str, sub_game: int) -> dict[str, Any]:
+    """Drop our own binding fields when unset, leaving the cohort's shape.
+
+    The reference parses both messages with ``cls(**data)``, which raises on
+    any field it does not declare — so sending ours unconditionally would make
+    every message unreadable to a peer running the cohort's code. A refused
+    audit is worse than a refused turn: an unopenable commitment, which rule 19
+    reads as forgery rather than as a parse error.
+    """
+    if not game_uid:
+        body.pop("game_uid", None)
+    if not sub_game:
+        body.pop("sub_game", None)
+    return body
+
+
 @dataclass
 class TurnMessage:
     """Everything one peer tells the other about its turn — and nothing more.
@@ -55,15 +71,21 @@ class TurnMessage:
     smell_grid: dict[str, float]
     commit: str
     timestamp: str
-    game_uid: str = "series-123"
-    sub_game: int = 2
+    game_uid: str = ""
+    """Which series this turn belongs to. **Ours, not the cohort's** — the
+    reference protocol has no such field. Absent inbound is never an error; see
+    :func:`_wire` and :meth:`~.inboxes_gate.InboxGate._closed`."""
+
+    sub_game: int = 0
+    """How far along that series. Absent means "the one we are bound to"."""
     barrier_placed: list[int] | None = None
     capture_claim: list[int] | None = None
     claim_response: dict[str, Any] | None = None
     win_claim: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        """The wire form, with our own fields dropped when unset."""
+        return _wire(asdict(self), self.game_uid, self.sub_game)
 
     @classmethod
     def from_dict(cls, data: object) -> "TurnMessage":
@@ -85,8 +107,8 @@ class TurnMessage:
             smell_grid={str(k): float(v) for k, v in smell.items()},
             commit=require_str(body, "commit"),
             timestamp=require_str(body, "timestamp"),
-            game_uid=require_str(body, "game_uid"),
-            sub_game=require_int(body, "sub_game", minimum=1, maximum=6),
+            game_uid=str(body.get("game_uid", "")),
+            sub_game=int(body.get("sub_game", 0) or 0),
             barrier_placed=optional_cell(body, "barrier_placed"),
             capture_claim=optional_cell(body, "capture_claim"),
             claim_response=body.get("claim_response"),
@@ -102,10 +124,13 @@ class AuditPayload:
     records: list[dict[str, Any]] = field(default_factory=list)
     result_claim: str = ""
     game_uid: str = ""
+    """Ours, not the cohort's — see :attr:`TurnMessage.game_uid`."""
+
     sub_game: int = 0
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        """The wire form, with our own fields dropped when unset."""
+        return _wire(asdict(self), self.game_uid, self.sub_game)
 
     @classmethod
     def from_dict(cls, data: object) -> "AuditPayload":
@@ -117,6 +142,6 @@ class AuditPayload:
             sender=_require_role(body),
             records=[require_mapping(r, "audit record") for r in records],
             result_claim=require_str(body, "result_claim"),
-            game_uid=require_str(body, "game_uid"),
-            sub_game=require_int(body, "sub_game", minimum=1, maximum=6),
+            game_uid=str(body.get("game_uid", "")),
+            sub_game=int(body.get("sub_game", 0) or 0),
         )

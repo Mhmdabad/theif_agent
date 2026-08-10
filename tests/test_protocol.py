@@ -126,12 +126,36 @@ class TestAuditPayload:
         with pytest.raises(InvalidPayloadError):
             AuditPayload.from_dict({"sender": "thief", "records": []})
 
-    def test_series_and_sub_game_binding_are_required(self) -> None:
-        base = {"sender": "thief", "records": [], "result_claim": "survival"}
-        with pytest.raises(InvalidPayloadError, match="game_uid"):
-            AuditPayload.from_dict(base)
-        with pytest.raises(InvalidPayloadError, match="sub_game"):
-            AuditPayload.from_dict({**base, "game_uid": "series-123"})
+    def test_an_absent_binding_is_accepted_because_the_cohort_sends_none(self) -> None:
+        """The reference protocol has no ``game_uid``; ours is an addition.
+
+        Requiring it refused every audit a peer running the cohort's code
+        sent — and a refused audit is an unopenable commitment, which rule 19
+        reads as forgery rather than as a version skew.
+        """
+        parsed = AuditPayload.from_dict(
+            {"sender": "thief", "records": [], "result_claim": "survival"}
+        )
+        assert parsed.game_uid == ""
+        assert parsed.sub_game == 0
+
+    def test_our_own_fields_are_dropped_from_the_wire_when_unset(self) -> None:
+        """The reference parses with ``cls(**data)`` and raises on any extra."""
+        body = AuditPayload(sender="thief", records=[], result_claim="survival").to_dict()
+        assert "game_uid" not in body
+        assert "sub_game" not in body
+
+    def test_a_binding_that_is_present_still_round_trips(self) -> None:
+        parsed = AuditPayload.from_dict(
+            {
+                "sender": "thief",
+                "records": [],
+                "result_claim": "survival",
+                "game_uid": "series-123",
+                "sub_game": 2,
+            }
+        )
+        assert (parsed.game_uid, parsed.sub_game) == ("series-123", 2)
 
 
 class TestControlMessage:

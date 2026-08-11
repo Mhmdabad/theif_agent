@@ -223,14 +223,15 @@ class TestStayIsFirstClass:
         brain = ThiefBrain(axes=AXES)
         brain.reach.observe(make(step=0), AXES)
         assert brain.reach.linger == 0
-        assert brain.scent_cost("STAY") == 0
+        assert brain.scent_cost(make(step=0), "STAY") == 0
 
     def test_each_turn_held_adds_a_cell_to_the_bill(self) -> None:
         brain = ThiefBrain(axes=AXES)
-        walk(brain.reach, make(thief=(3, 3), step=0), make(thief=(3, 3), step=1))
-        assert brain.scent_cost("STAY") == 1
+        here = make(thief=(3, 3), step=1)
+        walk(brain.reach, make(thief=(3, 3), step=0), here)
+        assert brain.scent_cost(here, "STAY") == 1
         walk(brain.reach, make(thief=(3, 3), step=2))
-        assert brain.scent_cost("STAY") == 2
+        assert brain.scent_cost(make(thief=(3, 3), step=2), "STAY") == 2
 
     def test_moving_clears_it(self) -> None:
         brain = ThiefBrain(axes=AXES)
@@ -250,11 +251,32 @@ class TestStayIsFirstClass:
         )
         assert brain.reach.linger == 0
 
-    def test_only_staying_is_charged(self) -> None:
+    def test_fresh_ground_is_free(self) -> None:
+        """Moving somewhere we have not been carries no bill; that is the point."""
         brain = ThiefBrain(axes=AXES)
-        walk(brain.reach, make(thief=(3, 3), step=0), make(thief=(3, 3), step=1))
-        assert brain.scent_cost("STAY") == 1
-        assert all(brain.scent_cost(move) == 0 for move in ("N", "S", "E", "W"))
+        here = make(thief=(3, 3), step=1)
+        walk(brain.reach, make(thief=(3, 3), step=0), here)
+        assert all(brain.scent_cost(here, move) == 0 for move in ("N", "S", "E", "W"))
+
+    def test_going_back_is_charged_like_staying(self) -> None:
+        """The bounce the old meter could not see.
+
+        Charging only ``STAY`` priced sitting still and missed the cheaper
+        disguise: two adjacent cells share almost all of one emission field, so
+        alternating between them lights the same neighbourhood as brightly as
+        camping — while the cell changes every turn, which is all ``linger``
+        was watching.
+        """
+        brain = ThiefBrain(axes=AXES)
+        here = make(thief=(3, 3), step=2)
+        walk(
+            brain.reach,
+            make(thief=(3, 3), step=0),
+            make(thief=(3, 4), step=1),
+            here,
+        )
+        assert brain.reach.linger == 0, "the old meter saw nothing here"
+        assert brain.scent_cost(here, "E") == 1, "going back to (3, 4) is not free"
 
     def test_stay_is_chosen_when_it_dominates(self) -> None:
         """Closing region, and standing still is the only degree-4 cell that
@@ -289,7 +311,7 @@ class TestStayIsFirstClass:
         brain = ThiefBrain(axes=AXES)
         for step in range(5):
             walk(brain.reach, make(thief=(3, 3), barriers=walls, step=step))
-        assert brain.scent_cost("STAY") >= 4
+        assert brain.scent_cost(state, "STAY") >= 4
         action = brain.decide(state).action
         assert isinstance(action, MoveAction)
         assert action.move == "STAY"

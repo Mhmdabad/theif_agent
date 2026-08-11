@@ -1,4 +1,4 @@
-"""Watching the cop's containment plan take shape.
+"""Watching the cop's containment plan take shape — and our own trail behind us.
 
 Barriers are permanent, so the thief's reachable region can only ever shrink.
 That makes its size over time a signal rather than a statistic: every drop is
@@ -6,21 +6,20 @@ a barrier that bit, and the pattern of drops is the cop's plan becoming
 visible one turn at a time.
 
 The reason to track the trend rather than the current value is timing. A
-region that is closing has a point after which leaving is no longer possible,
-and by then the area is small, obviously bad, and irrelevant — the decision
-that mattered was several turns earlier, when the region was still large and
-the only evidence was that it had begun to shrink. A thief that reacts to
-*how small* the region is reacts too late by construction. A thief that reacts
-to *how fast* it is closing gets to leave.
+closing region has a point after which leaving is impossible, and by then the
+area is small, obviously bad, and irrelevant — the decision that mattered was
+several turns earlier, when the only evidence was that it had begun to shrink.
+A thief reacting to *how small* the region is reacts too late by construction;
+one reacting to *how fast* it closes still gets to leave.
 
-So this is deliberately a memory, not a board query. The board already knows
-how much room the thief has; only the history knows whether it is being taken
-away.
+The same history answers a second question in :meth:`ContainmentTracker.visits`
+— where we have been, and so where our own scent is still bright. The board
+knows how much room we have; only the history knows what we gave away for it.
 
-Observations are keyed by step number and recorded once. Asking the same turn
-twice is a no-op, which keeps a decision reproducible: a match must replay to
-the same moves, and a tracker that drifted with the number of times it was
-consulted would break that in a way no single-turn test would show.
+Observations are keyed by step and recorded once. Asking the same turn twice is
+a no-op, which keeps a decision reproducible: a match must replay to the same
+moves, and a tracker that drifted with how often it was consulted would break
+that in a way no single-turn test would show.
 """
 
 from dataclasses import dataclass, field
@@ -32,9 +31,17 @@ from ..domain.search import reachable_area
 WINDOW = 3
 """Observations compared when reading the trend.
 
-Short, because the signal has to arrive while leaving is still possible. Long
-enough that a single barrier placed somewhere irrelevant does not read as a
-containment plan.
+Short, so the signal arrives while leaving is still possible; long enough that
+one barrier somewhere irrelevant does not read as a containment plan.
+"""
+
+FRESH = 8
+"""Turns a cell stays bright enough that returning to it is worth avoiding.
+
+Decay removes a tenth each turn, so a cell left eight turns ago still holds
+about two fifths of what we gave it, and the cop's belief is built from exactly
+that. Long enough to see a two-cell bounce; short enough that crossing our own
+trail once, much later, costs nothing.
 """
 
 SHRINK_THRESHOLD = 2
@@ -85,15 +92,25 @@ class ContainmentTracker:
         """The most recently observed reachable area, or 0 before any turn."""
         return self.history[-1].area if self.history else 0
 
+    def visits(self, cell: Position, window: int = FRESH) -> int:
+        """How many of the last ``window`` turns were spent on ``cell``.
+
+        **The meter :attr:`linger` should have been.** Emission is a field, so
+        adjacent cells overlap and a two-cell bounce keeps one neighbourhood
+        nearly as bright as standing still — yet ``linger`` counts *consecutive*
+        turns and resets on any move, so that bounce read zero, free forever.
+        The current turn is excluded, so arriving and pausing once stays free
+        as it always did; coming back does not.
+        """
+        return sum(1 for entry in self.history[:-1][-window:] if entry.cell == cell)
+
     @property
     def linger(self) -> int:
         """Consecutive turns already spent on the current cell.
 
-        Zero on arrival, one after a turn of standing still, and so on. This
-        is the thief's own scent bill: emission puts τ at the occupied cell
-        every turn while decay only removes ρ of it, so a cell sat on
-        accumulates a signal that a cell passed through never does. Waiting is
-        sometimes right, but it is never free, and this is the meter.
+        Zero on arrival, one after a turn of standing still. Kept alongside
+        :meth:`visits` because *consecutive* is the sharper signal for camping
+        in place, where a window would blur it against a passing revisit.
         """
         if not self.history:
             return 0

@@ -8,6 +8,7 @@ dependencies = [
     "fastmcp>=3.4.5",
     "google-api-python-client>=2.100",
     "google-auth-oauthlib>=1.2",
+    "python-dotenv>=1.2.2",
 ]
 
 [dependency-groups]

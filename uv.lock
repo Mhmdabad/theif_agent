@@ -1692,6 +1692,7 @@ dependencies = [
     { name = "fastmcp" },
     { name = "google-api-python-client" },
     { name = "google-auth-oauthlib" },
+    { name = "python-dotenv" },
 ]
 
 [package.dev-dependencies]
@@ -1707,6 +1708,7 @@ requires-dist = [
     { name = "fastmcp", specifier = ">=3.4.5" },
     { name = "google-api-python-client", specifier = ">=2.100" },
     { name = "google-auth-oauthlib", specifier = ">=1.2" },
+    { name = "python-dotenv", specifier = ">=1.2.2" },
 ]
 
 [package.metadata.requires-dev]

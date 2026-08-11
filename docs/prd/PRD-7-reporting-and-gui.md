@@ -87,13 +87,19 @@ def verify_step(entry):
   summary** to the lecturer via the Gmail API. One side sending is **not enough**;
   if a side does not report, that side receives no points for the match — even if
   it won on the board.
+- FR-7.36 The send is **automatic** at the end of a legal match (§9.3), from both
+  sides independently; `play` performs it. A rehearsal sends nothing.
 - FR-7.16 Both teams must **agree on the result** before reporting. A missing or
   contradicting report voids the match and scores 0 for both.
-- FR-7.17 Mandatory, hard-coded destination:
+- FR-7.17 Mandatory destination, supplied by configuration:
 
-  ```
-  rmisegal+uoh26finalgame@gmail.com
-  ```
+  The address Appendix ו mandates is set as `REPORT_RECIPIENT` in a git-ignored
+  `.env` (see `.env.example`), and is deliberately **not** written into the
+  source or the private config — one source, so no copy can go stale against
+  another. There is no default and no fallback: unset, empty or blank is
+  refused, naming the variable and the file, rather than guessing a destination.
+  A refusal is visible while somebody can still fix it; a guessed address is
+  visible only in the wrong inbox, or in none.
 
 ### 5.2 Gatekeeper — three cumulative defences
 Automation is a blessing and a trap: it hands code — which may contain a bug — the

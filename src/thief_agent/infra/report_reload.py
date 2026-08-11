@@ -68,6 +68,8 @@ def load(path: Path) -> Report:
             agreed=bool(body["result_agreed_with_opponent"]),
             started_at=str(body.get("started_at", "")),
             ended_at=str(body.get("ended_at", "")),
+            starting_role=str(body.get("starting_role", "")),
+            series_result=body.get("series_result"),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise ReportError(f"{path} is missing something a report needs: {exc}") from exc

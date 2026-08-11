@@ -20,7 +20,7 @@ The LLM never decides a move. It writes at most fifteen words.
 """
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
 from .bluff import Bluff
@@ -36,6 +36,26 @@ DEFAULT_PROVIDER = "template"
 DEFAULT_MODEL = "claude-haiku-4-5"
 """The rulebook asks for a *small* cloud model; a fifteen-word hint needs no
 more, and the cheapest option leaves the series budget for more turns."""
+
+
+def declared_model(trash_talk: Mapping[str, object] | None) -> str:
+    """What will actually speak, for the Step-0 hardware declaration.
+
+    **The provider decides this, not the model name.** Reading ``model`` alone
+    let a declaration announce ``claude-haiku-4-5`` while ``provider`` was
+    ``template`` — so every report carried a cloud model beside
+    ``total_tokens: 0``, which is a contradiction a marker can see and rule 54
+    calls a false statement. The model name is what we *would* use; the provider
+    is whether we use anything at all.
+
+    So ``template`` names itself, and any other provider names its model. A
+    report is then self-consistent either way: template with no tokens, or a
+    model with the tokens it spent.
+    """
+    table = trash_talk or {}
+    provider = str(table.get("provider", DEFAULT_PROVIDER))
+    model = str(table.get("model", "")).strip()
+    return model if provider != DEFAULT_PROVIDER and model else provider
 
 
 @dataclass

@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from ..domain.providers import declared_model
 from ..infra.declaration import Endpoints, MatchDeclaration, Team, build
 from ..infra.handshake import Greeting, Peering
 from ..infra.match_ledger import MatchLedger
@@ -44,7 +45,7 @@ def _declaration(
     function assembles a document and the ledger is the driver's to read — and a
     count taken twice, in two places, is the one that eventually disagrees.
     """
-    hardware = collect(str(private.get("trash_talk", {}).get("model", "template")), environ)
+    hardware = collect(declared_model(private.get("trash_talk")), environ)
 
     return build(
         game_id=game_id,

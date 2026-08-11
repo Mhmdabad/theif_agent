@@ -48,3 +48,9 @@ htmlcov/
 # NOTE: match artefacts are deliberately NOT ignored. Per-match config files
 # must be committed (Appendix F, mandatory rule 4), and match logs are the
 # evidence the Replay App verifies.
+
+# Gatekeeper runtime state: the daily quota ledger and the DoS lock. Machine-
+# local counters, not code — and untracked-but-not-ignored files used to be
+# counted as a dirty tree, which is the one thing they must never be.
+.quota_*.json
+.dos_lock_*

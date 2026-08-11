@@ -33,20 +33,28 @@ class ThiefRanking(BrainBase):
     min_open_neighbours: int = MIN_OPEN_NEIGHBOURS
     reach: ContainmentTracker = field(default_factory=ContainmentTracker)
 
-    def scent_cost(self, move: Move) -> int:
-        """What standing still costs in signal, measured in cells of distance.
+    def scent_cost(self, state: BoardState, move: Move) -> int:
+        """What a move costs in signal, measured in cells of distance.
 
         Survival is the win condition, so waiting is a real option — but it is
         not a free one. The thief emits at its own cell every turn while decay
-        removes only a tenth, so a cell sat on for three turns carries a
-        signal a cell walked through never reaches. That is a beacon, and a
-        beacon is negative distance: it is exactly the quantity that converts
-        the cop's search into a heading.
+        removes only a tenth, so ground stood on carries a signal ground walked
+        through never reaches. That is a beacon, and a beacon is negative
+        distance: exactly the quantity that turns the cop's search into a
+        heading.
 
-        Charged only to ``STAY``, and only for turns *already* spent here, so
-        arriving somewhere and pausing once is free. Camping is not.
+        **Charged on the destination, not on ``STAY``.** Billing only ``STAY``
+        priced sitting still and missed the cheaper disguise for it: the shipped
+        thief bounced between two adjacent cells from step 13 to capture in
+        every sub-game, and because its cell changed every turn the old meter
+        read zero the whole way. Two adjacent cells share almost all of one
+        emission field, so that bounce lit the same neighbourhood as brightly as
+        camping while looking, to the ranking, like movement.
+
+        Waiting is still sometimes right, and arriving somewhere new still costs
+        nothing. What now costs is going back to ground we are still lighting up.
         """
-        return self.reach.linger if move == "STAY" else 0
+        return self.reach.visits(target_of(state.thief, move, self.axes))
 
     def is_cramped(self, state: BoardState, move: Move, threat: Position) -> bool:
         """Whether ``move`` walks into a corner without earning it.
@@ -107,7 +115,7 @@ class ThiefRanking(BrainBase):
         """
         destination = target_of(state.thief, move, self.axes)
         roomy = 0 if self.is_cramped(state, move, threat) else 1
-        distance = manhattan(destination, threat) - self.scent_cost(move)
+        distance = manhattan(destination, threat) - self.scent_cost(state, move)
         after = replace(state, thief=destination)
         degree = open_neighbours(after, destination, self.axes)
         if self.reach.closing:

@@ -79,10 +79,18 @@ mode = "send"                                     # armed: a real match mails th
 # derive them — swap these with the other team before the match, along with
 # their group name and members.
 #
-# For a solo warm-up (this project's cop against its own thief) the values
-# below are already correct: you are the opponent.
+# THE THREE LINES BELOW ARE PLACEHOLDERS AND MUST BE REPLACED BEFORE A MATCH.
+# They are deliberately not another team's real details: a repository carrying
+# last opponent's id is a file nobody edits, because it already looks filled in.
+# These do not, so a match played against the wrong name is a mistake somebody
+# had to make rather than one they could inherit.
+#
+# Our own identity is fixed in [game] above and never changes; only this block
+# does, once per opponent. OPPONENT_GROUP_ID is the 8-character id they give you
+# in the negotiation, and it must match what their greeting announces on the
+# wire — the series standing is keyed by the exchanged ids, not by these names.
 [teams.them]
-group_name = "SMNGRP05"
-members = ["SMNGRP05"]          # EDIT for a real opponent
-repos = { cop = "https://github.com/Mhmdabad/police_agent", thief = "https://github.com/Mhmdabad/theif_agent" }
+group_name = "OPPONENT_GROUP_ID"                    # EDIT: their 8-character id
+members = ["OPPONENT_GROUP_ID"]                     # EDIT: their members
+repos = { cop = "https://github.com/OPPONENT_GROUP_ID/their_cop_repo", thief = "https://github.com/OPPONENT_GROUP_ID/their_thief_repo" }  # EDIT: FR-7.28 wants their two links, not ours
 

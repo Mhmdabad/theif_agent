@@ -23,7 +23,7 @@ from typing import Any
 
 from .config import canonical_bytes
 
-__all__ = ["claim_sha256", "result_claim"]
+__all__ = ["claim_and_digest", "claim_sha256", "result_claim"]
 
 
 def result_claim(
@@ -64,3 +64,22 @@ def claim_sha256(claim: dict[str, Any]) -> str:
     digest comparable across two machines holds here for the same reason.
     """
     return hashlib.sha256(canonical_bytes(claim)).hexdigest()
+
+
+def claim_and_digest(
+    game_uid: str,
+    scores: Sequence[tuple[int, int]],
+    series: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], str]:
+    """The claim and the digest over it, built together so they cannot disagree.
+
+    Two callers need this pair: :meth:`~..runtime.match.MatchRunner.agree_result`,
+    which puts the digest on the wire, and the report, which records the digest
+    the two sides agreed on (§9.3.3 wants the mutual agreement backed by
+    SHA-256, not asserted by a boolean). Built here rather than twice because a
+    claim assembled slightly differently in one of those places would produce a
+    digest that silently fails to match the one actually exchanged — and the
+    report would then attest to an agreement that never happened.
+    """
+    claim = result_claim(game_uid, scores, series=series)
+    return claim, claim_sha256(claim)

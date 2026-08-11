@@ -2,30 +2,29 @@
 
 The last thing between a pile of working components and a game against another
 team. Everything below existed and had no caller — ``open_series`` traded
-addresses, ``agree_config`` compared digests, ``SubGame`` played, ``ArtefactSet``
-wrote the evidence — and nothing ran them in order.
+addresses, ``agree_config`` compared digests, ``SubGame`` played — and nothing
+ran them in order.
 
 The order is not negotiable and each step exists because skipping it costs a
 match: **handshake** (announced addresses, not configured ones), **agree the
-config** (refuse any digest mismatch), **play** (the four ceremony phases),
-**audit** (re-derive every commitment once nonces arrive), **score** (Appendix
-F's fixed table via :mod:`..domain.scoring`), **agree the result** (rule 35,
-before either side reports — the one step whose failure is a recorded fact
-rather than an abort), and **record** (four artefacts, coherence-checked).
+config** (refuse any digest mismatch), **play**, **audit** (re-derive every
+commitment once nonces arrive), **score** (Appendix F's fixed table), **agree
+the result** (rule 35, before either side reports — the one step whose failure
+is a recorded fact rather than an abort), and **record** (four artefacts).
 
-**Nothing here mails anybody.** The report is built and written to disk carrying
-the agreement it actually reached; sending it is a separate, deliberate act
-(FR-7.16, and ``report --send``). A match runner that mailed on completion would
-be reporting before the human who has to stand behind the result has seen it.
+**Nothing here mails anybody.** The report is built and written carrying the
+agreement it actually reached; ``play`` is what sends it, and only after a real
+match — the split keeps a rehearsal off the lecturer's inbox.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..domain.alternation import opposite
 from ..infra.artefacts import ArtefactSet
 from ..infra.report import Report, Repositories, SubGameResult
-from ..shared.result_claim import claim_sha256, result_claim
+from ..infra.step_zero_signing import statement
+from ..shared.result_claim import claim_and_digest
 from .match_outcome import SubGameOutcome
 from .match_play import MatchPlay
 from .match_standing import series_block
@@ -35,25 +34,24 @@ __all__ = [
     "MatchRunner",
     "SubGameOutcome",
 ]
-"""Re-exported explicitly: ``no_implicit_reexport`` rejects importers otherwise.
-
-Every name this module exported before the split is still exported from here,
-so ``from .match import MatchRunner`` keeps meaning what it did.
-"""
+"""Re-exported explicitly: ``no_implicit_reexport`` rejects importers otherwise."""
 
 
 @dataclass
 class MatchRunner(MatchPlay):
     """Plays a whole match against one opponent."""
 
+    offered_digest: str = field(default="", init=False)
+    """The SHA-256 the result was offered under (§9.3.3), kept from
+    :meth:`agree_result` so the report records the bytes that went on the wire."""
+
     def result(
         self, commit_hash: str, total_tokens: int, agreed: bool, repositories: Repositories
     ) -> Report:
         """The binding report, scored from what was actually played.
 
-        ``agreed`` is a parameter with no default: rule 35 requires both sides
-        to accept the result before either reports one, and :meth:`agree_result`
-        is what answers it — a literal here would assert agreement rather than
+        ``agreed`` has no default: rule 35 wants both sides to accept the result
+        before either reports, and a literal here would assert that rather than
         establish it.
         """
         return Report(
@@ -79,6 +77,10 @@ class MatchRunner(MatchPlay):
             ended_at=self.now(),
             starting_role=self.role,
             series_result=self.series_result(),
+            mcp_addresses=self.declaration.endpoints.to_dict(),
+            machine=statement(self.declaration.hardware, self.declaration.provenance),
+            signature=self.declaration.signature,
+            result_claim_sha256=self.offered_digest if agreed else "",
         )
 
     def series_result(self) -> dict[str, object]:
@@ -107,14 +109,13 @@ class MatchRunner(MatchPlay):
         """
         if not self.opponent_played_fairly:
             return False
-        claim = result_claim(
+        claim, digest = claim_and_digest(
             self.declaration.game_uid,
             [o.scores() for o in self.outcomes],
-            series=self.series_result(),
+            self.series_result(),
         )
-        return self.orchestrator.agree_result(
-            claim, claim_sha256(claim), self.declaration.game_uid, timeout
-        )
+        self.offered_digest = digest
+        return self.orchestrator.agree_result(claim, digest, self.declaration.game_uid, timeout)
 
     def artefacts(self, result: Report) -> ArtefactSet:
         """Step 5: the four files, as one set that must agree with itself."""
@@ -133,10 +134,8 @@ class MatchRunner(MatchPlay):
     def opponent_played_fairly(self) -> bool:
         """Whether every sub-game audited clean.
 
-        A match with one forged sub-game is not a match with a bad sub-game.
-        FR-7.16 requires both sides to agree the result before either reports,
-        and there is nothing to agree about a series where one side's
-        commitments do not open.
+        A match with one forged sub-game is not a match with a bad sub-game:
+        there is nothing to agree about a series whose commitments do not open.
         """
         return all(outcome.clean for outcome in self.outcomes)
 

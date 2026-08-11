@@ -70,6 +70,10 @@ def load(path: Path) -> Report:
             ended_at=str(body.get("ended_at", "")),
             starting_role=str(body.get("starting_role", "")),
             series_result=body.get("series_result"),
+            mcp_addresses=body.get("mcp_addresses"),
+            machine=body.get("machine"),
+            signature=str(body.get("signature", "")),
+            result_claim_sha256=str(body.get("result_claim_sha256", "")),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise ReportError(f"{path} is missing something a report needs: {exc}") from exc

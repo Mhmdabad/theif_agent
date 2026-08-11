@@ -37,6 +37,28 @@ class Report:
     series_result: dict[str, Any] | None = None
     """The group-keyed standing — the book scores a group pair, not a role."""
 
+    mcp_addresses: dict[str, Any] | None = None
+    """Both peers' FastMCP endpoints, which §9.3.3 asks the report to carry."""
+
+    machine: dict[str, Any] | None = None
+    """The hardware and provenance statement, signed under :attr:`signature`."""
+
+    signature: str = ""
+    """HMAC-SHA256 over the machine statement, or ``unsigned``.
+
+    Carried rather than recomputed: the report attests to the declaration the
+    match was actually played under, and a signature produced here would attest
+    only to this file.
+    """
+
+    result_claim_sha256: str = ""
+    """The digest both sides agreed on before either reported.
+
+    §9.3.3 wants mutual agreement *backed by SHA-256*; ``agreed`` alone is this
+    side's word for it. With the digest present a marker can check that two
+    independently-sent reports describe one match rather than two claims.
+    """
+
     def __post_init__(self) -> None:
         if not self.sub_games:
             raise ReportError("a report with no sub-games describes no match")
@@ -75,6 +97,10 @@ class Report:
             "ended_at": self.ended_at,
             "starting_role": self.starting_role or self.role,
             "series_result": self.series_result,
+            "mcp_addresses": self.mcp_addresses,
+            "machine": self.machine,
+            "signature": self.signature,
+            "result_claim_sha256": self.result_claim_sha256,
         }
 
     def to_json(self) -> str:

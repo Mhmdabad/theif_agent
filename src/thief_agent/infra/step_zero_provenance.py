@@ -84,12 +84,25 @@ def provenance(
 ) -> Provenance:
     """Establish which code is running, and whether that can be proven.
 
-    ``dirty`` is determined by ``git status --porcelain`` rather than inferred.
-    An empty result means the tree matches the commit; anything else means the
-    hash describes something other than what is executing.
+    ``dirty`` is determined by ``git status --porcelain`` rather than inferred,
+    and deliberately with ``--untracked-files=no``. The question this answers is
+    the one :attr:`Provenance.reproducible` asks — could an examiner check this
+    commit out and get this code — and an untracked file is not an answer to it:
+    checking the commit out produces the tracked tree either way.
+
+    **Counting untracked files made the flag self-inflicting.** A match writes
+    its artefacts into the working tree, and those artefacts are deliberately
+    not ignored (mandatory rule 4 wants the per-match configs committed). Step 0
+    runs at the start of a match, so every series after the first saw the
+    previous one's output and declared the code unreproducible — while every
+    tracked file still matched the commit exactly. The reports said the examiner
+    could not reproduce them, and were wrong.
+
+    A modified *tracked* file still reports dirty, which is the case the flag
+    exists for: that really is a hash describing something other than what runs.
     """
     commit = _git("rev-parse", "HEAD", repo=repo)
-    status = _git("status", "--porcelain", repo=repo)
+    status = _git("status", "--porcelain", "--untracked-files=no", repo=repo)
     return Provenance(
         code_version=code_version,
         group_name=group_name,

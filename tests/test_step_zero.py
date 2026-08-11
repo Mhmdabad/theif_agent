@@ -207,6 +207,31 @@ class TestTheCommitMustDescribeWhatRan:
         assert not found.reproducible
         assert "uncommitted changes" in str(found)
 
+    def test_untracked_output_does_not_make_it_unreproducible(self, tmp_path: Path) -> None:
+        """A match writes artefacts into its own tree, and rule 4 wants them kept.
+
+        Counting those made the flag self-inflicting: step 0 runs at the start
+        of a series, so every match after the first saw the previous one's
+        output and declared unreproducible a commit an examiner could check out
+        and run exactly. Nothing tracked had changed.
+        """
+        where = repo(tmp_path)
+        (where / "artefacts").mkdir()
+        (where / "artefacts" / "result_uoh26-x.json").write_text("{}\n")
+        (where / ".quota_cop.json").write_text('{"day": "2026-08-11", "used": 1}\n')
+        found = provenance("0.1.0", "s82kma9e", 3, repo=where)
+        assert not found.dirty
+        assert found.reproducible
+
+    def test_a_tracked_change_is_still_dirty_even_beside_untracked_output(
+        self, tmp_path: Path
+    ) -> None:
+        """The exemption is for output, not a licence to edit code uncommitted."""
+        where = repo(tmp_path, dirty=True)
+        (where / "artefacts").mkdir()
+        (where / "artefacts" / "result_uoh26-x.json").write_text("{}\n")
+        assert provenance("0.1.0", "s82kma9e", 3, repo=where).dirty
+
     def test_the_declaration_records_the_dirty_flag_rather_than_hiding_it(
         self, tmp_path: Path
     ) -> None:

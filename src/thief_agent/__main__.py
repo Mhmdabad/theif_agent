@@ -16,11 +16,15 @@ without binding anything, which is the question somebody actually has five
 minutes before a match. ``play`` is the other half — it starts the server *and*
 opens a match against an opponent who has already started theirs.
 
-``play`` writes the four artefacts and stops. **It does not send anything.** It
-does agree the result on the wire first (Appendix E rule 35), so the report is
-written carrying whether the opponent confirmed the score — and ``report``, run
-deliberately with ``--send``, is what mails it. Rule 32 wants the reporting
-automated; rule 35 wants it agreed first. Two commands is how both hold.
+``play`` writes the four artefacts and then **reports itself**. §9.3 leaves no
+room for human intervention at the end of a legal match and requires *both*
+sides to send separately; rule 35 scores a report that never arrives as zero for
+both teams. A send somebody has to remember is a send that gets forgotten once,
+by whichever team is more tired, and takes the other team down with it.
+
+The result is still agreed on the wire before anything is mailed, so what goes
+out carries whether the opponent confirmed the score — and a score they never
+confirmed is refused rather than sent. A rehearsal mails nothing at all.
 
 **It prints where it is reachable, and says plainly when that is nowhere.**
 Advertising a loopback address to another team is not a small mistake — every
@@ -32,6 +36,9 @@ somebody else's match.
 
 import sys
 from collections.abc import Sequence
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 from .cli_announce import describe, require_playable, where_we_are
 from .cli_arguments import parse
@@ -80,12 +87,29 @@ __all__ = [
 ]
 
 
+ENV_FILE = Path(".env")
+"""Local, git-ignored overrides, read relative to the repository root.
+
+Same convention as :data:`~.cli_identity.CONFIG`: the commands are documented as
+being run from the root, and a path resolved against the caller's directory
+would load a different file depending on where somebody stood.
+"""
+
+
 def main(argv: Sequence[str] | None = None, environ: dict[str, str] | None = None) -> int:
     """Run the command. Returns an exit code rather than raising."""
     arguments = parse(argv, __doc__)
 
     import os  # noqa: PLC0415 - read once, here, so tests can supply their own
 
+    if environ is None:
+        # Only the real process reads ``.env``; a caller that supplied an
+        # environment gets exactly that one. ``override=False`` means a variable
+        # already exported wins, so a one-off on the command line still beats the
+        # file. This loads into ``os.environ`` rather than a local copy because
+        # the things that need it — the report's destination among them — are
+        # reached through call paths that never see this dict.
+        load_dotenv(ENV_FILE, override=False)
     source = dict(os.environ) if environ is None else environ
 
     try:

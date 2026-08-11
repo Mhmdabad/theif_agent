@@ -9,14 +9,16 @@ from pathlib import Path
 import pytest
 
 import thief_agent
+from conftest import TEST_RECIPIENT
 from thief_agent.infra.report import (
-    LECTURER,
+    RECIPIENT_ENV,
     SCHEMA_VERSION,
     Message,
     Report,
     ReportError,
     Repositories,
     SubGameResult,
+    recipient,
 )
 
 REPOS = Repositories(
@@ -40,8 +42,8 @@ def result(sub_game: int = 1, cop: int = 100, thief: int = 0) -> SubGameResult:
 def report(**overrides: object) -> Report:
     fields: dict[str, object] = {
         "game_id": "uoh26-s82kma9e",
-        "role": "thief",
-        "team": "uoh26-thieves",
+        "role": "police",
+        "team": "uoh26-cops",
         "opponent_team": "uoh26-others",
         "repositories": REPOS,
         "sub_games": (result(1), result(2, cop=0, thief=80)),
@@ -135,54 +137,54 @@ class TestAgreementIsRecorded:
 
 class TestTheAttachmentIsTheReport:
     def test_the_json_is_attached_as_a_file(self) -> None:
-        mail = Message(report=report(), sender="thief@example.com").build()
+        mail = Message(report=report(), sender="cop@example.com").build()
         attachments = list(mail.iter_attachments())
         assert len(attachments) == 1
         assert attachments[0].get_filename() == "result_uoh26-s82kma9e.json"
 
     def test_the_attachment_is_application_json(self) -> None:
         """Not text/plain, which is what makes a parser skip it."""
-        mail = Message(report=report(), sender="thief@example.com").build()
+        mail = Message(report=report(), sender="cop@example.com").build()
         assert next(mail.iter_attachments()).get_content_type() == "application/json"
 
     def test_the_attachment_round_trips_to_the_same_structure(self) -> None:
-        mail = Message(report=report(), sender="thief@example.com").build()
+        mail = Message(report=report(), sender="cop@example.com").build()
         payload = next(mail.iter_attachments()).get_payload(decode=True)
         assert isinstance(payload, bytes)
         assert json.loads(payload) == report().to_dict()
 
     def test_the_body_carries_nothing_a_parser_would_want(self) -> None:
         """A summary in the body is a second copy of the truth."""
-        body = Message(report=report(), sender="thief@example.com").body()
+        body = Message(report=report(), sender="cop@example.com").body()
         assert "100" not in body
         assert "41233" not in body
         assert "not machine-readable on purpose" in body
 
-    def test_the_destination_is_the_hard_coded_lecturer_address(self) -> None:
-        mail = Message(report=report(), sender="thief@example.com").build()
-        assert mail["To"] == LECTURER == "rmisegal+uoh26finalgame@gmail.com"
+    def test_the_destination_is_whatever_the_environment_supplied(self) -> None:
+        mail = Message(report=report(), sender="cop@example.com").build()
+        assert mail["To"] == TEST_RECIPIENT
 
     def test_the_subject_names_the_game_and_the_role(self) -> None:
-        subject = Message(report=report(), sender="thief@example.com").subject()
+        subject = Message(report=report(), sender="cop@example.com").subject()
         assert "uoh26-s82kma9e" in subject
-        assert "thief" in subject
+        assert "police" in subject
 
 
 class TestTheGmailPayload:
     def test_it_is_url_safe_base64(self) -> None:
-        raw = Message(report=report(), sender="thief@example.com").raw()["raw"]
+        raw = Message(report=report(), sender="cop@example.com").raw()["raw"]
         assert "+" not in raw and "/" not in raw
 
     def test_it_decodes_back_to_the_mime_message(self) -> None:
-        message = Message(report=report(), sender="thief@example.com")
+        message = Message(report=report(), sender="cop@example.com")
         decoded = message_from_bytes(
             base64.urlsafe_b64decode(message.raw()["raw"]), policy=default_policy
         )
-        assert decoded["To"] == LECTURER
+        assert decoded["To"] == TEST_RECIPIENT
 
     def test_the_attachment_survives_the_encoding(self) -> None:
         """The end-to-end path: report → MIME → base64 → back to a dict."""
-        message = Message(report=report(), sender="thief@example.com")
+        message = Message(report=report(), sender="cop@example.com")
         decoded = message_from_bytes(
             base64.urlsafe_b64decode(message.raw()["raw"]), policy=default_policy
         )
@@ -191,7 +193,7 @@ class TestTheGmailPayload:
         assert json.loads(attached)["totals"]["total_tokens"] == 41_233
 
     def test_building_twice_does_not_attach_twice(self) -> None:
-        message = Message(report=report(), sender="thief@example.com")
+        message = Message(report=report(), sender="cop@example.com")
         message.build()
         decoded = message_from_bytes(
             base64.urlsafe_b64decode(message.raw()["raw"]), policy=default_policy
@@ -199,7 +201,7 @@ class TestTheGmailPayload:
         assert len(list(decoded.iter_attachments())) == 1
 
     def test_raw_builds_on_demand(self) -> None:
-        assert "raw" in Message(report=report(), sender="thief@example.com").raw()
+        assert "raw" in Message(report=report(), sender="cop@example.com").raw()
 
 
 class TestThereIsNoFreeTextPath:
@@ -216,11 +218,59 @@ class TestThereIsNoFreeTextPath:
 
         assert CONTENT_TYPE == ("application", "json")
 
-    def test_the_destination_is_not_configurable_from_outside(self) -> None:
-        """A configurable address is one typo from a report that never arrives."""
+    def test_no_address_is_written_into_the_source(self) -> None:
+        """The destination is configuration; a copy in the code is a second truth."""
         source = (Path(thief_agent.__file__).parent / "infra" / "report.py").read_text()
-        assert 'LECTURER = "rmisegal+uoh26finalgame@gmail.com"' in source
-        assert "getenv" not in source and "environ" not in source
+        assert "@gmail.com" not in source
+        assert "@" not in source.replace("@dataclass", "")
+
+
+class TestWhereAReportIsAddressed:
+    """One source, and a refusal when it is silent.
+
+    Rule 35 scores a report that never arrives exactly like one never sent —
+    zero for us and zero for the opponent, who did nothing wrong. That is an
+    argument for *stopping loudly*, not for inventing a destination: a refusal
+    is visible while somebody can still fix it, and a guessed address is
+    visible only in the wrong inbox, or in none.
+    """
+
+    def test_an_address_from_the_environment_is_used(self) -> None:
+        assert recipient({RECIPIENT_ENV: "me@example.com"}) == "me@example.com"
+
+    def test_surrounding_whitespace_is_trimmed(self) -> None:
+        """`KEY= me@example.com ` in a file must not produce an invalid header."""
+        assert recipient({RECIPIENT_ENV: "  me@example.com  "}) == "me@example.com"
+
+    def test_an_unset_variable_is_refused_rather_than_guessed(self) -> None:
+        with pytest.raises(ReportError, match=RECIPIENT_ENV):
+            recipient({})
+
+    def test_an_empty_variable_is_refused(self) -> None:
+        with pytest.raises(ReportError, match=RECIPIENT_ENV):
+            recipient({RECIPIENT_ENV: ""})
+
+    def test_a_blank_variable_is_refused(self) -> None:
+        """A quoted space in a .env file is a mistake, not an address."""
+        with pytest.raises(ReportError, match=RECIPIENT_ENV):
+            recipient({RECIPIENT_ENV: "   "})
+
+    def test_the_refusal_names_the_file_to_fix(self) -> None:
+        """The error is read by somebody who has just lost a match to it."""
+        with pytest.raises(ReportError, match=r"\.env"):
+            recipient({})
+
+    def test_the_built_message_is_addressed_where_the_environment_says(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(RECIPIENT_ENV, "me@example.com")
+        assert Message(report=report(), sender="us@example.com").build()["To"] == "me@example.com"
+
+    def test_a_message_cannot_be_built_without_one(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Refused at construction, before anything reaches a provider."""
+        monkeypatch.delenv(RECIPIENT_ENV, raising=False)
+        with pytest.raises(ReportError, match=RECIPIENT_ENV):
+            Message(report=report(), sender="us@example.com")
 
 
 class TestTheResultFileOnDisk:
@@ -239,7 +289,7 @@ class TestTheResultFileOnDisk:
     def test_the_file_and_the_attachment_are_the_same_bytes(self, tmp_path: Path) -> None:
         """One serialisation, so the committed copy cannot drift from the sent one."""
         written = report().write(tmp_path).read_bytes()
-        mail = Message(report=report(), sender="thief@example.com").build()
+        mail = Message(report=report(), sender="cop@example.com").build()
         attached = next(mail.iter_attachments()).get_payload(decode=True)
         assert attached == written
 

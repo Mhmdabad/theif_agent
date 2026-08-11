@@ -69,8 +69,9 @@ model = "template"                 # zero-token default; see Appendix F table 21
 step_deadline_seconds = 30         # hard cap on thinking per step
 
 [email]
-recipient = "rmisegal+uoh26finalgame@gmail.com"   # mandatory, fixed reporting target
-mode = "draft"                                    # switch to "send" once verified
+# recipient: not here. The destination is REPORT_RECIPIENT in .env — one source,
+# so no copy of it can go stale against another. See .env.example.
+mode = "send"                                     # armed: a real match mails the lecturer
 
 # --- WHO IS PLAYING -------------------------------------------------------
 # FR-7.28 wants four repository links in the result: our cop, our thief, their

@@ -24,6 +24,7 @@ from typing import Any
 
 import pytest
 
+from conftest import TEST_RECIPIENT
 from test_report import REPOS  # noqa: E402
 from test_report import report as a_report
 from thief_agent.cli_report import report
@@ -52,9 +53,9 @@ class TestTheDryRunIsTheDefault:
     def test_it_names_the_recipient_before_anybody_commits_to_sending(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """FR-7.17's fixed address, shown while there is still time to stop."""
+        """The destination, shown while there is still time to stop."""
         report(arguments(written(tmp_path)), private())
-        assert "rmisegal+uoh26finalgame@gmail.com" in capsys.readouterr().out
+        assert TEST_RECIPIENT in capsys.readouterr().out
 
     def test_it_shows_the_score_that_would_be_reported(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]

@@ -251,7 +251,7 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done · **🚪 GATE** = milesto
 - [x] **DOS Detector** — anomaly lock (backpressure / circuit breaker)
 - [x] 429 handling: honour, back off, wait for next window — never blind retry
 - [x] Report sent as **structured JSON attachment**, never free plaintext
-- [x] Destination hard-coded: `rmisegal+uoh26finalgame@gmail.com`
+- [x] Destination from `REPORT_RECIPIENT` in `.env`; unset is refused, not guessed
 - [x] Send-storm simulation blocked before reaching the API
 - [x] `report --send` command reaching the mail pipeline, dry-run by default
       (`cli_report.py`, `cli_report_send.py`)

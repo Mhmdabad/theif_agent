@@ -7,10 +7,12 @@ decides what playing does.
 
 import argparse
 import sys
+from pathlib import Path
 from typing import Any
 
 from .cli_failures import safely_describe
 from .cli_identity import PACKAGE
+from .cli_report import report
 from .infra.inboxes import PeerInboxes
 from .infra.mcp_server import ServerSettings, build, serve
 
@@ -22,7 +24,7 @@ def play(
     inboxes: PeerInboxes,
     environ: dict[str, str],
 ) -> int:  # pragma: no cover - drives a live opponent
-    """Serve, then open a match. Writes artefacts; sends nothing.
+    """Serve, open a match, write the artefacts, then report it.
 
     Not covered by tests, and the reason is the same one that keeps
     ``run_live`` uncovered: the thing under test would be *another team*.
@@ -56,8 +58,39 @@ def play(
     for path in written:
         print(f"  wrote {path}")
     result = next((path for path in written if path.name.startswith("result_")), None)
-    print("\nNothing has been emailed. The result was offered to the opponent and the")
-    print("report records whether they confirmed it (Appendix E rule 35); sending is a")
-    print("separate, deliberate act:")
-    print(f"  python -m {PACKAGE} report --report {result} --send")
-    return 0
+    return _report_now(result, private, bool(arguments.rehearse))
+
+
+def _report_now(
+    result: Path | None, private: dict[str, Any], rehearsal: bool
+) -> int:  # pragma: no cover - reaches Google
+    """Mail the result the moment a real match ends, because §9.3 says to.
+
+    **A rehearsal never sends**, and that exemption is the whole reason this can
+    be automatic at all. §9.3 removes human judgement from reporting a *legal
+    match against an opposing team*; a practice run against our own second
+    laptop is not one, and mailing the lecturer every time somebody tests the
+    plumbing would be the exact failure §9.3 warns about — code holding the key
+    to a live mail account — arriving as a nuisance rather than a bug.
+
+    Everything else is delegated to :func:`~.cli_report.report` rather than
+    reimplemented, so the automatic path cannot be more permissive than the
+    deliberate one: the same ``mode`` gate, the same refusal to send a score the
+    opponent never confirmed (rule 35), the same three gatekeeper defences, and
+    the same printed recipient. A second copy of those checks would drift, and
+    the direction it would drift is mail going out that should not have.
+
+    A refusal here returns non-zero even though the match itself succeeded. The
+    artefacts are on disk either way, but rule 35 scores an unsent report as no
+    report — zero for us *and* for the opponent — so this is not something to
+    exit quietly on.
+    """
+    if result is None:
+        print("\nno result file was written, so there is nothing to report", file=sys.stderr)
+        return 1
+    if rehearsal:
+        print("\nRehearsal: nothing emailed. A real match reports itself; to send this one:")
+        print(f"  python -m {PACKAGE} report --report {result} --send")
+        return 0
+    print("\nReporting automatically (§9.3 — both sides must send, separately):")
+    return report(argparse.Namespace(report=str(result), send=True), private)

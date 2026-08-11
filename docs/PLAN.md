@@ -342,5 +342,5 @@ written". See [TODO.md](TODO.md) for the checkable form of each gate.
 - Reference implementation (study only, **not** a submission skeleton):
   <https://github.com/rmisegal/Game-P2P-Cop-Chase>
 - Lecturer (general / repo sharing): `rmisegal@gmail.com`
-- Agent report target (mandatory, hard-coded): `rmisegal+uoh26finalgame@gmail.com`
+- Agent report target (mandatory): `REPORT_RECIPIENT` in `.env`, no default
 - Where the book and the reference repo disagree, **the book and Appendix F win**.

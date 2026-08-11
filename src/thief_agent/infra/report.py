@@ -29,6 +29,8 @@ which is what lets the exact bytes of a real report be asserted in a test.
 """
 
 import base64
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from email.message import EmailMessage
 
@@ -37,23 +39,54 @@ from .report_parts import ReportError, Repositories, SubGameResult
 
 __all__ = [
     "CONTENT_TYPE",
-    "LECTURER",
+    "RECIPIENT_ENV",
     "SCHEMA_VERSION",
     "Message",
     "Report",
     "ReportError",
     "Repositories",
     "SubGameResult",
+    "recipient",
 ]
 
-LECTURER = "rmisegal+uoh26finalgame@gmail.com"
-"""FR-7.17: the mandatory destination, hard-coded and not configurable.
+RECIPIENT_ENV = "REPORT_RECIPIENT"
+"""The only place the destination comes from. Set it in ``.env``.
 
-Deliberately not a parameter and not read from config. A configurable
-destination is one typo away from a report that was sent, looks sent, and never
-arrived — and the failure is indistinguishable from not reporting, which scores
-zero for the side that did it.
+FR-7.17 names the address Appendix ו mandates, and the address itself lives in
+``.env`` rather than in this file — deliberately, so that changing where reports
+go is a configuration act rather than a code change, and so no copy of it can go
+stale against another.
 """
+
+
+def recipient(environ: Mapping[str, str] | None = None) -> str:
+    """Where a report is addressed. **Refuses rather than guessing.**
+
+    There is no default and no fallback: an unset, empty or blank variable is an
+    error, not a hint. The alternative — quietly substituting an address nobody
+    asked for — is worse than stopping, because the one thing a caller cannot
+    check afterwards is whether the report went where they meant it to. A
+    refusal is visible on the terminal the moment it happens; a silent
+    substitution is visible only in somebody else's inbox, or in nobody's.
+
+    Rule 35 charges an unreported match to *both* teams, so this failing is
+    expensive — which is exactly why it fails loudly, at the point where the
+    person who can fix it is still watching, rather than after a match has been
+    played and the only remaining evidence is that no mail arrived.
+
+    Raises:
+        ReportError: naming the variable and the file it belongs in.
+    """
+    source = os.environ if environ is None else environ
+    chosen = (source.get(RECIPIENT_ENV) or "").strip()
+    if not chosen:
+        raise ReportError(
+            f"{RECIPIENT_ENV} is not set, so the report has no destination. "
+            f"Put the address from Appendix ו in .env as {RECIPIENT_ENV}=... "
+            "(see .env.example); nothing is sent until it is there."
+        )
+    return chosen
+
 
 CONTENT_TYPE = ("application", "json")
 
@@ -64,7 +97,7 @@ class Message:
 
     report: Report
     sender: str
-    to: str = LECTURER
+    to: str = field(default_factory=recipient)
 
     _built: EmailMessage | None = field(default=None, init=False, repr=False)
 

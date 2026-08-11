@@ -28,14 +28,14 @@ import argparse
 from pathlib import Path
 from typing import Any
 
-from .infra.report import LECTURER, Message, Report
+from .infra.report import Message, Report, recipient
 from .infra.report_parts import ReportError
 from .infra.report_reload import load
 
 __all__ = ["report"]
 
 
-def _summarise(path: Path, body: Report, mode: str, sending: bool) -> list[str]:
+def _summarise(path: Path, body: Report, mode: str, sending: bool, to: str) -> list[str]:
     """What this command is about to do, in the order somebody would check it."""
     agreed = "yes" if body.agreed else "NO — the opponent did not confirm this score"
     return [
@@ -44,7 +44,7 @@ def _summarise(path: Path, body: Report, mode: str, sending: bool) -> list[str]:
         f"  score         cop {body.cop_total}, thief {body.thief_total} "
         f"over {len(body.sub_games)} sub-game(s)",
         f"  agreed        {agreed}",
-        f"  recipient     {LECTURER}",
+        f"  recipient     {to}",
         f"  email mode    {mode}",
         f"  action        {'sending now' if sending else 'dry run, nothing will be sent'}",
     ]
@@ -65,9 +65,17 @@ def report(arguments: argparse.Namespace, private: dict[str, Any]) -> int:
     except (OSError, ReportError) as exc:
         print(f"cannot read the report: {exc}")
         return 1
+    try:
+        to = recipient()
+    except ReportError as exc:
+        # Resolved before the summary rather than inside it: the destination is
+        # the one line of that summary somebody is actually checking, and a
+        # summary printed with it missing is worse than no summary at all.
+        print(f"cannot report: {exc}")
+        return 1
 
     sending = bool(arguments.send) and mode == "send"
-    for line in _summarise(Path(arguments.report), body, mode, sending):
+    for line in _summarise(Path(arguments.report), body, mode, sending, to):
         print(line)
 
     if not arguments.send:

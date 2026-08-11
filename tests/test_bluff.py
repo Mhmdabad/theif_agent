@@ -20,6 +20,7 @@ from thief_agent.domain.bluff import (
 )
 from thief_agent.domain.board import BoardState
 from thief_agent.domain.hints import DIRECTIONS, LANDMARKS, MAX_WORDS, NUMERIC, parse
+from thief_agent.domain.providers import declared_model
 from thief_agent.domain.scent import emission
 from thief_agent.domain.trail import Trail
 
@@ -32,6 +33,30 @@ def every_hint() -> list[str]:
         for seed in range(len(TEMPLATES))
         for cell in ((0, 0), (5, 1), (6, 6), (3, 3), (0, 6))
     ]
+
+
+class TestWhatTheDeclarationAnnounces:
+    """The provider decides, not the model name.
+
+    Announcing ``claude-haiku-4-5`` beside ``total_tokens: 0`` is a
+    contradiction a marker can see, and rule 54 calls it a false statement.
+    """
+
+    def test_template_names_itself_rather_than_a_model_it_never_calls(self) -> None:
+        assert declared_model({"provider": "template", "model": "claude-haiku-4-5"}) == "template"
+
+    def test_a_real_provider_names_its_model(self) -> None:
+        assert (
+            declared_model({"provider": "claude_api", "model": "claude-haiku-4-5"})
+            == "claude-haiku-4-5"
+        )
+
+    def test_a_provider_with_no_model_names_the_provider(self) -> None:
+        assert declared_model({"provider": "ollama"}) == "ollama"
+
+    def test_an_absent_table_is_the_template_default(self) -> None:
+        """Matching the default the loader applies, so the two cannot disagree."""
+        assert declared_model(None) == "template"
 
 
 class TestTheWordCap:

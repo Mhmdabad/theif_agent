@@ -21,6 +21,8 @@ and the trail still speaks. Refusing to act on a hint we did not understand is
 correct; refusing to *play* because of one is not.
 """
 
+import unicodedata
+
 from .board import BoardState, Position
 from .hints_lexicon import (
     DIRECTIONS,
@@ -108,11 +110,20 @@ def parse(text: str, state: BoardState, speaker: Position) -> dict[Position, flo
 
 
 def truncate(text: str, cap: int = MAX_WORDS) -> str:
-    """Cut our own hint to the agreed word cap.
+    """Cut our own hint to the agreed word cap, and make it wire-legal.
 
     Applied to what we send, never to what we receive. Emitting a hint over
     the cap is our violation to avoid; receiving one is the opponent's, and
     discarding it would let them silence us by rambling.
+
+    **Always rejoined, never returned as given.** Returning a short hint
+    untouched preserved whatever the source put in it, and a language model
+    answering in two lines put a newline there — category ``Cc``, which
+    :mod:`~..infra.validation` refuses, which aborts the match rather than the
+    turn. Templates never contained one, so nothing found this until a real
+    provider was configured. Splitting on whitespace already folds newlines and
+    tabs; the filter below covers the control characters that are not
+    whitespace and so would survive a split.
     """
-    tokens = text.split()
-    return text if len(tokens) <= cap else " ".join(tokens[:cap])
+    tokens = "".join(" " if unicodedata.category(c) == "Cc" else c for c in text).split()
+    return " ".join(tokens[:cap])

@@ -26,7 +26,8 @@ from dataclasses import dataclass, field
 
 from ..shared.appendix_f import book_int
 from .bluff import Bluff
-from .providers import DEFAULT_PROVIDER, Bluffer
+from .providers import Bluffer
+from .providers_auto import DEFAULT_PROVIDER
 
 logger = logging.getLogger(__name__)
 

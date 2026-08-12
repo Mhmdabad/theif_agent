@@ -25,20 +25,19 @@ from dataclasses import dataclass, field
 
 from .bluff import Bluff
 from .hints import MAX_WORDS, truncate
+from .providers_auto import DEFAULT_PROVIDER, PROVIDERS, resolve
 from .providers_backends import Backends
 
 logger = logging.getLogger(__name__)
 
-PROVIDERS = ("template", "ollama", "claude_api", "claude_cli")
-"""Selectable providers, cheapest first. ``template`` is the default."""
-
-DEFAULT_PROVIDER = "template"
 DEFAULT_MODEL = "claude-haiku-4-5"
 """The rulebook asks for a *small* cloud model; a fifteen-word hint needs no
 more, and the cheapest option leaves the series budget for more turns."""
 
 
-def declared_model(trash_talk: Mapping[str, object] | None) -> str:
+def declared_model(
+    trash_talk: Mapping[str, object] | None, environ: Mapping[str, str] | None = None
+) -> str:
     """What will actually speak, for the Step-0 hardware declaration.
 
     **The provider decides this, not the model name.** Reading ``model`` alone
@@ -53,7 +52,7 @@ def declared_model(trash_talk: Mapping[str, object] | None) -> str:
     model with the tokens it spent.
     """
     table = trash_talk or {}
-    provider = str(table.get("provider", DEFAULT_PROVIDER))
+    provider = resolve(table, environ)
     model = str(table.get("model", "")).strip()
     return model if provider != DEFAULT_PROVIDER and model else provider
 

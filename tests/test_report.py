@@ -67,11 +67,21 @@ class TestTheReportIsAStructure:
         assert report().to_json() == report().to_json()
         assert report().to_json().endswith("}\n")
 
-    def test_totals_are_derived_not_restated(self) -> None:
+    def test_scores_are_keyed_by_group_not_by_role(self) -> None:
+        """Roles alternate, so a role-keyed total cannot be summed over a series.
+
+        We open as police: sub-game 1 pays us the cop score, sub-game 2 the
+        thief score. A reader building league standings never has to work out
+        who sat where.
+        """
         body = json.loads(report().to_json())
-        assert body["totals"]["cop"] == 100
-        assert body["totals"]["thief"] == 80
-        assert body["totals"]["sub_games_played"] == 2
+        assert body["num_sub_games"] == 2
+        assert body["groups"] == ["uoh26-cops", "uoh26-others"]
+        assert [entry["score"]["uoh26-cops"] for entry in body["sub_games"]] == [100, 80]
+        assert [entry["roles"]["uoh26-cops"] for entry in body["sub_games"]] == [
+            "police",
+            "thief",
+        ]
 
     def test_the_filename_derives_from_the_game_id(self) -> None:
         """So files from different matches can never be mixed up."""
@@ -88,10 +98,14 @@ class TestTheMandatoryFieldsAreRequiredNotValidated:
                 opponent_thief_repo="https://github.com/other/thief",
             )
 
-    def test_the_four_links_reach_the_json(self) -> None:
-        links = json.loads(report().to_json())["repositories"]
-        assert len(links) == 4
-        assert all(links.values())
+    def test_the_links_are_not_repeated_in_the_result(self) -> None:
+        """They belong to the declaration, which is where the reference puts them.
+
+        Static team metadata is stated once, before play, under a signature.
+        Restating it in the result would be a second copy nobody signed and one
+        more thing that can disagree with the first.
+        """
+        assert "repositories" not in json.loads(report().to_json())
 
     def test_every_sub_game_needs_a_commit_hash(self) -> None:
         """FR-7.28. Without it nobody can say which code played the game."""
@@ -100,10 +114,19 @@ class TestTheMandatoryFieldsAreRequiredNotValidated:
 
     def test_the_commit_hashes_reach_the_json(self) -> None:
         played = json.loads(report().to_json())["sub_games"]
-        assert [entry["commit_hash"] for entry in played] == [f"{1:040x}", f"{2:040x}"]
+        assert [entry["github_commit"]["uoh26-cops"] for entry in played] == [
+            f"{1:040x}",
+            f"{2:040x}",
+        ]
+
+    def test_the_opponents_commit_is_unknown_rather_than_invented(self) -> None:
+        """Nothing about their code crosses the wire, so we do not claim it."""
+        played = json.loads(report().to_json())["sub_games"]
+        assert all(entry["github_commit"]["uoh26-others"] == "unknown" for entry in played)
 
     def test_total_tokens_reaches_the_json(self) -> None:
-        assert json.loads(report().to_json())["totals"]["total_tokens"] == 41_233
+        spend = json.loads(report().to_json())["final_result"]["tokens_total_series"]
+        assert spend["uoh26-cops"] == 41_233
 
     def test_a_negative_token_total_is_refused(self) -> None:
         with pytest.raises(ReportError, match="cannot be negative"):
@@ -125,14 +148,15 @@ class TestTheMandatoryFieldsAreRequiredNotValidated:
 class TestAgreementIsRecorded:
     def test_it_says_whether_both_teams_agreed(self) -> None:
         """FR-7.16: a contradicting report voids the match and scores 0 for both."""
-        assert json.loads(report().to_json())["result_agreed_with_opponent"] is True
-        assert json.loads(report(agreed=False).to_json())["result_agreed_with_opponent"] is False
+        assert json.loads(report().to_json())["mutual_agreement"]["confirmed"] is True
+        assert json.loads(report(agreed=False).to_json())["mutual_agreement"]["confirmed"] is False
 
     def test_a_technical_loss_is_marked_per_sub_game(self) -> None:
         void = SubGameResult(
             sub_game=1, cop_score=0, thief_score=0, commit_hash="abc", technical_loss=True
         )
-        assert json.loads(report(sub_games=(void,)).to_json())["sub_games"][0]["technical_loss"]
+        played = json.loads(report(sub_games=(void,)).to_json())["sub_games"][0]
+        assert played["result"] == "technical_loss"
 
 
 class TestTheAttachmentIsTheReport:
@@ -190,7 +214,8 @@ class TestTheGmailPayload:
         )
         attached = next(decoded.iter_attachments()).get_payload(decode=True)
         assert isinstance(attached, bytes)
-        assert json.loads(attached)["totals"]["total_tokens"] == 41_233
+        spend = json.loads(attached)["final_result"]["tokens_total_series"]
+        assert spend["uoh26-cops"] == 41_233
 
     def test_building_twice_does_not_attach_twice(self) -> None:
         message = Message(report=report(), sender="cop@example.com")
@@ -305,6 +330,9 @@ class TestTheResultFileOnDisk:
     def test_the_commit_hashes_and_token_total_survive_the_round_trip(self, tmp_path: Path) -> None:
         """The three things FR-7.28 names, read back off disk."""
         body = json.loads(report().write(tmp_path).read_text())
-        assert [entry["commit_hash"] for entry in body["sub_games"]] == [f"{1:040x}", f"{2:040x}"]
-        assert body["totals"]["total_tokens"] == 41_233
-        assert len(body["repositories"]) == 4
+        assert [entry["github_commit"]["uoh26-cops"] for entry in body["sub_games"]] == [
+            f"{1:040x}",
+            f"{2:040x}",
+        ]
+        assert body["final_result"]["tokens_total_series"]["uoh26-cops"] == 41_233
+        assert body["links"]["result"] == "result_uoh26-s82kma9e.json"

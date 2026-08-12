@@ -112,9 +112,18 @@ class MatchPlay(MatchAgreement):
             now=self.now,
             require_bound_scent=locked.require_bound_scent,
         )
+        started_at, before = self.now(), self.spent_tokens
         played = game.play()
         outcome = SubGameOutcome(
-            number=number, played=played, audit=game.audit(), log=log, game=game, our_role=role
+            number=number,
+            played=played,
+            audit=game.audit(),
+            log=log,
+            game=game,
+            our_role=role,
+            started_at=started_at,
+            ended_at=self.now(),
+            tokens=self.spent_tokens - before,
         )
         self.outcomes.append(outcome)
         return outcome

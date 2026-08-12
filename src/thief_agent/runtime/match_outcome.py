@@ -23,6 +23,16 @@ class SubGameOutcome:
     played: Played
     audit: AuditResult
     log: MatchLog
+    started_at: str = ""
+    ended_at: str = ""
+    tokens: int = 0
+    """This peer's spend on this sub-game, as a delta across it.
+
+    Measured rather than divided: the voice speaks every Nth step and only when
+    a provider is configured, so a series total split evenly would be a
+    plausible-looking number that never happened.
+    """
+
     game: "SubGame | None" = None
     """The sub-game that produced this, for anything wanting its ceremony.
 

@@ -366,7 +366,7 @@ class TestTheEvidenceCountsSixSubGames:
         result = self.a_played_series(tmp_path).result(
             "a" * 40, 0, agreed=False, repositories=REPOS
         )
-        assert result.to_dict()["totals"]["sub_games_played"] == BOOK_SERIES
+        assert result.to_dict()["num_sub_games"] == BOOK_SERIES
 
     def test_the_artefacts_agree_that_there_were_six(self, tmp_path: Path) -> None:
         runner = self.a_played_series(tmp_path)

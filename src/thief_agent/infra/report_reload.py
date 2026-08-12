@@ -23,19 +23,34 @@ from pathlib import Path
 from typing import Any
 
 from .report_document import Report
-from .report_parts import ReportError, Repositories, SubGameResult
+from .report_parts import ReportError, SubGameResult
 
 __all__ = ["load"]
 
 
-def _sub_game(body: dict[str, Any]) -> SubGameResult:
+def _sub_game(body: dict[str, Any], us: str, them: str) -> SubGameResult:
+    """One sub-game, read back out of the group-keyed document.
+
+    The file says what each *group* scored; :class:`SubGameResult` holds what
+    each *seat* scored, because that is what the book's scoring table is written
+    in. Which seat we sat in is in ``roles``, so the mapping is recoverable --
+    and doing it here keeps the rest of the code free of the question.
+    """
+    ours = str(body["roles"][us])
+    our_score, their_score = int(body["score"][us]), int(body["score"][them])
+    cop, thief = (our_score, their_score) if ours == "police" else (their_score, our_score)
     return SubGameResult(
-        sub_game=int(body["sub_game"]),
-        cop_score=int(body["cop_score"]),
-        thief_score=int(body["thief_score"]),
-        commit_hash=str(body["commit_hash"]),
+        sub_game=int(body["sub_game_number"]),
+        cop_score=cop,
+        thief_score=thief,
+        commit_hash=str(body["github_commit"][us]),
         steps=int(body.get("steps", 0)),
-        technical_loss=bool(body.get("technical_loss", False)),
+        technical_loss=str(body.get("result", "")) == "technical_loss",
+        started_at=str(body.get("started_at", "")),
+        ended_at=str(body.get("ended_at", "")),
+        tokens=int(body.get("tokens", {}).get(us, 0)),
+        log_verified=bool(body.get("audit", {}).get("log_verified", True)),
+        tampered=bool(body.get("audit", {}).get("tampered", False)),
     )
 
 
@@ -56,24 +71,25 @@ def load(path: Path) -> Report:
         raise ReportError(f"{path} does not hold a report object")
 
     try:
+        us, them = (str(name) for name in body["groups"])
+        final = body.get("final_result", {})
+        agreement = body.get("mutual_agreement", {})
+        played = [_sub_game(entry, us, them) for entry in body["sub_games"]]
         report = Report(
             game_id=str(body["game_id"]),
             game_uid=str(body.get("game_uid", "")),
             role=str(body["reported_by"]["role"]),
-            team=str(body["reported_by"]["team"]),
-            opponent_team=str(body["opponent_team"]),
-            repositories=Repositories(**body["repositories"]),
-            sub_games=tuple(_sub_game(entry) for entry in body["sub_games"]),
-            total_tokens=int(body["totals"]["total_tokens"]),
-            agreed=bool(body["result_agreed_with_opponent"]),
-            started_at=str(body.get("started_at", "")),
-            ended_at=str(body.get("ended_at", "")),
-            starting_role=str(body.get("starting_role", "")),
-            series_result=body.get("series_result"),
+            team=us,
+            opponent_team=them,
+            sub_games=tuple(played),
+            total_tokens=int(final.get("tokens_total_series", {}).get(us, 0)),
+            agreed=bool(agreement.get("confirmed", False)),
+            starting_role=str(body["sub_games"][0]["roles"][us]) if played else "",
+            series_result=final or None,
             mcp_addresses=body.get("mcp_addresses"),
             machine=body.get("machine"),
             signature=str(body.get("signature", "")),
-            result_claim_sha256=str(body.get("result_claim_sha256", "")),
+            result_claim_sha256=str(agreement.get("sha256", "")),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise ReportError(f"{path} is missing something a report needs: {exc}") from exc

@@ -103,8 +103,16 @@ class MatchState:
 
     @property
     def spent_tokens(self) -> int:
-        """Rule 54's total: every voice's spend, summed once per distinct voice."""
-        voices = {id(brain.voice): brain.voice for brain in self.brains.values()}
+        """Rule 54's total: every voice's spend, summed once per distinct voice.
+
+        A brain without a voice contributes nothing rather than raising. Two
+        brains usually share one voice, so the sum is taken over distinct
+        objects; a brain that never speaks simply has no spend to add, and
+        demanding the attribute would make measuring the total depend on how a
+        brain was built rather than on what it cost.
+        """
+        with_voices = [b for b in self.brains.values() if getattr(b, "voice", None) is not None]
+        voices = {id(brain.voice): brain.voice for brain in with_voices}
         return sum(voice.spent for voice in voices.values())
 
     def config_for(self, number: int) -> LockedConfig:

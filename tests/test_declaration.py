@@ -224,4 +224,4 @@ class TestTheFile:
 
     def test_the_written_file_carries_the_signature(self, tmp_path: Path) -> None:
         body = json.loads(declared().write(tmp_path).read_text())
-        assert body["signature"] == declared().signature
+        assert body["groups"]["group_1"]["signature"] == declared().signature

@@ -99,8 +99,15 @@ class Report:
         return (self.team, self.opponent_team)
 
     def to_json(self) -> str:
-        """Sorted keys and a trailing newline, so two peers produce identical bytes."""
-        return json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n"
+        """Sorted keys and a trailing newline, so two peers produce identical bytes.
+
+        ``ensure_ascii=False`` for the same reason the digests use it: the file
+        should read as what it is. The consensus signature key is Hebrew, and
+        escaping rendered it ``\\u05d7\\u05ea…`` in every emailed report --
+        verifiable, since a parser decodes it back, but unreadable to the person
+        the attachment is for.
+        """
+        return json.dumps(self.to_dict(), indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
     @property
     def filename(self) -> str:

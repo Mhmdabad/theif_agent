@@ -80,7 +80,7 @@ class Backends:
         what rule 54's total is built from, and the one number here that a
         reader of the final report is entitled to trust.
         """
-        import anthropic  # type: ignore[import-not-found]  # noqa: PLC0415
+        import anthropic  # noqa: PLC0415
 
         message = anthropic.Anthropic().messages.create(
             model=self.model,

@@ -19,7 +19,8 @@ halfway through a series, which is exactly when nothing can be done about it.
 from typing import Any
 
 from ..domain.budgeting import EVERY_N_STEPS, Ration
-from ..domain.providers import DEFAULT_MODEL, DEFAULT_PROVIDER, PROVIDERS, Bluffer
+from ..domain.providers import DEFAULT_MODEL, Bluffer
+from ..domain.providers_auto import CONFIGURABLE, DEFAULT_PROVIDER, resolve
 from .voice import Voice
 
 __all__ = ["build_voice"]
@@ -29,16 +30,19 @@ def build_voice(trash_talk: dict[str, Any] | None, seed: int = 0) -> Voice:
     """The voice this peer speaks with, from its private configuration.
 
     Absent or empty configuration yields the zero-token template voice, which
-    is the rulebook's recommended route and the default in code.
+    is the rulebook's recommended route and the default in code. ``auto`` is
+    resolved here, so the ``Bluffer`` is built with the provider that will
+    really run rather than the one the file asked for.
 
     Raises:
         ValueError: naming the valid providers, if the configured one is not
             one of them.
     """
     table = trash_talk or {}
-    provider = str(table.get("provider", DEFAULT_PROVIDER))
-    if provider not in PROVIDERS:
-        raise ValueError(f"[trash_talk] provider must be one of {PROVIDERS}, got {provider!r}")
+    configured = str(table.get("provider", DEFAULT_PROVIDER))
+    if configured not in CONFIGURABLE:
+        raise ValueError(f"[trash_talk] provider must be one of {CONFIGURABLE}, got {configured!r}")
+    provider = resolve(table)
     bluffer = Bluffer(
         provider=provider,
         model=str(table.get("model", DEFAULT_MODEL)),

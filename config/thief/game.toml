@@ -60,7 +60,7 @@ police_class = "thief_agent.strategy.police_search:SearchingPolice"  # even sub-
 # API reports and counted against the Appendix F series budget; when the budget
 # runs out the provider drops to template for the rest of the series.
 [trash_talk]
-provider = "template"     # template (0 tokens, default) | ollama | claude_api | claude_cli
+provider = "auto"         # auto (key in .env ? claude_api : template) | template | ollama | claude_api | claude_cli
 model = "claude-haiku-4-5"  # the rulebook asks for a small cloud model
 every_n_steps = 3         # a call every Nth turn; 1 exceeds the series budget
 

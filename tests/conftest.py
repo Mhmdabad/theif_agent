@@ -18,3 +18,18 @@ TEST_RECIPIENT = "lecturer@example.com"
 @pytest.fixture(autouse=True)
 def _recipient(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(RECIPIENT_ENV, TEST_RECIPIENT)
+
+
+@pytest.fixture(autouse=True)
+def _no_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test may reach a paid API, for the same reason none may send mail.
+
+    The ``claude_api`` backend reads its key from the environment, so once the
+    SDK became a real dependency the fallback tests stopped simulating a broken
+    provider and started billing a live account -- on every run, on every
+    developer's machine, flaky with the network and silently costing money.
+
+    Unset, the SDK raises at construction without a request, which is what those
+    tests wanted all along: a backend that fails, deterministically and free.
+    """
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)

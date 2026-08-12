@@ -9,11 +9,14 @@ import pytest
 
 from thief_agent.domain.bluff import Bluff
 from thief_agent.domain.hints import MAX_WORDS, NUMERIC
-from thief_agent.domain.providers import (
-    DEFAULT_MODEL,
+from thief_agent.domain.providers import DEFAULT_MODEL, Bluffer, declared_model
+from thief_agent.domain.providers_auto import (
+    API_KEY_ENV,
+    AUTO,
+    CONFIGURABLE,
     DEFAULT_PROVIDER,
     PROVIDERS,
-    Bluffer,
+    resolve,
 )
 
 HINT = Bluff(intent="truth", text="heading south past the docks", about=(5, 1))
@@ -36,6 +39,31 @@ class TestTheDefault:
 
     def test_all_four_are_offered(self) -> None:
         assert PROVIDERS == ("template", "ollama", "claude_api", "claude_cli")
+
+    def test_auto_is_configurable_but_not_runnable(self) -> None:
+        """A Bluffer handed ``auto`` would have no backend to call."""
+        assert AUTO in CONFIGURABLE
+        assert AUTO not in PROVIDERS
+
+    def test_auto_takes_the_cloud_model_when_a_key_is_present(self) -> None:
+        assert resolve({"provider": AUTO}, {API_KEY_ENV: "sk-ant-xxx"}) == "claude_api"
+
+    def test_auto_falls_to_template_with_no_key(self) -> None:
+        """The teammate's laptop, the CI runner, the fresh clone."""
+        assert resolve({"provider": AUTO}, {}) == "template"
+
+    def test_a_blank_key_counts_as_no_key(self) -> None:
+        """.env.example ships the name with an empty value; that is not a key."""
+        assert resolve({"provider": AUTO}, {API_KEY_ENV: "   "}) == "template"
+
+    def test_an_explicit_provider_is_left_alone(self) -> None:
+        assert resolve({"provider": "ollama"}, {API_KEY_ENV: "sk-ant-xxx"}) == "ollama"
+
+    def test_the_declaration_follows_the_resolution(self) -> None:
+        """The whole point: what the report says is what the agent did."""
+        table = {"provider": AUTO, "model": "claude-haiku-4-5"}
+        assert declared_model(table, {API_KEY_ENV: "sk"}) == "claude-haiku-4-5"
+        assert declared_model(table, {}) == "template"
 
     def test_the_cloud_model_is_a_small_one(self) -> None:
         """The rulebook asks for a small cloud model; 15 words needs no more."""
@@ -192,9 +220,9 @@ class TestTheAdaptersThemselves:
         monkeypatch.setitem(sys.modules, "anthropic", fake)
         assert Bluffer(provider="claude_api")._claude_api("hint") == "api reply"
 
-    def test_claude_api_fails_softly_when_the_sdk_is_absent(self) -> None:
+    def test_claude_api_fails_softly_without_a_key(self) -> None:
         """The key is read from the environment by the SDK, never from config:
         a committed key is permanently leaked and the submission checklist
-        makes that a hard gate. With no SDK installed this raises, and dress()
-        turns that into a template line."""
+        makes that a hard gate. With none set the SDK raises before it sends
+        anything, and dress() turns that into a template line."""
         assert Bluffer(provider="claude_api").dress(HINT) == HINT.text

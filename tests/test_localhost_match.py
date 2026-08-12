@@ -91,7 +91,6 @@ def build_declaration(role: str, game_id: str, uid: str) -> MatchDeclaration:
         provenance=Provenance(
             code_version="1.0.0",
             group_name="uoh26-cops",
-            sub_game=1,
             github_commit="a" * 40,
             dirty=False,
         ),

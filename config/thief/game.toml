@@ -18,7 +18,6 @@ version = "1.10"
 [game]
 group_name = "s82kma9e"
 group_id   = "s82kma9e"                # 8 characters, no spaces
-sub_game_number = 1
 members = ["Mohammed Abad"]        # EDIT: add every team member
 repos = { cop = "https://github.com/Mhmdabad/police_agent", thief = "https://github.com/Mhmdabad/theif_agent" }
 

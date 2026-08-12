@@ -188,11 +188,11 @@ def repo(tmp_path: Path, commit: bool = True, dirty: bool = False) -> Path:
 
 class TestTheCommitMustDescribeWhatRan:
     def test_a_clean_tree_is_reproducible(self, tmp_path: Path) -> None:
-        found = provenance("0.1.0", "s82kma9e", 3, repo=repo(tmp_path))
+        found = provenance("0.1.0", "s82kma9e", repo=repo(tmp_path))
         assert found.reproducible
         assert found.github_commit is not None
         assert not found.dirty
-        assert "sub-game 3 at" in str(found)
+        assert "s82kma9e at" in str(found)
 
     def test_uncommitted_changes_make_it_unreproducible(self, tmp_path: Path) -> None:
         """``git rev-parse HEAD`` answers happily with a dirty tree.
@@ -201,7 +201,7 @@ class TestTheCommitMustDescribeWhatRan:
         declaration nobody can verify, and the easy mistake to make five
         minutes before a match.
         """
-        found = provenance("0.1.0", "s82kma9e", 3, repo=repo(tmp_path, dirty=True))
+        found = provenance("0.1.0", "s82kma9e", repo=repo(tmp_path, dirty=True))
         assert found.github_commit is not None
         assert found.dirty
         assert not found.reproducible
@@ -219,7 +219,7 @@ class TestTheCommitMustDescribeWhatRan:
         (where / "artefacts").mkdir()
         (where / "artefacts" / "result_uoh26-x.json").write_text("{}\n")
         (where / ".quota_cop.json").write_text('{"day": "2026-08-11", "used": 1}\n')
-        found = provenance("0.1.0", "s82kma9e", 3, repo=where)
+        found = provenance("0.1.0", "s82kma9e", repo=where)
         assert not found.dirty
         assert found.reproducible
 
@@ -230,12 +230,12 @@ class TestTheCommitMustDescribeWhatRan:
         where = repo(tmp_path, dirty=True)
         (where / "artefacts").mkdir()
         (where / "artefacts" / "result_uoh26-x.json").write_text("{}\n")
-        assert provenance("0.1.0", "s82kma9e", 3, repo=where).dirty
+        assert provenance("0.1.0", "s82kma9e", repo=where).dirty
 
     def test_the_declaration_records_the_dirty_flag_rather_than_hiding_it(
         self, tmp_path: Path
     ) -> None:
-        found = provenance("0.1.0", "s82kma9e", 1, repo=repo(tmp_path, dirty=True))
+        found = provenance("0.1.0", "s82kma9e", repo=repo(tmp_path, dirty=True))
         assert found.to_dict()["working_tree_dirty"] is True
 
     def test_no_repository_is_a_real_state_not_a_failure(self, tmp_path: Path) -> None:
@@ -244,33 +244,41 @@ class TestTheCommitMustDescribeWhatRan:
         An agent that refused to start there would be unrunnable exactly where
         the examiner runs it.
         """
-        found = provenance("0.1.0", "s82kma9e", 1, repo=tmp_path)
+        found = provenance("0.1.0", "s82kma9e", repo=tmp_path)
         assert found.github_commit is None
         assert not found.reproducible
         assert "no commit hash available" in str(found)
 
     def test_it_finds_this_repository_by_default(self) -> None:
-        assert provenance("0.1.0", "s82kma9e", 1).github_commit is not None
+        assert provenance("0.1.0", "s82kma9e").github_commit is not None
 
 
 class TestTheProvenanceFragment:
     def test_it_names_every_field_the_rulebook_asks_for(self, tmp_path: Path) -> None:
-        fragment = provenance("0.1.0", "s82kma9e", 2, repo=repo(tmp_path)).to_dict()
+        fragment = provenance("0.1.0", "s82kma9e", repo=repo(tmp_path)).to_dict()
         assert set(fragment) == {
             "code_version",
             "group_name",
-            "sub_game",
             "github_commit",
             "working_tree_dirty",
         }
 
+    def test_it_does_not_name_a_sub_game(self, tmp_path: Path) -> None:
+        """The declaration is what does not change during a match.
+
+        A sub-game number changes six times, so it was never a fact about the
+        declaration -- and with one document per series there was no number to
+        put there. It was hardcoded to 1 in every report ever sent.
+        """
+        assert "sub_game" not in provenance("0.1.0", "s82kma9e", repo=repo(tmp_path)).to_dict()
+
     def test_it_survives_json(self, tmp_path: Path) -> None:
-        fragment = provenance("0.1.0", "s82kma9e", 2, repo=repo(tmp_path)).to_dict()
+        fragment = provenance("0.1.0", "s82kma9e", repo=repo(tmp_path)).to_dict()
         assert json.loads(json.dumps(fragment)) == fragment
 
     def test_it_is_frozen(self, tmp_path: Path) -> None:
         with pytest.raises(AttributeError):
-            provenance("0.1.0", "s82kma9e", 1, repo=repo(tmp_path)).sub_game = 9  # type: ignore[misc]
+            provenance("0.1.0", "s82kma9e", repo=repo(tmp_path)).dirty = True  # type: ignore[misc]
 
 
 KEY = "a-key-the-course-supplies"
@@ -279,7 +287,7 @@ KEY = "a-key-the-course-supplies"
 def declaration(tmp_path: Path, key: str | None = KEY) -> Declaration:
     return declare(
         collect("claude-haiku-4-5", environ={}),
-        provenance("0.1.0", "s82kma9e", 1, repo=repo(tmp_path)),
+        provenance("0.1.0", "s82kma9e", repo=repo(tmp_path)),
         environ={SIGNING_KEY_ENV: key} if key else {},
     )
 

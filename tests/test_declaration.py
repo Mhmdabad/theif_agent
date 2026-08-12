@@ -42,7 +42,6 @@ HARDWARE = Hardware(
 PROVENANCE = Provenance(
     code_version="1.0.0",
     group_name="uoh26-thieves",
-    sub_game=1,
     github_commit="a" * 40,
     dirty=False,
 )

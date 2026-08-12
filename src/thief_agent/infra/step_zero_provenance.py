@@ -28,7 +28,6 @@ class Provenance:
 
     code_version: str
     group_name: str
-    sub_game: int
     github_commit: str | None
     dirty: bool
 
@@ -36,7 +35,6 @@ class Provenance:
         return {
             "code_version": self.code_version,
             "group_name": self.group_name,
-            "sub_game": self.sub_game,
             "github_commit": self.github_commit,
             "working_tree_dirty": self.dirty,
         }
@@ -48,10 +46,10 @@ class Provenance:
 
     def __str__(self) -> str:
         if self.reproducible and self.github_commit:
-            return f"{self.group_name} sub-game {self.sub_game} at {self.github_commit[:12]}"
+            return f"{self.group_name} at {self.github_commit[:12]}"
         reason = "uncommitted changes" if self.dirty else "no commit hash available"
         return (
-            f"{self.group_name} sub-game {self.sub_game}: NOT REPRODUCIBLE ({reason}); "
+            f"{self.group_name}: NOT REPRODUCIBLE ({reason}); "
             "the declared commit does not describe the code that ran"
         )
 
@@ -79,7 +77,6 @@ def _git(*args: str, repo: Path | None = None) -> str | None:
 def provenance(
     code_version: str,
     group_name: str,
-    sub_game: int,
     repo: Path | None = None,
 ) -> Provenance:
     """Establish which code is running, and whether that can be proven.
@@ -106,7 +103,6 @@ def provenance(
     return Provenance(
         code_version=code_version,
         group_name=group_name,
-        sub_game=sub_game,
         github_commit=commit,
         dirty=bool(status),
     )

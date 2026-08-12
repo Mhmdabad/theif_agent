@@ -28,13 +28,14 @@ class Report:
     role: str
     team: str
     opponent_team: str
+    repositories: Repositories
+    """The four GitHub links. Section 9.3.3 names them among the report's
+    mandatory fields, so they are required at construction: a report that cannot
+    be built without them cannot be mailed without them either."""
+
     sub_games: tuple[SubGameResult, ...]
     total_tokens: int
     agreed: bool
-    repositories: Repositories | None = None
-    """The four links, when a caller has them. The *declaration* is their home:
-    the result names teams by group id and refers back to it."""
-
     game_uid: str = ""
     started_at: str = ""
     ended_at: str = ""

@@ -10,9 +10,13 @@ the GitHub repository**, so any past match can be reconstructed exactly,
 including the parameters negotiated with that particular opponent.
 """
 
+import hashlib
 import re
 import uuid
-from typing import Final
+from collections.abc import Mapping
+from typing import Any, Final
+
+from .config import canonical_bytes
 
 GAME_ID_PATTERN: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 """Safe as a filename component: no separators, no traversal, non-empty."""
@@ -76,22 +80,32 @@ def result_filename(game_id: str) -> str:
     return f"result_{game_id}.json"
 
 
-GAME_NAMESPACE = uuid.UUID("6ba7b811-9dad-11d1-80b4-00c04fd430c8")
-"""RFC 4122's OID namespace, borrowed so :func:`game_uid` is stable forever."""
+def game_id_for(group_a: str, group_b: str) -> str:
+    """The match id both peers derive, from the two group ids alone.
 
-
-def game_uid(game_id: str) -> str:
-    """The match's UUID, derived from its id rather than drawn at random.
-
-    The reference gives every game a UUID, and both peers must carry the *same*
-    one: it binds the commitments, the turns and the agreed result, so two peers
-    generating one independently would agree on nothing. Nothing in the protocol
-    exchanges it.
-
-    Version 5 solves that. It is a hash of the agreed ``game_id``, so both sides
-    compute the same UUID from the one thing they already agreed, and it is a
-    real UUID rather than the game id wearing the field's name. Distinct game
-    ids give distinct uids, which is what stops a result agreed for one series
-    from closing another.
+    ``"-vs-".join(sorted([a, b]))``. **Sorted**, so each side computes the same
+    string with no round trip and no convention to settle. A peer naming itself
+    first produces a different id on each side, and one match then yields two
+    sets of artefact filenames that cannot be joined by ``game_id`` at all.
     """
-    return str(uuid.uuid5(GAME_NAMESPACE, game_id))
+    return "-vs-".join(sorted([group_a, group_b]))
+
+
+def game_uid(terms: Mapping[str, Any], group_a: str, group_b: str) -> str:
+    """The match's UUID, derived from the agreed terms and the two group ids.
+
+    ``UUID(SHA256(canonical(terms) + "|" + "|".join(sorted([a, b])))[:16])``.
+
+    Both peers must hold the same uid -- it binds the commitments, the turns and
+    the agreed result -- and nothing in the protocol exchanges it. Deriving it
+    from the terms they already agreed byte-for-byte solves that without a round
+    trip, and says something a name cannot: this uid is *about these terms*, so
+    a uid agreed for one series cannot be replayed to open another played under
+    different ones.
+
+    The cohort's interop kit defines it this way, which is the reason to prefer
+    it over a hash of ``game_id``: a uid only we compute is not a shared one.
+    """
+    pair = sorted([group_a, group_b])
+    seed = f"{canonical_bytes(dict(terms)).decode('utf-8')}|{'|'.join(pair)}"
+    return str(uuid.UUID(bytes=hashlib.sha256(seed.encode("utf-8")).digest()[:16]))

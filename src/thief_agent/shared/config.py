@@ -87,21 +87,28 @@ def canonical_bytes(payload: dict[str, Any]) -> bytes:
     ``separators=(",", ":")``
         No incidental whitespace.
 
-    ``ensure_ascii`` left at its default of **True**
-        The rulebook's ``commit()`` (PDF p. 37) calls ``json.dumps`` with
-        ``sort_keys`` and ``separators`` and does *not* pass ``ensure_ascii``,
-        so it escapes non-ASCII to ``\\uXXXX``. We match the book.
+    ``ensure_ascii=False``
+        Non-ASCII stays native UTF-8 rather than escaping to ``\\uXXXX``.
 
-        The cohort's reference implementation does **not**: it passes
-        ``ensure_ascii=False``. The two disagree, and the book's own precedence
-        rule settles it — the PDF is authoritative over the reference. The cost
-        of the disagreement is real and lands on hints, which are free natural
-        language: the first Hebrew place name in a hint makes two honest peers
-        compute two different digests. That is why :func:`~..domain.crypto.verify`
-        accepts either convention on the way *in*, while this stays strict on
-        the way out.
+        This is the one place the book is followed to the letter by *not*
+        following it. Its ``commit()`` (PDF p. 37) passes ``sort_keys`` and
+        ``separators`` and omits ``ensure_ascii``, so Python's default escapes —
+        and this form used to match that. But the digest's whole purpose is that
+        two independent implementations reproduce it, and the cohort's
+        interop kit pins ``False``, as does the reference. A byte-exact rule
+        only one team follows is not a canonical form.
+
+        The cost of getting it wrong lands on hints, which are free natural
+        language: one Hebrew place name, one emoji, one em-dash from a language
+        model, and two honest peers compute two different digests and each
+        concludes the other tampered. :func:`~..domain.crypto.commit_of` already
+        pinned ``False`` for exactly that reason; this had stayed strict, which
+        left one codebase holding two canonical forms — the defect this
+        module's own first paragraph warns about.
     """
-    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode(
+        "utf-8"
+    )
 
 
 def config_sha256(config: dict[str, Any]) -> str:

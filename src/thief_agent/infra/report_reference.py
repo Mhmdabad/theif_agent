@@ -11,17 +11,13 @@ up across a series. The book scores a group pair; this document says so
 directly, and a reader building league standings never has to work out who sat
 where.
 
-**This is a superset of the reference, because §9.3.3 requires more than the
-reference emits.** The book names what the attached JSON must carry: the group's
-identity, its GitHub addresses, the FastMCP server addresses, cryptographically
-signed hardware declarations, the game timestamp, and SHA-256-backed agreement.
-It then lists the mandatory fields outright -- both groups' GitHub links, each
-sub-game's commit id, and the tokens consumed.
-
-The reference's result omits the links, the addresses, the hardware and the
-match timestamp, because its declaration sits in the repository beside it. The
-attachment is the report, and the book outranks the reference where they
-disagree, so the shape is the reference's and the contents are the book's.
+**A superset of the reference, because §9.3.3 requires more than it emits.** The
+book names what the attached JSON must carry -- identity, GitHub addresses, MCP
+addresses, signed hardware, the game timestamp, SHA-256 agreement -- then lists
+the mandatory fields outright: both groups' links, each sub-game's commit id,
+and the tokens consumed. The reference omits several, because its declaration
+sits in the repository beside it; the attachment is the report. So the shape is
+the reference's and the contents are the book's.
 
 Two fields are honest about what this peer cannot know. The opponent's commit
 is ``unknown`` -- the greeting carries a role, a group id, a URL and a protocol
@@ -34,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..domain.alternation import role_for
 from ..domain.scoring import Outcome
+from ..shared.consensus import sign_consensus
 from ..shared.naming import declaration_filename, log_filename, result_filename
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle only matters to type checkers
@@ -55,8 +52,8 @@ UNKNOWN = "unknown"
 def links(game_id: str) -> dict[str, str]:
     """The four artefact names, derived from ``game_id`` as the reference requires.
 
-    ``config`` and ``log`` keep the literal ``<NN>`` placeholder: they name one
-    file per sub-game, so a single name would be a lie about a series.
+    ``config`` and ``log`` keep the literal ``<NN>``: one file per sub-game, so a
+    single name would be a lie about a series.
     """
     return {
         "_remark": (
@@ -105,7 +102,17 @@ def _by_group(
 
 
 def result_document(report: "Report") -> dict[str, Any]:
-    """The whole result, as the reference lays it out."""
+    """The whole result, as the reference lays it out, consensus-signed.
+
+    The signature goes on last and over everything else, so any reader -- the
+    opponent, the lecturer, us on reload -- can pop it, re-serialise and confirm
+    the document has not moved since it was settled.
+    """
+    return sign_consensus(_body(report))
+
+
+def _body(report: "Report") -> dict[str, Any]:
+    """Everything the signature covers."""
     us, them = report.team, report.opponent_team
     natural = report.starting_role or report.role
     standing = report.series_result or {}

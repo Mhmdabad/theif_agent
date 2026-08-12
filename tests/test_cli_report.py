@@ -119,16 +119,10 @@ class TestTheAgreementIsVisibleToTheReader:
 
 
 class TestTheFourLinksSurviveTheRoundTrip:
-    def test_the_result_refers_to_the_declaration_for_them(self, tmp_path: Path) -> None:
-        """FR-7.28's four links live in the declaration, which is signed.
-
-        The result names the two groups and refers back by game_id, exactly as
-        the reference does. Repeating static metadata here would be a second
-        copy nobody signed, and one more thing that can disagree with the first.
-        """
+    def test_repositories_are_carried_back(self, tmp_path: Path) -> None:
+        """A report that lost them on reload would be mailed incomplete."""
         from thief_agent.infra.report_reload import load
 
-        body = json.loads(written(tmp_path).read_text())
-        assert "repositories" not in body
-        assert body["links"]["declaration"] == "declaration_uoh26-s82kma9e.json"
-        assert load(written(tmp_path)).groups_named == ("uoh26-cops", "uoh26-others")
+        carried = load(written(tmp_path)).repositories
+        assert len(carried.to_dict()) == 4
+        assert all(carried.to_dict().values())

@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from .report_document import Report
-from .report_parts import ReportError, SubGameResult
+from .report_parts import ReportError, Repositories, SubGameResult
 
 __all__ = ["load"]
 
@@ -81,7 +81,10 @@ def load(path: Path) -> Report:
             role=str(body["reported_by"]["role"]),
             team=us,
             opponent_team=them,
+            repositories=Repositories(**body["repositories"]),
             sub_games=tuple(played),
+            started_at=str(body.get("started_at", "")),
+            ended_at=str(body.get("ended_at", "")),
             total_tokens=int(final.get("tokens_total_series", {}).get(us, 0)),
             agreed=bool(agreement.get("confirmed", False)),
             starting_role=str(body["sub_games"][0]["roles"][us]) if played else "",

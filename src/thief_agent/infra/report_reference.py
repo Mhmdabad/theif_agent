@@ -11,6 +11,18 @@ up across a series. The book scores a group pair; this document says so
 directly, and a reader building league standings never has to work out who sat
 where.
 
+**This is a superset of the reference, because §9.3.3 requires more than the
+reference emits.** The book names what the attached JSON must carry: the group's
+identity, its GitHub addresses, the FastMCP server addresses, cryptographically
+signed hardware declarations, the game timestamp, and SHA-256-backed agreement.
+It then lists the mandatory fields outright -- both groups' GitHub links, each
+sub-game's commit id, and the tokens consumed.
+
+The reference's result omits the links, the addresses, the hardware and the
+match timestamp, because its declaration sits in the repository beside it. The
+attachment is the report, and the book outranks the reference where they
+disagree, so the shape is the reference's and the contents are the book's.
+
 Two fields are honest about what this peer cannot know. The opponent's commit
 is ``unknown`` -- the greeting carries a role, a group id, a URL and a protocol
 version, and nothing else crosses the wire -- and the opponent's token spend is
@@ -117,6 +129,9 @@ def result_document(report: "Report") -> dict[str, Any]:
             "tokens_total_series": {us: report.total_tokens, them: 0},
         },
         "mutual_agreement": {"sha256": report.result_claim_sha256, "confirmed": report.agreed},
+        "repositories": report.repositories.to_dict(),
+        "started_at": report.started_at,
+        "ended_at": report.ended_at,
         "reported_by": {"role": report.role, "team": us},
         "machine": report.machine,
         "mcp_addresses": report.mcp_addresses,

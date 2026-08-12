@@ -48,6 +48,8 @@ def report(**overrides: object) -> Report:
         "repositories": REPOS,
         "sub_games": (result(1), result(2, cop=0, thief=80)),
         "total_tokens": 41_233,
+        "started_at": "2026-08-12T15:00:54+00:00",
+        "ended_at": "2026-08-12T15:03:09+00:00",
         "agreed": True,
     }
     fields.update(overrides)
@@ -98,14 +100,21 @@ class TestTheMandatoryFieldsAreRequiredNotValidated:
                 opponent_thief_repo="https://github.com/other/thief",
             )
 
-    def test_the_links_are_not_repeated_in_the_result(self) -> None:
-        """They belong to the declaration, which is where the reference puts them.
+    def test_the_four_links_reach_the_json(self) -> None:
+        """Section 9.3.3 names both groups' GitHub links among the mandatory fields.
 
-        Static team metadata is stated once, before play, under a signature.
-        Restating it in the result would be a second copy nobody signed and one
-        more thing that can disagree with the first.
+        The reference's result omits them, because its declaration sits in the
+        repository beside it. The attachment is the report, so the book wins:
+        a lecturer reading only the mail would otherwise get no repository.
         """
-        assert "repositories" not in json.loads(report().to_json())
+        links = json.loads(report().to_json())["repositories"]
+        assert len(links) == 4
+        assert all(links.values())
+
+    def test_the_match_timestamp_reaches_the_json(self) -> None:
+        """9.3.3 asks for the game's timestamp, not only per-sub-game times."""
+        body = json.loads(report().to_json())
+        assert body["started_at"] and body["ended_at"]
 
     def test_every_sub_game_needs_a_commit_hash(self) -> None:
         """FR-7.28. Without it nobody can say which code played the game."""

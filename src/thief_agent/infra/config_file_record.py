@@ -77,5 +77,7 @@ class LockedConfig:
     def write(self, directory: Path) -> Path:
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / self.filename
-        path.write_text(json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n")
+        path.write_text(
+            json.dumps(self.to_dict(), indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+        )
         return path

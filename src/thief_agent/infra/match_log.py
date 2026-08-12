@@ -87,5 +87,7 @@ class MatchLog(LogSlots):
         """Write ``log_<game_id>_g<NN>.json``, creating the directory if needed."""
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / log_filename(self.game_id, self.sub_game)
-        path.write_text(json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n")
+        path.write_text(
+            json.dumps(self.to_dict(), indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+        )
         return path

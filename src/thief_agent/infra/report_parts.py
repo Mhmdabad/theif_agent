@@ -24,6 +24,19 @@ class SubGameResult:
     commit_hash: str
     steps: int = 0
     technical_loss: bool = False
+    started_at: str = ""
+    ended_at: str = ""
+    tokens: int = 0
+    """This peer's spend on this sub-game. The opponent's is theirs to report."""
+
+    log_verified: bool = True
+    tampered: bool = False
+    """The audit's verdict on this sub-game's log, as the reference records it.
+
+    Defaulted to a clean audit rather than an unknown one: a sub-game that
+    finished without the ceremony raising *is* verified, and the runner sets
+    these explicitly when it is not.
+    """
 
     def __post_init__(self) -> None:
         if self.sub_game < 1:

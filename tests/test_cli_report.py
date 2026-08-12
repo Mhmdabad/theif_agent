@@ -25,7 +25,6 @@ from typing import Any
 import pytest
 
 from conftest import TEST_RECIPIENT
-from test_report import REPOS  # noqa: E402
 from test_report import report as a_report
 from thief_agent.cli_report import report
 
@@ -116,12 +115,20 @@ class TestTheAgreementIsVisibleToTheReader:
     def test_the_field_read_back_is_the_field_written(self, tmp_path: Path) -> None:
         """The dry run reads the file, not a memory of what was played."""
         path = written(tmp_path, agreed=False)
-        assert json.loads(path.read_text())["result_agreed_with_opponent"] is False
+        assert json.loads(path.read_text())["mutual_agreement"]["confirmed"] is False
 
 
 class TestTheFourLinksSurviveTheRoundTrip:
-    def test_repositories_are_carried_back(self, tmp_path: Path) -> None:
-        """FR-7.28: a report that loses them on reload would be mailed incomplete."""
+    def test_the_result_refers_to_the_declaration_for_them(self, tmp_path: Path) -> None:
+        """FR-7.28's four links live in the declaration, which is signed.
+
+        The result names the two groups and refers back by game_id, exactly as
+        the reference does. Repeating static metadata here would be a second
+        copy nobody signed, and one more thing that can disagree with the first.
+        """
         from thief_agent.infra.report_reload import load
 
-        assert load(written(tmp_path)).repositories == REPOS
+        body = json.loads(written(tmp_path).read_text())
+        assert "repositories" not in body
+        assert body["links"]["declaration"] == "declaration_uoh26-s82kma9e.json"
+        assert load(written(tmp_path)).groups_named == ("uoh26-cops", "uoh26-others")

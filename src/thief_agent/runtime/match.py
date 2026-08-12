@@ -22,11 +22,12 @@ from pathlib import Path
 
 from ..domain.alternation import opposite
 from ..infra.artefacts import ArtefactSet
-from ..infra.report import Report, Repositories, SubGameResult
+from ..infra.report import Report, Repositories
 from ..infra.step_zero_signing import statement
 from ..shared.result_claim import claim_and_digest
 from .match_outcome import SubGameOutcome
 from .match_play import MatchPlay
+from .match_scored import scored
 from .match_standing import series_block
 from .orchestrator_book import RESULT_TIMEOUT_SEC
 
@@ -61,16 +62,7 @@ class MatchRunner(MatchPlay):
             team=self.declaration.us.name,
             opponent_team=self.declaration.them.name,
             repositories=repositories,
-            sub_games=tuple(
-                SubGameResult(
-                    sub_game=outcome.number,
-                    cop_score=outcome.scores()[0],
-                    thief_score=outcome.scores()[1],
-                    commit_hash=commit_hash,
-                    steps=outcome.played.steps,
-                )
-                for outcome in self.outcomes
-            ),
+            sub_games=tuple(scored(outcome, commit_hash) for outcome in self.outcomes),
             total_tokens=total_tokens,
             agreed=agreed,
             started_at=self.declaration.started_at,

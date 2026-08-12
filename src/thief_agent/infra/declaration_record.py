@@ -12,6 +12,7 @@ from typing import Any
 
 from ..shared.naming import declaration_filename
 from .declaration_parties import DeclarationError, Endpoints, Team
+from .declaration_reference import declaration_document
 from .step_zero import Hardware, Provenance, sign, statement
 
 
@@ -30,6 +31,9 @@ class MatchDeclaration:
     llm_model: str
     token_ceiling: int
     started_at: str
+    num_sub_games: int = 6
+    """Sub-games in this series. Appendix F fixes six and forbids lowering it."""
+
     games_already_played: int = 0
     """Appendix E rule 37: league games behind us when this one opened.
 
@@ -92,7 +96,13 @@ class MatchDeclaration:
         }
 
     def to_dict(self) -> dict[str, Any]:
-        return {**self.content(), "signature": self.signature}
+        """The document as written and emailed, in the reference's shape.
+
+        :meth:`content` stays as it is: it is what the signature covers, and
+        changing the signed bytes to match a presentation format would mean the
+        signature attested to the layout rather than to the facts.
+        """
+        return declaration_document(self)
 
     @property
     def filename(self) -> str:

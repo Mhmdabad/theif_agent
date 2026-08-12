@@ -563,7 +563,7 @@ class TestTheResultIsScoredFromWhatWasPlayed:
         runner = a_runner(tmp_path)
         runner.outcomes.append(an_outcome(1))
         result = runner.result("a" * 40, 0, agreed=False, repositories=REPOS)
-        assert result.to_dict()["result_agreed_with_opponent"] is False
+        assert result.to_dict()["mutual_agreement"]["confirmed"] is False
 
     def test_the_commit_hash_reaches_every_sub_game(self, tmp_path: Path) -> None:
         """FR-7.28: which code played this game."""

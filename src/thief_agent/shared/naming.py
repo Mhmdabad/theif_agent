@@ -11,6 +11,7 @@ including the parameters negotiated with that particular opponent.
 """
 
 import re
+import uuid
 from typing import Final
 
 GAME_ID_PATTERN: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
@@ -73,3 +74,24 @@ def result_filename(game_id: str) -> str:
     """Final results report. One per match; this is what is emailed."""
     _check_game_id(game_id)
     return f"result_{game_id}.json"
+
+
+GAME_NAMESPACE = uuid.UUID("6ba7b811-9dad-11d1-80b4-00c04fd430c8")
+"""RFC 4122's OID namespace, borrowed so :func:`game_uid` is stable forever."""
+
+
+def game_uid(game_id: str) -> str:
+    """The match's UUID, derived from its id rather than drawn at random.
+
+    The reference gives every game a UUID, and both peers must carry the *same*
+    one: it binds the commitments, the turns and the agreed result, so two peers
+    generating one independently would agree on nothing. Nothing in the protocol
+    exchanges it.
+
+    Version 5 solves that. It is a hash of the agreed ``game_id``, so both sides
+    compute the same UUID from the one thing they already agreed, and it is a
+    real UUID rather than the game id wearing the field's name. Distinct game
+    ids give distinct uids, which is what stops a result agreed for one series
+    from closing another.
+    """
+    return str(uuid.uuid5(GAME_NAMESPACE, game_id))

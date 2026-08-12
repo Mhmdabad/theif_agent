@@ -467,8 +467,8 @@ class TestTheMatchProducesItsOwnEvidence:
         written = self.artefacts_for(cop).write(where / "cop-commit")
         result = next(path for path in written if path.name.startswith("result_"))
         body = json.loads(result.read_text())
-        assert body["sub_games"][0]["commit_hash"]
-        assert len(body["repositories"]) == 4
+        assert all(body["sub_games"][0]["github_commit"].values())
+        assert len(body["groups"]) == 2
 
     def test_both_sides_produce_sets_that_agree_on_the_match(
         self, played: tuple[Side, Side, Path]

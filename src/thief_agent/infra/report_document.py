@@ -12,8 +12,12 @@ from typing import Any
 
 from ..shared.naming import result_filename
 from .report_parts import ReportError, Repositories, SubGameResult
+from .report_reference import SCHEMA_VERSION as REFERENCE_SCHEMA
+from .report_reference import result_document
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = REFERENCE_SCHEMA
+"""One definition, re-exported. Two constants for one field in one document is
+how a writer and its own test come to disagree about what was written."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,10 +28,13 @@ class Report:
     role: str
     team: str
     opponent_team: str
-    repositories: Repositories
     sub_games: tuple[SubGameResult, ...]
     total_tokens: int
     agreed: bool
+    repositories: Repositories | None = None
+    """The four links, when a caller has them. The *declaration* is their home:
+    the result names teams by group id and refers back to it."""
+
     game_uid: str = ""
     started_at: str = ""
     ended_at: str = ""
@@ -77,31 +84,18 @@ class Report:
         return sum(result.thief_score for result in self.sub_games)
 
     def to_dict(self) -> dict[str, Any]:
-        """The whole report, as the one structure a parser will read."""
-        return {
-            "schema_version": SCHEMA_VERSION,
-            "game_id": self.game_id,
-            "game_uid": self.game_uid,
-            "reported_by": {"role": self.role, "team": self.team},
-            "opponent_team": self.opponent_team,
-            "repositories": self.repositories.to_dict(),
-            "sub_games": [result.to_dict() for result in self.sub_games],
-            "totals": {
-                "cop": self.cop_total,
-                "thief": self.thief_total,
-                "sub_games_played": len(self.sub_games),
-                "total_tokens": self.total_tokens,
-            },
-            "result_agreed_with_opponent": self.agreed,
-            "started_at": self.started_at,
-            "ended_at": self.ended_at,
-            "starting_role": self.starting_role or self.role,
-            "series_result": self.series_result,
-            "mcp_addresses": self.mcp_addresses,
-            "machine": self.machine,
-            "signature": self.signature,
-            "result_claim_sha256": self.result_claim_sha256,
-        }
+        """The whole report, in the shape the lecturer's tooling reads.
+
+        Delegated to :mod:`.report_reference`, which follows the reference
+        implementation's sample field for field. The rulebook does not specify a
+        layout, so the grader's own format is the only specification there is.
+        """
+        return result_document(self)
+
+    @property
+    def groups_named(self) -> tuple[str, str]:
+        """The two groups this result is about, in the order it lists them."""
+        return (self.team, self.opponent_team)
 
     def to_json(self) -> str:
         """Sorted keys and a trailing newline, so two peers produce identical bytes."""

@@ -17,6 +17,7 @@ from ..infra.handshake import Greeting, Peering
 from ..infra.match_ledger import MatchLedger
 from ..infra.report import Repositories
 from ..infra.step_zero import SIGNING_KEY_ENV, collect, provenance
+from ..shared.naming import game_uid
 from .match import MatchRunner
 
 
@@ -49,7 +50,7 @@ def _declaration(
 
     return build(
         game_id=game_id,
-        game_uid=game_id,
+        game_uid=game_uid(game_id),
         role=role,
         us=us,
         them=them,

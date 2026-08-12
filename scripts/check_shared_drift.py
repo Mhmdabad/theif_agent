@@ -223,6 +223,7 @@ SHARED: tuple[str, ...] = (
     "shared/appendix_f.py",
     "shared/config.py",
     "shared/config_validation.py",
+    "shared/consensus.py",
     "shared/naming.py",
     "shared/result_claim.py",
     "shared/terms.py",

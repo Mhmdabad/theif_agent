@@ -22,9 +22,9 @@ pinned by ``test_crypto``'s canonical-form tests.
 """
 
 import hashlib
+import json
 from typing import Any
 
-from ..shared.config import canonical_bytes
 from .crypto_record import CryptoError
 
 __all__ = ["book_commit_of"]
@@ -36,6 +36,12 @@ def book_commit_of(payload: dict[str, Any], nonce: str) -> str:
     Not what we send. Kept so an honest opponent who implemented the book
     literally is recognised as honest, rather than accused of forgery.
 
+    **Serialised here rather than through :func:`~..shared.canonical_bytes`.**
+    That form now pins ``ensure_ascii=False``, which is what the cohort computes;
+    this one must keep the book's default escaping, because that is the whole
+    reason it exists. Delegating made the two identical the moment the shared
+    form moved, and a fallback that agrees with the primary catches nothing.
+
     Raises:
         CryptoError: if the payload already carries a ``nonce``. This form
             merges the nonce into the record, and merging would silently drop
@@ -44,4 +50,5 @@ def book_commit_of(payload: dict[str, Any], nonce: str) -> str:
     """
     if "nonce" in payload:
         raise CryptoError("payload already has a 'nonce'; pass it once, as the argument")
-    return hashlib.sha256(canonical_bytes({**payload, "nonce": nonce})).hexdigest()
+    merged = json.dumps({**payload, "nonce": nonce}, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(merged.encode("utf-8")).hexdigest()

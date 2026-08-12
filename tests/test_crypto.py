@@ -106,22 +106,25 @@ class TestCanonicalForm:
         assert ", " not in rendered
         assert ": " not in rendered
 
-    def test_non_ascii_is_escaped_exactly_as_the_rulebook_does_it(self) -> None:
-        """The rulebook's ``commit()`` leaves ``ensure_ascii`` at its default.
+    def test_non_ascii_stays_native_as_the_cohort_computes_it(self) -> None:
+        """``ensure_ascii=False``, which the book's own ``commit()`` does not do.
 
-        This module used to pass ``False``, which is just as deterministic on
-        its own and wrong anyway: an opponent running the book's code escapes
-        where we would not, and the first hint carrying a non-ASCII character
-        gives two honest peers two different digests. Hints are free natural
-        language, so that character arrives eventually.
+        Its p. 37 code omits the flag, so Python's default escapes -- and this
+        form used to match that. The digest exists so two independent
+        implementations reproduce it, and the cohort's interop kit pins
+        ``False``, as does the reference. A byte-exact rule only one team obeys
+        is not a canonical form.
+
+        The book's convention is not lost: :func:`book_commit_of` still computes
+        it, so an opponent who implemented p. 37 literally still verifies.
         """
-        ours = canonical({"hint": "רחוב"})
-        book = json.dumps({"hint": "רחוב"}, sort_keys=True, separators=(",", ":"))
-        assert ours == book == '{"hint":"\\u05e8\\u05d7\\u05d5\\u05d1"}'
+        assert canonical({"hint": "רחוב"}) == '{"hint":"רחוב"}'
 
-    def test_the_output_is_pure_ascii_whatever_went_in(self) -> None:
-        """The property that makes it portable, stated directly."""
-        assert canonical({"hint": "רחוב", "note": "café", "emoji": "🚓"}).isascii()
+    def test_utf8_survives_whatever_went_in(self) -> None:
+        """Native throughout: Hebrew, accents and astral emoji alike."""
+        rendered = canonical({"hint": "רחוב", "note": "café", "emoji": "🚓"})
+        assert "רחוב" in rendered and "café" in rendered and "🚓" in rendered
+        assert "\\u" not in rendered
 
     def test_there_is_only_one_canonical_form_for_our_own_artefacts(self) -> None:
         """Two that disagree is the same defect as none.

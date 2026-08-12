@@ -41,6 +41,10 @@ def _declaration(
 ) -> MatchDeclaration:
     """The signed declaration for this match, from config and step-zero evidence.
 
+    ``game_uid`` is derived from the *agreed terms* and the two group ids rather
+    than from ``game_id``: both peers must reach the same uid without exchanging
+    it, and the terms are the one thing they have already agreed byte-for-byte.
+
     ``games_already_played`` is counted by the caller from
     :class:`~..infra.match_ledger.MatchLedger` rather than here, because this
     function assembles a document and the ledger is the driver's to read — and a
@@ -50,7 +54,7 @@ def _declaration(
 
     return build(
         game_id=game_id,
-        game_uid=game_uid(game_id),
+        game_uid=game_uid(parameters, us.name, them.name),
         role=role,
         us=us,
         them=them,

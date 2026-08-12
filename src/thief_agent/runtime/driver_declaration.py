@@ -58,7 +58,6 @@ def _declaration(
         provenance=provenance(
             code_version=str(private.get("version", "1.0")),
             group_name=us.name,
-            sub_game=1,
         ),
         llm_model=hardware.llm_model,
         token_ceiling=int(

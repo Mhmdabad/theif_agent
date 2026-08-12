@@ -58,7 +58,12 @@ def to_terms(config: dict[str, Any]) -> dict[str, Any]:
         "smell_grid_size": _dig(config, "pheromones", "pheromone_grid_size"),
         "decay_per_step": _dig(config, "pheromones", "pheromone_decay"),
         "emit_intensity": _dig(config, "pheromones", "pheromone_center_intensity"),
-        "min_center_intensity": _dig(config, "pheromones", "pheromone_center_intensity"),
+        # Not table 16: the book fixes three pheromone values and the reference
+        # ships a fourth. Read where the reference puts it, defaulted rather
+        # than required, so a peer holding only the book's three still plays.
+        "min_center_intensity": config.get("pheromones", {}).get(
+            "pheromone_min_center_intensity", 0.5
+        ),
         "max_steps": _dig(config, "movement_and_barriers", "max_moves"),
         "barriers_max": _dig(config, "movement_and_barriers", "max_barriers"),
         "thief_start": _dig(config, "board_and_agents", "thief_start"),

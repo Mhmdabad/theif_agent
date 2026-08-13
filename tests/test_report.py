@@ -100,21 +100,27 @@ class TestTheMandatoryFieldsAreRequiredNotValidated:
                 opponent_thief_repo="https://github.com/other/thief",
             )
 
-    def test_the_four_links_reach_the_json(self) -> None:
-        """Section 9.3.3 names both groups' GitHub links among the mandatory fields.
+    def test_the_field_set_is_exactly_the_references(self) -> None:
+        """Field for field, no more and no less.
 
-        The reference's result omits them, because its declaration sits in the
-        repository beside it. The attachment is the report, so the book wins:
-        a lecturer reading only the mail would otherwise get no repository.
+        The reference's sample is the specification for this document, so an
+        extra key is as wrong as a missing one: a reader diffing the two should
+        find nothing.
         """
-        links = json.loads(report().to_json())["repositories"]
-        assert len(links) == 4
-        assert all(links.values())
-
-    def test_the_match_timestamp_reaches_the_json(self) -> None:
-        """9.3.3 asks for the game's timestamp, not only per-sub-game times."""
-        body = json.loads(report().to_json())
-        assert body["started_at"] and body["ended_at"]
+        assert set(json.loads(report().to_json())) == {
+            "_schema",
+            "schema_version",
+            "report_type",
+            "game_id",
+            "game_uid",
+            "links",
+            "timezone",
+            "groups",
+            "num_sub_games",
+            "sub_games",
+            "final_result",
+            "mutual_agreement",
+        }
 
     def test_every_sub_game_needs_a_commit_hash(self) -> None:
         """FR-7.28. Without it nobody can say which code played the game."""

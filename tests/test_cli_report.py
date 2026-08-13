@@ -118,11 +118,14 @@ class TestTheAgreementIsVisibleToTheReader:
         assert json.loads(path.read_text())["mutual_agreement"]["confirmed"] is False
 
 
-class TestTheFourLinksSurviveTheRoundTrip:
-    def test_repositories_are_carried_back(self, tmp_path: Path) -> None:
-        """A report that lost them on reload would be mailed incomplete."""
-        from thief_agent.infra.report_reload import load
+class TestTheStaticMetadataStaysInTheDeclaration:
+    def test_the_result_refers_to_the_declaration_for_them(self, tmp_path: Path) -> None:
+        """The reference's result omits static team metadata; ours matches it.
 
-        carried = load(written(tmp_path)).repositories
-        assert len(carried.to_dict()) == 4
-        assert all(carried.to_dict().values())
+        The four links live in the declaration, and the result points back by
+        game_id. Repeating them here would be a field the reference's document
+        does not carry, in a document defined by matching it.
+        """
+        body = json.loads(written(tmp_path).read_text())
+        assert "repositories" not in body
+        assert body["links"]["declaration"] == "declaration_uoh26-s82kma9e.json"

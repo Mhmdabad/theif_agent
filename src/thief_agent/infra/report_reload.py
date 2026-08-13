@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from .report_document import Report
-from .report_parts import ReportError, Repositories, SubGameResult
+from .report_parts import ReportError, SubGameResult
 
 __all__ = ["load"]
 
@@ -75,19 +75,19 @@ def load(path: Path) -> Report:
         final = body.get("final_result", {})
         agreement = body.get("mutual_agreement", {})
         played = [_sub_game(entry, us, them) for entry in body["sub_games"]]
+        first_role = str(body["sub_games"][0]["roles"][us]) if played else ""
         report = Report(
             game_id=str(body["game_id"]),
             game_uid=str(body.get("game_uid", "")),
-            role=str(body["reported_by"]["role"]),
+            role=first_role,
             team=us,
             opponent_team=them,
-            repositories=Repositories(**body["repositories"]),
             sub_games=tuple(played),
-            started_at=str(body.get("started_at", "")),
-            ended_at=str(body.get("ended_at", "")),
+            started_at=str(body["sub_games"][0].get("started_at", "")) if played else "",
+            ended_at=str(body["sub_games"][-1].get("ended_at", "")) if played else "",
             total_tokens=int(final.get("tokens_total_series", {}).get(us, 0)),
             agreed=bool(agreement.get("confirmed", False)),
-            starting_role=str(body["sub_games"][0]["roles"][us]) if played else "",
+            starting_role=first_role,
             series_result=final or None,
             mcp_addresses=body.get("mcp_addresses"),
             machine=body.get("machine"),

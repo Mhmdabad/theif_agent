@@ -30,7 +30,6 @@ from typing import TYPE_CHECKING, Any
 
 from ..domain.alternation import role_for
 from ..domain.scoring import Outcome
-from ..shared.consensus import sign_consensus
 from ..shared.naming import declaration_filename, log_filename, result_filename
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle only matters to type checkers
@@ -38,6 +37,18 @@ if TYPE_CHECKING:  # pragma: no cover - import cycle only matters to type checke
     from .report_parts import SubGameResult
 
 __all__ = ["SCHEMA_VERSION", "TIMEZONE", "UNKNOWN", "links", "result_document"]
+
+SCHEMA = "".join(
+    [
+        "Summary and final result for the WHOLE game (all sub-games) between two teams. It ",
+        "condenses the per-sub-game logs into a per-group score for every sub-game plus the ",
+        "aggregate outcome the lecturer needs to build the league standings. Static team ",
+        "metadata (identity, members, repos, MCP, hardware, model) is NOT repeated here — it ",
+        "lives in 1-pre-game-declaration.json and is referenced via game_id / group_id. Both ",
+        "teams must agree on this result and each sends its own copy to the lecturer (book ch9).",
+    ]
+)
+"""The reference's own description, carried verbatim so the two documents match."""
 
 SCHEMA_VERSION = "1.1"
 """The reference's version, because this is the reference's document."""
@@ -97,27 +108,17 @@ def _by_group(
         "score": {us: our_score, them: their_score},
         "log_files": dict.fromkeys((us, them), log_filename(game_id, sub.sub_game)),
         "audit": {"log_verified": sub.log_verified, "tampered": sub.tampered},
-        "steps": sub.steps,
     }
 
 
 def result_document(report: "Report") -> dict[str, Any]:
-    """The whole result, as the reference lays it out, consensus-signed.
-
-    The signature goes on last and over everything else, so any reader -- the
-    opponent, the lecturer, us on reload -- can pop it, re-serialise and confirm
-    the document has not moved since it was settled.
-    """
-    return sign_consensus(_body(report))
-
-
-def _body(report: "Report") -> dict[str, Any]:
-    """Everything the signature covers."""
+    """The whole result, exactly the field set the reference's sample carries."""
     us, them = report.team, report.opponent_team
     natural = report.starting_role or report.role
     standing = report.series_result or {}
     subs = [_by_group(sub, us, them, natural, report.game_id) for sub in report.sub_games]
     return {
+        "_schema": SCHEMA,
         "schema_version": SCHEMA_VERSION,
         "report_type": "final_game_result",
         "game_id": report.game_id,
@@ -136,11 +137,4 @@ def _body(report: "Report") -> dict[str, Any]:
             "tokens_total_series": {us: report.total_tokens, them: 0},
         },
         "mutual_agreement": {"sha256": report.result_claim_sha256, "confirmed": report.agreed},
-        "repositories": report.repositories.to_dict(),
-        "started_at": report.started_at,
-        "ended_at": report.ended_at,
-        "reported_by": {"role": report.role, "team": us},
-        "machine": report.machine,
-        "mcp_addresses": report.mcp_addresses,
-        "signature": report.signature,
     }

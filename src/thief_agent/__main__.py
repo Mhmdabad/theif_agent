@@ -129,7 +129,7 @@ def main(argv: Sequence[str] | None = None, environ: dict[str, str] | None = Non
         print(f"cannot start: {exc}", file=sys.stderr)
         return 1
 
-    inboxes = PeerInboxes()
+    inboxes = PeerInboxes(parameters=load_shared(SHARED_CONFIG))
     if arguments.command == "play":
         return play(arguments, private, settings, inboxes, source)
 

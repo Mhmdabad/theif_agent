@@ -9,6 +9,7 @@ deadline it started with rather than on a fresh one.
 
 import time
 from dataclasses import dataclass
+from typing import Any
 
 from ..infra.ceremony import CeremonyError
 from ..infra.protocol import AuditPayload, TurnMessage
@@ -35,7 +36,11 @@ class PeerRecords(PeerMailbox):
         # :func:`~..infra.audit_shape.either_shape` rebuilds the envelope from
         # it. What is not yet solved is the receiving end: sent flat, the call
         # returns 200 and the audit still never reaches the peer waiting on it.
-        self.client.call("submit_audit", {"payload": payload.to_dict()})
+        body = payload.to_dict()
+        flat: dict[str, Any] = {
+            key: body[key] for key in ("sender", "records", "result_claim") if key in body
+        }
+        self.client.call("submit_audit", flat)
 
     def _await_turn(self, step: int) -> TurnMessage:
         """The next commitment actually bound to the sub-game we are playing.

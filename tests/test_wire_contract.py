@@ -114,15 +114,21 @@ class TestWhatWeSendIsWhatTheyAccept:
         )
 
     @pytest.mark.parametrize(("tool", "payload"), outbound())
-    def test_it_carries_exactly_one_argument(self, tool: str, payload: dict[str, Any]) -> None:
-        """The protocol's tools take one body. An extra key is a second mistake.
+    def test_it_carries_only_declared_arguments(self, tool: str, payload: dict[str, Any]) -> None:
+        """No leftover keys beside the ones the tool declares.
 
-        Worth stating separately: the server would accept a payload that merely
-        *contained* the right key, so a call sending both the right name and a
-        leftover wrong one would pass the check above and confuse an auditor
-        reading the wire.
+        The server would accept a payload that merely *contained* the right
+        key, so a call sending both the right name and a stale wrong one passes
+        the check above and confuses an auditor reading the wire.
+
+        ``submit_audit`` takes the cohort's three flat arguments; the others
+        still take a single body.
         """
-        assert len(payload) == 1, f"{tool} sends {sorted(payload)}"
+        allowed = {"sender", "records", "result_claim"} if tool == "submit_audit" else None
+        if allowed is not None:
+            assert set(payload) <= allowed, f"{tool} sends {sorted(payload)}"
+        else:
+            assert len(payload) == 1, f"{tool} sends {sorted(payload)}"
 
 
 class TestTheDigestExchangeStillTravelsUnderMessage:
@@ -155,13 +161,14 @@ class TestTheDigestExchangeStillTravelsUnderMessage:
 
 
 class TestAuditPayloadShape:
-    def test_submit_audit_sends_its_body_under_payload(self) -> None:
-        """The one tool whose parameter is *not* called ``message``.
+    def test_submit_audit_sends_the_cohorts_three_arguments(self) -> None:
+        """Flat, as reference-v3 declares them -- and no binding.
 
-        Named for what it carries because an audit body is not a message in the
-        protocol's sense, and the asymmetry is the kind of thing a second
-        implementer gets wrong. Pinned here so it cannot drift quietly.
+        A tool argument is not a message field, so ``game_uid`` and
+        ``sub_game`` have nowhere to ride: an undeclared keyword is refused
+        outright rather than ignored. Nothing is lost, because each record
+        carries both inside its own sealed payload.
         """
         sent = dict(outbound())["submit_audit"]
-        assert list(sent) == ["payload"]
-        assert AuditPayload.from_dict(sent["payload"]).sender == "thief"
+        assert sorted(sent) == ["records", "result_claim", "sender"]
+        assert AuditPayload.from_dict(sent).sender == "thief"

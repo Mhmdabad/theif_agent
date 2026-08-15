@@ -27,8 +27,8 @@ traceback.
 
 import json
 from pathlib import Path
+from typing import Any
 
-from ..infra.match_log import SLOTS
 from .replay_check import StepCheck, check_step
 from .replay_model import RecordedStep, Replay, ReplayError
 
@@ -37,6 +37,11 @@ __all__ = ["RecordedStep", "Replay", "ReplayError", "StepCheck", "check_step", "
 
 def load(path: Path) -> Replay:
     """Read a match log, refusing anything that is not one.
+
+    Reads ``records``/``payload`` -- the reference's names, which the artefacts
+    now use -- and still accepts the older ``steps``/``reveal``, because logs
+    written before the rename are evidence too and a viewer that cannot open
+    them is a viewer that loses them.
 
     Raises:
         ReplayError: on unreadable JSON, a missing field, a step out of order
@@ -53,15 +58,18 @@ def load(path: Path) -> Replay:
     if not isinstance(body, dict):
         raise ReplayError(f"{path.name} is not a match log object")
 
-    rows = body.get("steps")
+    raw_summary = body.get("summary")
+    summary: dict[str, Any] = raw_summary if isinstance(raw_summary, dict) else {}
+    rows = body.get("records", body.get("steps"))
     if not isinstance(rows, list):
-        raise ReplayError(f"{path.name} has no 'steps' list")
+        raise ReplayError(f"{path.name} has no 'records' list")
 
     steps: list[RecordedStep] = []
     for index, row in enumerate(rows):
         if not isinstance(row, dict):
             raise ReplayError(f"step {index} is not an object")
-        missing = [name for name in ("step", *SLOTS) if name not in row]
+        payload = row.get("payload", row.get("reveal"))
+        missing = [name for name in ("step", "commit", "nonce") if name not in row]
         if missing:
             raise ReplayError(f"step {index} is missing {missing}")
         if not isinstance(row["step"], int) or isinstance(row["step"], bool):
@@ -72,7 +80,7 @@ def load(path: Path) -> Replay:
             RecordedStep(
                 step=row["step"],
                 commit=row["commit"],
-                reveal=row["reveal"] if isinstance(row["reveal"], dict) else None,
+                reveal=payload if isinstance(payload, dict) else None,
                 nonce=row["nonce"] if isinstance(row["nonce"], str) else None,
             )
         )
@@ -85,7 +93,7 @@ def load(path: Path) -> Replay:
 
     return Replay(
         game_id=str(body.get("game_id", "")),
-        sub_game=int(body.get("sub_game", 0)),
-        role=str(body.get("role", "")),
+        sub_game=int(summary.get("sub_game_number") or body.get("sub_game") or 0),
+        role=str(summary.get("role") or body.get("role") or ""),
         steps=tuple(steps),
     )

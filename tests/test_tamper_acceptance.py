@@ -118,7 +118,7 @@ class TestEveryFieldOfTheRecordIsCovered:
         self, tmp_path: Path, field: str, index: int
     ) -> None:
         def edit(body: dict[str, Any]) -> None:
-            row = body["steps"][index]["reveal"]
+            row = body["records"][index]["payload"]
             row[field] = swapped(row[field])
 
         result = walk(load(by_hand(honest_log(tmp_path), edit)))
@@ -132,7 +132,7 @@ class TestEveryFieldOfTheRecordIsCovered:
         """``state`` is nested, so a shallow hash would miss everything in here."""
 
         def edit(body: dict[str, Any]) -> None:
-            board = body["steps"][0]["reveal"]["state"]
+            board = body["records"][0]["payload"]["state"]
             board[field] = swapped(board[field])
 
         assert stamp_after(tmp_path, edit) is Stamp.TAMPERED
@@ -141,13 +141,13 @@ class TestEveryFieldOfTheRecordIsCovered:
         """An addition changes the digest as surely as an alteration does."""
 
         def edit(body: dict[str, Any]) -> None:
-            body["steps"][0]["reveal"]["note"] = "added later"
+            body["records"][0]["payload"]["note"] = "added later"
 
         assert stamp_after(tmp_path, edit) is Stamp.TAMPERED
 
     def test_removing_a_field_is_caught(self, tmp_path: Path) -> None:
         def edit(body: dict[str, Any]) -> None:
-            del body["steps"][0]["reveal"]["hint"]
+            del body["records"][0]["payload"]["hint"]
 
         assert stamp_after(tmp_path, edit) is Stamp.TAMPERED
 
@@ -157,15 +157,15 @@ class TestTheSmallestPossibleAlterations:
 
     def test_one_flipped_character_in_a_commitment(self, tmp_path: Path) -> None:
         def edit(body: dict[str, Any]) -> None:
-            digest = body["steps"][0]["commit"]
-            body["steps"][0]["commit"] = ("0" if digest[0] != "0" else "1") + digest[1:]
+            digest = body["records"][0]["commit"]
+            body["records"][0]["commit"] = ("0" if digest[0] != "0" else "1") + digest[1:]
 
         assert stamp_after(tmp_path, edit) is Stamp.TAMPERED
 
     def test_one_flipped_character_in_a_nonce(self, tmp_path: Path) -> None:
         def edit(body: dict[str, Any]) -> None:
-            secret = body["steps"][0]["nonce"]
-            body["steps"][0]["nonce"] = ("0" if secret[0] != "0" else "1") + secret[1:]
+            secret = body["records"][0]["nonce"]
+            body["records"][0]["nonce"] = ("0" if secret[0] != "0" else "1") + secret[1:]
 
         assert stamp_after(tmp_path, edit) is Stamp.TAMPERED
 
@@ -173,13 +173,13 @@ class TestTheSmallestPossibleAlterations:
         """The kind of edit somebody could make without noticing they made it."""
 
         def edit(body: dict[str, Any]) -> None:
-            body["steps"][0]["reveal"]["hint"] += " "
+            body["records"][0]["payload"]["hint"] += " "
 
         assert stamp_after(tmp_path, edit) is Stamp.TAMPERED
 
     def test_one_cell_of_the_barrier_set_moved_by_one(self, tmp_path: Path) -> None:
         def edit(body: dict[str, Any]) -> None:
-            body["steps"][1]["reveal"]["state"]["barriers"][0][0] += 1
+            body["records"][1]["payload"]["state"]["barriers"][0][0] += 1
 
         assert stamp_after(tmp_path, edit) is Stamp.TAMPERED
 
@@ -189,14 +189,14 @@ class TestRearrangingRatherThanEditing:
 
     def test_swapping_two_commitments(self, tmp_path: Path) -> None:
         def edit(body: dict[str, Any]) -> None:
-            first, second = body["steps"][0], body["steps"][1]
+            first, second = body["records"][0], body["records"][1]
             first["commit"], second["commit"] = second["commit"], first["commit"]
 
         assert stamp_after(tmp_path, edit) is Stamp.TAMPERED
 
     def test_swapping_two_nonces(self, tmp_path: Path) -> None:
         def edit(body: dict[str, Any]) -> None:
-            first, second = body["steps"][0], body["steps"][1]
+            first, second = body["records"][0], body["records"][1]
             first["nonce"], second["nonce"] = second["nonce"], first["nonce"]
 
         assert stamp_after(tmp_path, edit) is Stamp.TAMPERED
@@ -212,9 +212,9 @@ class TestRearrangingRatherThanEditing:
         """
 
         def edit(body: dict[str, Any]) -> None:
-            copied = deepcopy(body["steps"][0])
+            copied = deepcopy(body["records"][0])
             copied["step"] = 3
-            body["steps"][2] = copied
+            body["records"][2] = copied
 
         result = walk(load(by_hand(honest_log(tmp_path), edit)))
         assert result.stamp is Stamp.TAMPERED
@@ -225,9 +225,9 @@ class TestRearrangingRatherThanEditing:
         """The point above only means something if the digest really does agree."""
 
         def edit(body: dict[str, Any]) -> None:
-            copied = deepcopy(body["steps"][0])
+            copied = deepcopy(body["records"][0])
             copied["step"] = 3
-            body["steps"][2] = copied
+            body["records"][2] = copied
 
         row = load(by_hand(honest_log(tmp_path), edit)).seek(3)
         assert row.reveal is not None and row.nonce is not None
@@ -246,8 +246,8 @@ class TestItJudgesContentNotBytes:
         """JSON objects are unordered; the canonical form sorts before hashing."""
         path = honest_log(tmp_path)
         body = json.loads(path.read_text())
-        for row in body["steps"]:
-            row["reveal"] = dict(reversed(list(row["reveal"].items())))
+        for row in body["records"]:
+            row["payload"] = dict(reversed(list(row["payload"].items())))
         path.write_text(json.dumps(body))
         assert walk(load(path)).stamp is Stamp.VERIFIED_OK
 
@@ -272,7 +272,7 @@ class TestWhatOneSidedVerificationCannotSee:
 
     def test_a_truncated_tail_still_stamps_verified_ok(self, tmp_path: Path) -> None:
         def edit(body: dict[str, Any]) -> None:
-            body["steps"] = body["steps"][:2]
+            body["records"] = body["records"][:2]
 
         assert stamp_after(tmp_path, edit) is Stamp.VERIFIED_OK
 
@@ -280,15 +280,15 @@ class TestWhatOneSidedVerificationCannotSee:
         """Which is why refusing it is not an option either."""
         path = honest_log(tmp_path)
         truncated = json.loads(path.read_text())
-        truncated["steps"] = truncated["steps"][:2]
+        truncated["records"] = truncated["records"][:2]
         short = json.loads(honest_log(tmp_path / "short", steps=2).read_text())
-        assert truncated["steps"] == short["steps"]
+        assert truncated["records"] == short["records"]
 
     def test_a_step_removed_from_the_middle_leaves_a_visible_gap(self, tmp_path: Path) -> None:
         """Not caught by the digest, but not silent either."""
 
         def edit(body: dict[str, Any]) -> None:
-            del body["steps"][1]
+            del body["records"][1]
 
         path = by_hand(honest_log(tmp_path), edit)
         replay = load(path)

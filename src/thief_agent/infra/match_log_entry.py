@@ -48,10 +48,18 @@ class StepEntry:
     discussion: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        """One record, in the reference's naming.
+
+        ``payload`` is what the commitment was taken over, byte for byte. It is
+        a rename of ``reveal`` and nothing more -- moving ``step`` inside it, as
+        the reference's own records do, would make the file describe a preimage
+        we never hashed, and every auditor re-deriving our commitment from it
+        would get a different digest and call an honest match forged.
+        """
         return {
             "step": self.step,
-            "commit": self.commit,
-            "reveal": self.reveal,
+            "payload": self.reveal,
             "nonce": self.nonce,
-            "discussion": self.discussion,
+            "commit": self.commit,
+            "prompt_discussion": self.discussion,
         }

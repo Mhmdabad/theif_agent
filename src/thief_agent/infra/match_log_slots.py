@@ -23,6 +23,11 @@ class LogSlots:
     game_uid: str = ""
     config_sha256: str = ""
     entries: dict[int, StepEntry] = field(default_factory=dict)
+    summary: dict[str, Any] = field(default_factory=dict)
+    """The sub-game's outcome, filled by the runner once the series settles."""
+
+    settlement: dict[str, Any] = field(default_factory=dict)
+    """``mutual_agreement``, likewise: no sub-game settles itself."""
 
     def __post_init__(self) -> None:
         if self.role not in ROLES:

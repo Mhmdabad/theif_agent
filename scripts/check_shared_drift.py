@@ -98,6 +98,7 @@ SHARED: tuple[str, ...] = (
     "runtime/match.py",
     "runtime/match_play.py",
     "runtime/match_scored.py",
+    "runtime/match_settled.py",
     "runtime/match_agreement.py",
     "runtime/match_state.py",
     "runtime/match_standing.py",

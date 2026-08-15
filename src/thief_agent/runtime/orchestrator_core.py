@@ -80,12 +80,12 @@ class OrchestratorCore:
         the first.
         """
         self.beat(f"inbound:{tool}")
-        handler = {
+        handler: Callable[..., dict[str, Any]] | None = {
             "negotiate": self.inboxes.negotiate,
             "receive_turn": self.inboxes.receive_turn,
             "submit_audit": self.inboxes.submit_audit,
             "receive_control": self.inboxes.receive_control,
-        }.get(tool)
+        }.get(tool)  # type: ignore[assignment]
         if handler is None:
             return {"ok": False, "detail": f"unknown tool {tool!r}"}
         return handler(payload)

@@ -28,6 +28,11 @@ class PeerRecords(PeerMailbox):
             game_uid=self.game_uid,
             sub_game=self.sub_game,
         )
+        # Wrapped, still. The cohort's tool takes the three fields flat, but
+        # ours carries game_uid and sub_game beside them, and a tool argument is
+        # not a message field: pydantic refuses an undeclared kwarg outright, so
+        # sending flat would drop the binding that ties this audit to a series.
+        # Deciding where that binding rides is the open question, not a rename.
         self.client.call("submit_audit", {"payload": payload.to_dict()})
 
     def _await_turn(self, step: int) -> TurnMessage:

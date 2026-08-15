@@ -1,13 +1,14 @@
 """The turn, audit and control doors.
 
-Split out of :mod:`.inboxes`. :class:`~.inboxes.PeerInboxes` inherits this
-class, so every method below is a real, typed method of it.
+Split out of :mod:`.inboxes`, whose :class:`~.inboxes.PeerInboxes` inherits
+this class -- so every method below is a real, typed method of it.
 """
 
 import hashlib
 from typing import Any
 
 from ..shared.config import canonical_bytes
+from .audit_shape import either_shape
 from .ceremony import CeremonyError, Reveal
 from .inboxes_keys import ACK, fingerprint
 from .inboxes_negotiate import NegotiateInbox
@@ -62,17 +63,23 @@ class TurnInbox(NegotiateInbox):
         self.turns.put(turn)
         return ACK
 
-    def submit_audit(self, payload: object) -> dict[str, Any]:
+    def submit_audit(
+        self,
+        payload: object = None,
+        sender: str = "",
+        records: list[dict[str, Any]] | None = None,
+        result_claim: str = "",
+    ) -> dict[str, Any]:
         """Receive the opponent's end-of-game reveal: records and nonces.
 
-        **Two bindings are compared.** The envelope goes through
-        :meth:`_closed`, so nothing is opened against a series or a sub-game
-        that is not the one we are playing. Each record inside is then checked
-        against *the envelope it arrived in* rather than against our position
-        again — the sender wrote both, so they must agree, and a reveal
-        re-wrapped in a fresher audit to replay an earlier sub-game is exactly
-        the disagreement that exposes.
+        Flat or wrapped; see :func:`~.audit_shape.either_shape`. Two bindings
+        are compared: the envelope goes through :meth:`_closed`, so nothing
+        opens against a series or sub-game that is not ours, and each record is
+        checked against *the envelope it arrived in* rather than our position
+        again -- the sender wrote both, so a reveal re-wrapped in a fresher
+        audit to replay an earlier sub-game is exactly what that exposes.
         """
+        payload = either_shape(payload, sender, records, result_claim)
         try:
             audit = AuditPayload.from_dict(payload)
             closed = self._closed("audit payload", audit.game_uid, audit.sub_game)

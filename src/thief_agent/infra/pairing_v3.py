@@ -34,7 +34,6 @@ __all__ = [
     "PairingError",
     "REFUSALS",
     "check_pairing",
-    "pairing_agreement",
     "pairing_call",
     "sign_terms",
 ]
@@ -114,36 +113,3 @@ def check_pairing(
         raise PairingError(f"{REFUSALS['terms']}: {differing}")
     if sign_terms(theirs, nonce) != signature:
         raise PairingError(REFUSALS["signature"])
-
-
-def pairing_agreement(
-    inbox: Inbox,
-    terms: dict[str, Any],
-    nonce: str,
-    signature: str,
-    role: str,
-    sub_game: int,
-    identity: dict[str, Any],
-) -> dict[str, Any]:
-    """Verify a reference-v3 offer and file it as an ordinary agreement.
-
-    Filed in our own shape once it verifies, so everything downstream sees what
-    it already understands: the dialect stops at this function rather than
-    spreading into the gate that reads agreements.
-    """
-    try:
-        check_pairing(terms, nonce, signature, role, inbox.parameters)
-    except PairingError as exc:
-        return {"ok": False, "error": str(exc)}
-    inbox.agreements.put(
-        {
-            "greeting": {
-                "role": role,
-                "group_id": str(identity.get("group_id", "")),
-                "public_url": str(identity.get("mcp_url", identity.get("public_url", ""))),
-                "protocol_version": "reference-v3",
-            },
-            "sub_game_number": sub_game,
-        }
-    )
-    return {"ok": True}

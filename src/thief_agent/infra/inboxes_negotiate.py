@@ -16,7 +16,7 @@ from .inboxes_keys import (
     SCENT_KEY,
     SERIES_KEY,
 )
-from .pairing_v3 import pairing_agreement
+from .pairing_v3_filing import pairing_agreement
 from .validation import (
     InvalidPayloadError,
     optional_scent,

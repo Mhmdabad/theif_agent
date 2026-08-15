@@ -33,4 +33,30 @@ def either_shape(
     """
     if payload is not None or not sender:
         return payload
-    return {"sender": sender, "records": records or [], "result_claim": result_claim}
+    body: dict[str, Any] = {
+        "sender": sender,
+        "records": records or [],
+        "result_claim": result_claim,
+    }
+    return {**body, **_binding(records or [])}
+
+
+def _binding(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """The series and sub-game this audit belongs to, read from its own records.
+
+    The flat form has nowhere to put them -- a tool argument is not a message
+    field -- but every record's payload already carries both, *inside the
+    commitment preimage*. So the envelope is rebuilt from the sealed copy
+    rather than from an unsigned duplicate the sender could have set freely,
+    which is the stronger reading of the same fact.
+
+    Taken from the first record that has them. They are identical across a
+    sub-game by construction, and the per-record check downstream compares
+    every one against this envelope, so a chain that disagreed with itself is
+    caught there rather than papered over here.
+    """
+    for record in records:
+        seal = record.get("payload")
+        if isinstance(seal, dict) and seal.get("game_uid"):
+            return {"game_uid": str(seal["game_uid"]), "sub_game": int(seal.get("sub_game", 0))}
+    return {}

@@ -28,11 +28,13 @@ class PeerRecords(PeerMailbox):
             game_uid=self.game_uid,
             sub_game=self.sub_game,
         )
-        # Wrapped, still. The cohort's tool takes the three fields flat, but
-        # ours carries game_uid and sub_game beside them, and a tool argument is
-        # not a message field: pydantic refuses an undeclared kwarg outright, so
-        # sending flat would drop the binding that ties this audit to a series.
-        # Deciding where that binding rides is the open question, not a rename.
+        # Wrapped, for now. The cohort's tool takes the three fields flat, and
+        # nothing is lost by that -- every record's payload already carries
+        # game_uid and sub_game *inside the commitment preimage*, so the sealed
+        # copy proves the binding the envelope only asserts, and
+        # :func:`~..infra.audit_shape.either_shape` rebuilds the envelope from
+        # it. What is not yet solved is the receiving end: sent flat, the call
+        # returns 200 and the audit still never reaches the peer waiting on it.
         self.client.call("submit_audit", {"payload": payload.to_dict()})
 
     def _await_turn(self, step: int) -> TurnMessage:

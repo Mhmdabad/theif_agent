@@ -226,7 +226,7 @@ class TestBarrierDeclarationCannotBeBypassed:
                 "step": 9,
                 "sender": "police",
                 "smell_grid": {},
-                "commit": "c",
+                "commit": "c" * 64,
                 "timestamp": "t",
                 "game_uid": "series-123",
                 "sub_game": 1,

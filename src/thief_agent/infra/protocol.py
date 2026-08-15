@@ -23,7 +23,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .protocol_control import CONTROL_KINDS, ControlMessage
-from .protocol_roles import ROLES, _require_role
+from .protocol_roles import ROLES, _require_commit, _require_numeric, _require_role
 from .validation import (
     InvalidPayloadError,
     optional_cell,
@@ -100,12 +100,13 @@ class TurnMessage:
         smell = body.get("smell_grid", {})
         if not isinstance(smell, dict):
             raise InvalidPayloadError(f"'smell_grid' must be an object, got {type(smell).__name__}")
+        _require_numeric(smell)
         return cls(
             step=require_int(body, "step", minimum=0, maximum=10_000),
             sender=_require_role(body),
             hint=body.get("hint", "") if isinstance(body.get("hint", ""), str) else "",
             smell_grid={str(k): float(v) for k, v in smell.items()},
-            commit=require_str(body, "commit"),
+            commit=_require_commit(body),
             timestamp=require_str(body, "timestamp"),
             game_uid=str(body.get("game_uid", "")),
             sub_game=int(body.get("sub_game", 0) or 0),

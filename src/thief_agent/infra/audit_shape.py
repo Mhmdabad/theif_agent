@@ -14,9 +14,25 @@ reveal being re-wrapped to replay an earlier sub-game. Where that binding
 should ride under reference-v3 is an open protocol question, not a rename.
 """
 
-from typing import Any
+from typing import Any, Protocol
 
-__all__ = ["either_shape"]
+__all__ = ["Bound", "contradicts", "either_shape"]
+
+
+class Bound(Protocol):
+    """Anything that names the series and sub-game it belongs to.
+
+    Structural, so this module needs no import back into the protocol types it
+    compares -- and it says in one place exactly how much of a reveal or an
+    envelope a binding check is allowed to look at. Read-only, because the
+    things it describes are frozen and a settable attribute would exclude them.
+    """
+
+    @property
+    def game_uid(self) -> str: ...
+
+    @property
+    def sub_game(self) -> int: ...
 
 
 def either_shape(
@@ -60,3 +76,21 @@ def _binding(records: list[dict[str, Any]]) -> dict[str, Any]:
         if isinstance(seal, dict) and seal.get("game_uid"):
             return {"game_uid": str(seal["game_uid"]), "sub_game": int(seal.get("sub_game", 0))}
     return {}
+
+
+def contradicts(opened: Bound, audit: Bound) -> bool:
+    """Whether a revealed record disagrees with the envelope that carried it.
+
+    **An envelope naming no binding cannot contradict one.** The cohort's flat
+    ``submit_audit`` has nowhere to put ``game_uid`` or ``sub_game``, so its
+    audits arrive unbound -- and comparing a sealed reveal against an empty
+    envelope made every one of their records read as foreign, which is what
+    stopped a flat audit from ever being filed.
+
+    Only a binding that is *stated* can disagree. The reveal's own binding is
+    still checked against the mailbox by ``_closed``; this compares two
+    statements by the same sender, and a sender who made only one of them
+    cannot disagree with itself.
+    """
+    stated = bool(audit.game_uid) or bool(audit.sub_game)
+    return stated and (opened.game_uid != audit.game_uid or opened.sub_game != audit.sub_game)

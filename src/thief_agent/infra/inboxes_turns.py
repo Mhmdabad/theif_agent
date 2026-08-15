@@ -8,7 +8,7 @@ import hashlib
 from typing import Any
 
 from ..shared.config import canonical_bytes
-from .audit_shape import either_shape
+from .audit_shape import contradicts, either_shape
 from .ceremony import CeremonyError, Reveal
 from .inboxes_keys import ACK, fingerprint
 from .inboxes_negotiate import NegotiateInbox
@@ -92,7 +92,7 @@ class TurnInbox(NegotiateInbox):
                     fresh.append(record)
                     continue
                 opened = Reveal.from_dict(record, hint_max_words=self.hint_max_words)
-                if opened.game_uid != audit.game_uid or opened.sub_game != audit.sub_game:
+                if contradicts(opened, audit):
                     return self._reject(
                         "submit_audit",
                         f"reveal is bound to {opened.game_uid!r} sub-game {opened.sub_game} "

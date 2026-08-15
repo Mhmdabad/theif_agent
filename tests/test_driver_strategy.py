@@ -78,10 +78,19 @@ def private_config(strategy: dict[str, Any] | None = None) -> dict[str, Any]:
 
 PARAMETERS: dict[str, Any] = {
     "board_and_agents": {"grid_size": 8, "cop_start": [0, 0], "thief_start": [6, 5]},
-    "movement_and_barriers": {"max_moves": 35},
-    "network_and_league": {"token_budget_per_series": 200_000},
+    "movement_and_barriers": {"max_moves": 35, "max_barriers": 14},
+    "network_and_league": {"token_budget_per_series": 200_000, "num_games": 6},
+    "pheromones": {
+        "pheromone_grid_size": 5,
+        "pheromone_decay": 0.1,
+        "pheromone_center_intensity": 0.9,
+    },
 }
-"""Stands in for ``config/game.json`` so the test does not depend on the cwd."""
+"""Stands in for ``config/game.json`` so the test does not depend on the cwd.
+
+Complete enough to derive the fourteen negotiated terms, because the
+declaration now hashes those for ``game_uid`` -- a partial config cannot open a
+match, and a fixture that pretends otherwise tests a state that cannot occur."""
 
 
 class StubTransport:

@@ -110,21 +110,34 @@ class TestItRefusesWhatItCannotVouchFor:
         with pytest.raises(ReplayError, match="not a match log object"):
             load(path)
 
-    def test_a_log_with_no_steps_list(self, tmp_path: Path) -> None:
+    def test_a_log_with_no_records_list(self, tmp_path: Path) -> None:
         path = tmp_path / "log_g_g01.json"
         path.write_text('{"game_id": "g"}')
-        with pytest.raises(ReplayError, match="no 'steps' list"):
+        with pytest.raises(ReplayError, match="no 'records' list"):
             load(path)
+
+    def test_a_log_in_the_older_shape_still_opens(self, tmp_path: Path) -> None:
+        """Logs written before the rename are evidence too.
+
+        A viewer that cannot open them is a viewer that loses them, so the
+        reader accepts ``steps``/``reveal`` as well as ``records``/``payload``.
+        """
+        path = tmp_path / "log_g_g01.json"
+        path.write_text(
+            '{"game_id": "g", "sub_game": 1, "role": "police", "steps": '
+            '[{"step": 1, "commit": "' + "a" * 64 + '", "reveal": null, "nonce": null}]}'
+        )
+        assert load(path).numbers() == [1]
 
     def test_an_empty_sub_game(self, tmp_path: Path) -> None:
         path = tmp_path / "log_g_g01.json"
-        path.write_text('{"game_id": "g", "steps": []}')
+        path.write_text('{"game_id": "g", "records": []}')
         with pytest.raises(ReplayError, match="no steps cannot be replayed"):
             load(path)
 
     def test_a_step_missing_a_slot(self, tmp_path: Path) -> None:
         """A silently skipped step would let Verified OK be stamped on a hole."""
-        path = edited(tmp_path, lambda body: body["steps"][2].pop("commit"))
+        path = edited(tmp_path, lambda body: body["records"][2].pop("commit"))
         with pytest.raises(ReplayError, match=r"missing \['commit'\]"):
             load(path)
 
@@ -134,31 +147,31 @@ class TestItRefusesWhatItCannotVouchFor:
         A gap is a real possibility in a match that ended early, so it loads —
         and the step numbers are on the record for a reader to notice.
         """
-        path = edited(tmp_path, lambda body: body["steps"].pop(1))
+        path = edited(tmp_path, lambda body: body["records"].pop(1))
         assert load(path).numbers() == [1, 3, 4]
 
     def test_steps_out_of_order(self, tmp_path: Path) -> None:
-        path = edited(tmp_path, lambda body: body["steps"].reverse())
+        path = edited(tmp_path, lambda body: body["records"].reverse())
         with pytest.raises(ReplayError, match="out of order"):
             load(path)
 
     def test_a_repeated_step_number(self, tmp_path: Path) -> None:
-        path = edited(tmp_path, lambda body: body["steps"].append(dict(body["steps"][0])))
+        path = edited(tmp_path, lambda body: body["records"].append(dict(body["records"][0])))
         with pytest.raises(ReplayError, match="repeats a step number"):
             load(path)
 
     def test_a_non_integer_step_number(self, tmp_path: Path) -> None:
-        path = edited(tmp_path, lambda body: body["steps"][0].update(step="one"))
+        path = edited(tmp_path, lambda body: body["records"][0].update(step="one"))
         with pytest.raises(ReplayError, match="non-integer step number"):
             load(path)
 
     def test_a_step_that_is_not_an_object(self, tmp_path: Path) -> None:
-        path = edited(tmp_path, lambda body: body["steps"].__setitem__(0, "nope"))
+        path = edited(tmp_path, lambda body: body["records"].__setitem__(0, "nope"))
         with pytest.raises(ReplayError, match="is not an object"):
             load(path)
 
     def test_a_commitment_that_is_not_a_string(self, tmp_path: Path) -> None:
-        path = edited(tmp_path, lambda body: body["steps"][0].update(commit=42))
+        path = edited(tmp_path, lambda body: body["records"][0].update(commit=42))
         with pytest.raises(ReplayError, match="has no commitment"):
             load(path)
 
@@ -171,7 +184,7 @@ class TestStructureIsNotHonesty:
         verification is tampered. Collapsing them would report somebody's disk
         error as somebody's fraud.
         """
-        path = edited(tmp_path, lambda body: body["steps"][1].update(commit="f" * 64))
+        path = edited(tmp_path, lambda body: body["records"][1].update(commit="f" * 64))
         replay = load(path)
         assert replay.numbers() == [1, 2, 3, 4]
         assert replay.seek(2).commit == "f" * 64
@@ -239,14 +252,14 @@ class TestTheLogCanVerifyItself:
     def test_an_edited_digest_is_caught_too(self, tmp_path: Path) -> None:
         path = sealed_log(tmp_path)
         body = json.loads(path.read_text())
-        body["steps"][0]["commit"] = "f" * 64
+        body["records"][0]["commit"] = "f" * 64
         path.write_text(json.dumps(body))
         assert not check_step(load(path).current).verified
 
     def test_a_swapped_nonce_is_caught(self, tmp_path: Path) -> None:
         path = sealed_log(tmp_path)
         body = json.loads(path.read_text())
-        body["steps"][0]["nonce"] = f"{99:032x}"
+        body["records"][0]["nonce"] = f"{99:032x}"
         path.write_text(json.dumps(body))
         assert not check_step(load(path).current).verified
 
@@ -265,7 +278,7 @@ class TestUnopenableIsNotTampered:
     def test_a_step_with_no_reveal_says_so(self, tmp_path: Path) -> None:
         path = written(tmp_path)
         body = json.loads(path.read_text())
-        body["steps"][0]["reveal"] = None
+        body["records"][0]["payload"] = None
         path.write_text(json.dumps(body))
         checked = check_step(load(path).current)
         assert "cannot be opened (no reveal)" in checked.reason

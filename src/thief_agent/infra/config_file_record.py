@@ -19,10 +19,38 @@ from typing import Any
 
 from ..shared.config import config_sha256
 from ..shared.naming import config_filename
+from .report_reference import links
 
 
 class ConfigFileError(ValueError):
     """Raised when a locked config cannot be built, read or trusted."""
+
+
+_SELF_DESCRIBING = ("_note", "_schema", "schema_version")
+"""Carried explicitly above rather than swept in with the terms.
+
+``agreed_between`` is not on this list either: it is a term the digest covers,
+so it must reach the file from :attr:`parameters` and not from the tuple beside
+them. Writing the tuple instead put a key in the file that the digest had never
+seen, and the file then failed its own verification.
+
+``world`` is *not* on this list, though the reference's sample omits it. The
+digest is taken over the agreed terms, and :func:`~.config_file.load`
+recomputes it from what the file holds rather than trusting the stored value --
+a hand edit travelling under a stale hash is the one thing it exists to catch.
+Dropping a term would leave the file unable to verify itself, which is a worse
+trade than one extra key against the sample."""
+
+SCHEMA = "".join(
+    [
+        "Agreed game configuration for one match. Values come from the master parameter table ",
+        "(Appendix F). Per the appendix's mandatory rules both teams must hold BYTE-IDENTICAL ",
+        "values, lock them cryptographically (config_sha256), give the file a unique name per ",
+        "game, and attach it to GitHub. 'status' recap: minimum = may only be raised; permanent ",
+        "= must not change; negotiation = any agreed value.",
+    ]
+)
+"""The reference's own description of this document, carried verbatim."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,12 +89,24 @@ class LockedConfig:
         return config_filename(self.game_id, self.sub_game)
 
     def to_dict(self) -> dict[str, Any]:
+        """The reference sample's layout: the agreed terms flat, not nested.
+
+        ``config_sha256`` is unaffected -- it is taken over the negotiated terms
+        through :func:`~..shared.config.canonical_bytes`, never over this
+        rendering, so how the file arranges them cannot move the digest the two
+        peers compare.
+        """
+        terms = {k: v for k, v in self.parameters.items() if k not in _SELF_DESCRIBING}
         return {
+            "_schema": SCHEMA,
+            "schema_version": str(self.parameters.get("schema_version", "1.1")),
+            "_note": str(self.parameters.get("_note", "")),
+            **terms,
             "game_id": self.game_id,
             "game_uid": self.game_uid,
-            "sub_game": self.sub_game,
-            "agreed_between": list(self.agreed_between),
-            "parameters": self.parameters,
+            "sub_game_number": self.sub_game,
+            "links": links(self.game_id),
+            "config_name": self.filename,
             "config_sha256": self.sha256,
         }
 

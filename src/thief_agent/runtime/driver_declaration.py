@@ -18,6 +18,7 @@ from ..infra.match_ledger import MatchLedger
 from ..infra.report import Repositories
 from ..infra.step_zero import SIGNING_KEY_ENV, collect, provenance
 from ..shared.naming import game_uid
+from ..shared.terms import to_terms
 from .match import MatchRunner
 
 
@@ -41,9 +42,12 @@ def _declaration(
 ) -> MatchDeclaration:
     """The signed declaration for this match, from config and step-zero evidence.
 
-    ``game_uid`` is derived from the *agreed terms* and the two group ids rather
-    than from ``game_id``: both peers must reach the same uid without exchanging
-    it, and the terms are the one thing they have already agreed byte-for-byte.
+    ``game_uid`` is derived from the **flat negotiated terms** and the two group
+    ids, not from ``game_id`` and not from the whole shared config. The wider
+    object is the documented failure: SPEC section 6 records a live series where
+    one side hashed more than the fourteen agreed keys, and the two peers' uids
+    diverged while every game value matched -- two reports joinable by neither
+    key. :func:`~..shared.terms.to_terms` is exactly those fourteen.
 
     ``games_already_played`` is counted by the caller from
     :class:`~..infra.match_ledger.MatchLedger` rather than here, because this
@@ -54,7 +58,7 @@ def _declaration(
 
     return build(
         game_id=game_id,
-        game_uid=game_uid(parameters, us.name, them.name),
+        game_uid=game_uid(to_terms(parameters), us.name, them.name),
         role=role,
         us=us,
         them=them,

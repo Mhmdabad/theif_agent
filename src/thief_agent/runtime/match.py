@@ -28,6 +28,7 @@ from ..shared.result_claim import claim_and_digest
 from .match_outcome import SubGameOutcome
 from .match_play import MatchPlay
 from .match_scored import scored
+from .match_settled import settled
 from .match_standing import series_block
 from .orchestrator_book import RESULT_TIMEOUT_SEC
 
@@ -114,7 +115,7 @@ class MatchRunner(MatchPlay):
         return ArtefactSet(
             declaration=self.declaration,
             configs=tuple(self.config_for(o.number) for o in self.outcomes),
-            logs=tuple(o.log for o in self.outcomes),
+            logs=tuple(settled(o, result) for o in self.outcomes),
             result=result,
         )
 

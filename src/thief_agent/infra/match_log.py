@@ -31,8 +31,24 @@ from typing import Any
 from ..shared.naming import log_filename
 from .match_log_entry import SLOTS, Completeness, MatchLogError, StepEntry
 from .match_log_slots import LogSlots
+from .report_reference import links
 
 __all__ = ["SLOTS", "Completeness", "MatchLog", "MatchLogError", "StepEntry"]
+
+
+SCHEMA = "".join(
+    [
+        "Per-sub-game match log consumed by the Replay Viewer for cryptographic audit. Each step ",
+        "is committed as SHA-256(State || Move || Intent || Nonce) and later revealed; nonces are ",
+        "revealed only at the final audit (book ch5 commit-reveal, ch7 replay). Static team ",
+        "metadata (hardware, members, repos, model) is NOT repeated here — it lives in ",
+        "1-pre-game-declaration.json; join by game_uid. Step 0 is the signed step-zero record ",
+        "carrying only what changes per sub-game (github_commit). The 'prompt_discussion' block ",
+        "records the natural-language exchange and the LLM prompt/reasoning behind each hint ",
+        "(book ch6 prompt engineering).",
+    ]
+)
+"""The reference's own description of this document, carried verbatim."""
 
 
 @dataclass
@@ -73,14 +89,27 @@ class MatchLog(LogSlots):
         return Completeness(tuple(missing))
 
     def to_dict(self) -> dict[str, Any]:
-        """The file's contents, sorted by step so identical histories agree."""
+        """The reference sample's layout, sorted by step so histories agree.
+
+        ``summary`` and ``mutual_agreement`` are filled by the runner once the
+        series settles -- a sub-game cannot state its own outcome while it is
+        still being played -- and are empty until then rather than absent, so a
+        reader never has to distinguish "not yet" from "not applicable".
+        """
         return {
+            "_schema": SCHEMA,
+            "schema_version": "1.1",
             "game_id": self.game_id,
             "game_uid": self.game_uid,
-            "sub_game": self.sub_game,
-            "role": self.role,
-            "config_sha256": self.config_sha256,
-            "steps": [self.entries[step].to_dict() for step in sorted(self.entries)],
+            "links": links(self.game_id),
+            "summary": {
+                "sub_game_number": self.sub_game,
+                "role": self.role,
+                "config_sha256": self.config_sha256,
+                **self.summary,
+            },
+            "records": [self.entries[step].to_dict() for step in sorted(self.entries)],
+            "mutual_agreement": dict(self.settlement),
         }
 
     def write(self, directory: Path) -> Path:

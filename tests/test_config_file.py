@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from thief_agent.infra.config_file import ConfigFileError, LockedConfig, load, lock
+from thief_agent.infra.config_file import _NOT_A_TERM, ConfigFileError, LockedConfig, load, lock
 from thief_agent.shared.config import config_sha256
 from thief_agent.shared.naming import NamingError
 
@@ -42,8 +42,9 @@ class TestLocking:
 
     def test_the_digest_is_not_in_what_it_covers(self) -> None:
         body = locked().to_dict()
-        assert "config_sha256" not in body["parameters"]
-        assert config_sha256(body["parameters"]) == body["config_sha256"]
+        terms = {k: v for k, v in body.items() if k not in _NOT_A_TERM}
+        assert "config_sha256" not in terms
+        assert config_sha256(terms) == body["config_sha256"]
 
     def test_two_peers_with_the_same_parameters_agree(self) -> None:
         assert locked().agrees_with(locked().sha256)
@@ -116,7 +117,7 @@ class TestTheFile:
         restored = load(locked().write(tmp_path))
         assert restored.game_uid == "u-0001"
         assert restored.sub_game == 2
-        assert restored.agreed_between == TEAMS
+        assert restored.agreed_between == tuple(parameters()["agreed_between"])
 
     def test_the_bytes_are_stable(self, tmp_path: Path) -> None:
         assert (
@@ -129,7 +130,7 @@ class TestLoadingVerifiesRatherThanTrusts:
         """Config files are committed, so they get opened and edited."""
         path = locked().write(tmp_path)
         body = json.loads(path.read_text())
-        body["parameters"]["world"]["hint_max_words"] = 14
+        body["world"]["hint_max_words"] = 14
         path.write_text(json.dumps(body))
         with pytest.raises(ConfigFileError, match="has been edited since it was locked"):
             load(path)
@@ -162,9 +163,7 @@ class TestLoadingVerifiesRatherThanTrusts:
         with pytest.raises(ConfigFileError, match="not a config object"):
             load(path)
 
-    @pytest.mark.parametrize(
-        "field", ["game_id", "game_uid", "sub_game", "parameters", "config_sha256"]
-    )
+    @pytest.mark.parametrize("field", ["game_id", "game_uid", "sub_game_number", "config_sha256"])
     def test_a_missing_field_names_it(self, tmp_path: Path, field: str) -> None:
         path = locked().write(tmp_path)
         body = json.loads(path.read_text())
@@ -173,18 +172,25 @@ class TestLoadingVerifiesRatherThanTrusts:
         with pytest.raises(ConfigFileError, match=field):
             load(path)
 
-    def test_parameters_that_are_not_an_object(self, tmp_path: Path) -> None:
+    def test_a_mangled_section_is_caught_by_the_digest(self, tmp_path: Path) -> None:
+        """Replacing a whole section is an edit like any other.
+
+        The terms are flat now, so there is no ``parameters`` object to type
+        check -- and nothing is lost by that: the digest covers every term, so
+        a section replaced by a string fails verification rather than a shape
+        check, with a message naming the two digests.
+        """
         path = locked().write(tmp_path)
         body = json.loads(path.read_text())
-        body["parameters"] = "everything"
+        body["board_and_agents"] = "everything"
         path.write_text(json.dumps(body))
-        with pytest.raises(ConfigFileError, match="not an object"):
+        with pytest.raises(ConfigFileError, match="has been edited since it was locked"):
             load(path)
 
-    def test_a_file_naming_only_one_team(self, tmp_path: Path) -> None:
+    def test_dropping_a_team_is_caught_by_the_digest(self, tmp_path: Path) -> None:
         path = locked().write(tmp_path)
         body = json.loads(path.read_text())
         body["agreed_between"] = ["uoh26-thieves"]
         path.write_text(json.dumps(body))
-        with pytest.raises(ConfigFileError, match="does not name two teams"):
+        with pytest.raises(ConfigFileError, match="has been edited since it was locked"):
             load(path)

@@ -72,11 +72,11 @@ class TestAnAlterationHoweverSmall:
     def test_a_single_flipped_character_in_a_digest_is_enough(self, tmp_path: Path) -> None:
         """'Any alteration, however small.' SHA-256 has no near-miss."""
         path = sealed_log(tmp_path)
-        original = json.loads(path.read_text())["steps"][1]["commit"]
+        original = json.loads(path.read_text())["records"][1]["commit"]
         flipped = ("0" if original[0] != "0" else "1") + original[1:]
 
         def edit(body: dict[str, Any]) -> None:
-            body["steps"][1]["commit"] = flipped
+            body["records"][1]["commit"] = flipped
 
         result = walk(load(hand_edited(path, edit)))
         assert result.stamp is Stamp.TAMPERED
@@ -84,7 +84,7 @@ class TestAnAlterationHoweverSmall:
 
     def test_a_swapped_nonce_is_tampered(self, tmp_path: Path) -> None:
         def edit(body: dict[str, Any]) -> None:
-            body["steps"][0]["nonce"] = f"{99:032x}"
+            body["records"][0]["nonce"] = f"{99:032x}"
 
         result = walk(load(hand_edited(sealed_log(tmp_path), edit)))
         assert result.stamp is Stamp.TAMPERED
@@ -93,7 +93,7 @@ class TestAnAlterationHoweverSmall:
         """The commitment covers the whole record, not only the move."""
 
         def edit(body: dict[str, Any]) -> None:
-            body["steps"][0]["reveal"]["hint"] = "step one"
+            body["records"][0]["payload"]["hint"] = "step one"
 
         assert walk(load(hand_edited(sealed_log(tmp_path), edit))).void
 
@@ -117,7 +117,7 @@ class TestItAbortsOnFirstFailure:
         path = sealed_log(tmp_path, steps=6, corrupt=5)
 
         def edit(body: dict[str, Any]) -> None:
-            body["steps"][2]["nonce"] = f"{77:032x}"
+            body["records"][2]["nonce"] = f"{77:032x}"
 
         assert walk(load(hand_edited(path, edit))).at_step == 3
 
@@ -147,7 +147,7 @@ class TestUnverifiableIsNotAnAccusation:
         path = sealed_log(tmp_path, corrupt=2)
 
         def edit(body: dict[str, Any]) -> None:
-            body["steps"][1]["nonce"] = None
+            body["records"][1]["nonce"] = None
 
         result = walk(load(hand_edited(path, edit)))
         assert result.stamp is Stamp.INCOMPLETE
@@ -158,7 +158,7 @@ class TestUnverifiableIsNotAnAccusation:
         path = sealed_log(tmp_path, steps=6, corrupt=5)
 
         def edit(body: dict[str, Any]) -> None:
-            body["steps"][1]["nonce"] = None
+            body["records"][1]["nonce"] = None
 
         result = walk(load(hand_edited(path, edit)))
         assert result.stamp is Stamp.TAMPERED
@@ -191,7 +191,7 @@ class TestTheVerdictDoesNotReadEnglish:
         path = sealed_log(tmp_path)
 
         def edit(body: dict[str, Any]) -> None:
-            body["steps"][0]["reveal"]["nonce"] = "deadbeef"
+            body["records"][0]["payload"]["nonce"] = "deadbeef"
 
         result = walk(load(hand_edited(path, edit)))
         assert result.stamp is Stamp.TAMPERED
@@ -211,9 +211,9 @@ class TestTheVerdictDoesNotReadEnglish:
         path = sealed_log(tmp_path)
 
         def reseal(body: dict[str, Any]) -> None:
-            for step in body["steps"]:
-                if step.get("reveal") is not None and step.get("nonce"):
-                    step["commit"] = book_commit_of(step["reveal"], step["nonce"])
+            for step in body["records"]:
+                if step.get("payload") is not None and step.get("nonce"):
+                    step["commit"] = book_commit_of(step["payload"], step["nonce"])
 
         result = walk(load(hand_edited(path, reseal)))
         assert result.stamp is not Stamp.TAMPERED
@@ -222,7 +222,7 @@ class TestTheVerdictDoesNotReadEnglish:
         path = sealed_log(tmp_path)
 
         def edit(body: dict[str, Any]) -> None:
-            body["steps"][0]["reveal"]["nonce"] = "deadbeef"
+            body["records"][0]["payload"]["nonce"] = "deadbeef"
 
         checked = check_step(load(hand_edited(path, edit)).current)
         assert not checked.verified

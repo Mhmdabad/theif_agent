@@ -30,7 +30,13 @@ def played(steps: int = 2) -> MatchLog:
 class TestTheOrderIsTheEvidence:
     def test_a_full_step_records_all_three_slots(self) -> None:
         """Plus discussion, which is written beside them and is not one of them."""
-        assert tuple(played(1).entries[1].to_dict()) == ("step", *SLOTS, "discussion")
+        assert tuple(played(1).entries[1].to_dict()) == (
+            "step",
+            "payload",
+            "nonce",
+            "commit",
+            "prompt_discussion",
+        )
 
     def test_a_reveal_before_a_commitment_is_refused(self) -> None:
         """The exact shape of a move decided after seeing the opponent's.
@@ -109,8 +115,8 @@ class TestTheFile:
     def test_it_writes_and_creates_the_directory(self, tmp_path: Path) -> None:
         path = played(2).write(tmp_path / "artefacts")
         written = json.loads(path.read_text())
-        assert [row["step"] for row in written["steps"]] == [1, 2]
-        assert written["role"] == "thief"
+        assert [row["step"] for row in written["records"]] == [1, 2]
+        assert written["summary"]["role"] == "thief"
 
     def test_steps_are_sorted_so_identical_histories_agree(self, tmp_path: Path) -> None:
         """A diff that is noise-free is a diff two tired people can read."""
@@ -227,4 +233,4 @@ class TestWhetherAThirdPartyCanReVerify:
     def test_the_header_reaches_the_file(self, tmp_path: Path) -> None:
         body = json.loads(sealed_log().write(tmp_path).read_text())
         assert body["game_uid"] == "u-0001"
-        assert body["config_sha256"] == "c" * 64
+        assert body["summary"]["config_sha256"] == "c" * 64

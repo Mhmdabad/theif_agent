@@ -76,6 +76,14 @@ def lock(
     )
 
 
+_NOT_A_TERM = frozenset(
+    {"_schema", "game_id", "game_uid", "sub_game_number", "links", "config_name", "config_sha256"}
+)
+"""Keys the file carries about *itself*. Everything else is an agreed term, and
+the digest is recomputed over exactly that -- so the flat layout the reference
+uses still verifies, because nothing the digest covers was left out of it."""
+
+
 def load(path: Path) -> LockedConfig:
     """Read a locked config, recomputing its digest rather than trusting it.
 
@@ -99,13 +107,13 @@ def load(path: Path) -> LockedConfig:
 
     missing = [
         name
-        for name in ("game_id", "game_uid", "sub_game", "parameters", "config_sha256")
+        for name in ("game_id", "game_uid", "sub_game_number", "config_sha256")
         if name not in body
     ]
     if missing:
         raise ConfigFileError(f"{path.name} is missing {missing}")
-    parameters = body["parameters"]
-    if not isinstance(parameters, dict):
+    parameters = {k: v for k, v in body.items() if k not in _NOT_A_TERM}
+    if not all(isinstance(v, dict | list | str | int | float) for v in parameters.values()):
         raise ConfigFileError(f"{path.name} has parameters that are not an object")
 
     recomputed = config_sha256(parameters)
@@ -123,7 +131,7 @@ def load(path: Path) -> LockedConfig:
     return LockedConfig(
         game_id=str(body["game_id"]),
         game_uid=str(body["game_uid"]),
-        sub_game=int(body["sub_game"]),
+        sub_game=int(body["sub_game_number"]),
         parameters=parameters,
         agreed_between=(str(agreed[0]), str(agreed[1])),
     )

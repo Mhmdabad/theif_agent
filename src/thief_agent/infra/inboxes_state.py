@@ -56,6 +56,14 @@ class InboxState:
     turns: "queue.Queue[TurnMessage]" = field(default_factory=queue.Queue)
     audits: "queue.Queue[AuditPayload]" = field(default_factory=queue.Queue)
     controls: "queue.Queue[ControlMessage]" = field(default_factory=queue.Queue)
+    parameters: dict[str, Any] = field(default_factory=dict)
+    """The agreed terms, for the reference-v3 gate to compare an offer against.
+
+    Empty until the driver fills it. A gate with nothing to compare refuses
+    rather than waving the offer through: an empty set matches nothing, which is
+    the safe reading of "we do not yet know what we agreed".
+    """
+
     rejected: list[str] = field(default_factory=list)
     accepted_turns: dict[tuple[str, int, str, int], str] = field(default_factory=dict)
     """``(sender, step, game_uid, sub_game) -> digest`` of every turn taken.

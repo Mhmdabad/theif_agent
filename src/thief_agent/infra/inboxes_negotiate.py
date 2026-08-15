@@ -16,6 +16,7 @@ from .inboxes_keys import (
     SCENT_KEY,
     SERIES_KEY,
 )
+from .pairing_v3 import pairing_agreement
 from .validation import (
     InvalidPayloadError,
     optional_scent,
@@ -28,7 +29,16 @@ from .validation import (
 class NegotiateInbox(InboxGate):
     """:class:`~.inboxes_gate.InboxGate` plus the one negotiation channel's three bodies."""
 
-    def negotiate(self, message: object) -> dict[str, Any]:
+    def negotiate(
+        self,
+        message: object = None,
+        terms: dict[str, Any] | None = None,
+        nonce: str = "",
+        signature: str = "",
+        role: str = "",
+        sub_game_number: int = 0,
+        identity: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Receive a greeting, digest, scent lock or result claim, and file it by what it is.
 
         Routed on content because the wire cannot distinguish them: all four
@@ -43,6 +53,8 @@ class NegotiateInbox(InboxGate):
         its own, under a different key: a claim reaching the digest branch would
         be filed as a set of parameters nobody proposed.
         """
+        if terms is not None:
+            return self._pairing(terms, nonce, signature, role, sub_game_number, identity or {})
         try:
             body = require_mapping(message, "agreement")
             if SCENT_KEY in body:
@@ -56,6 +68,18 @@ class NegotiateInbox(InboxGate):
         except InvalidPayloadError as exc:
             return self._refuse("negotiate", exc)
         return ACK
+
+    def _pairing(
+        self,
+        terms: dict[str, Any],
+        nonce: str,
+        signature: str,
+        role: str,
+        sub_game: int,
+        identity: dict[str, Any],
+    ) -> dict[str, Any]:
+        """A reference-v3 pre-game gate; see :mod:`.pairing_v3` for the dialect."""
+        return pairing_agreement(self, terms, nonce, signature, role, sub_game, identity)
 
     def _result(self, body: dict[str, Any]) -> dict[str, Any]:
         """A final-result claim, checked for shape, or a refusal before it is filed.

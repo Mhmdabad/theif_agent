@@ -10,6 +10,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from dotenv import load_dotenv
+
 from . import reference_v3 as _reference_v3  # noqa: F401 - exposes vendored sparring
 
 from sparring.config import SparConfig
@@ -73,6 +75,7 @@ def _await_peer(url: str, timeout: float) -> bool:
 
 
 def main() -> int:
+    load_dotenv()
     args, private = _args(), _private()
     cfg = SparConfig(
         group_id=args.group_id,

@@ -22,38 +22,31 @@ from collections.abc import Sequence
 from typing import Any
 
 from .config import canonical_bytes
+from .consensus_scope import consensus_scope
 
 __all__ = ["claim_and_digest", "claim_sha256", "result_claim"]
 
 
 def result_claim(
-    game_uid: str,
-    scores: Sequence[tuple[int, int]],
+    game_id: str,
+    rows: Sequence[dict[str, Any]],
     series: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """The agreeable part of a result: the series, and every sub-game's score.
+    """The agreeable part of a result, in the cohort's settled scope.
+
+    Delegates to :func:`~.consensus_scope.consensus_scope`, which is where the
+    shape and the reasoning live. What matters here is what changed: this used
+    to hash ``game_uid`` with ``cop_score``/``thief_score`` rows and role-keyed
+    totals -- an honest scope, and one no other implementation computes, so the
+    digest could never equal a stranger's and settlement failed at the moment
+    both sides had to agree.
 
     Args:
-        game_uid: the series this claim is about, so a result agreed for one
-            series cannot be replayed to close another.
-        scores: ``(cop, thief)`` per sub-game, in the order they were played.
-        series: the group-keyed standing — totals, winner, tie rule, who opened
-            as police — computed by the runner so this module stays below the
-            domain layer. Group-name keys keep it objective: both peers name
-            the same two groups, so both produce identical bytes.
+        game_id: the match both sides name identically, sorted from the pair.
+        rows: the result document's own sub-game entries, trimmed by the scope.
+        series: the group-keyed standing the aggregate is taken from.
     """
-    claim = {
-        "game_uid": game_uid,
-        "sub_games": [
-            {"sub_game": number, "cop_score": cop, "thief_score": thief}
-            for number, (cop, thief) in enumerate(scores, start=1)
-        ],
-        "cop_total": sum(cop for cop, _ in scores),
-        "thief_total": sum(thief for _, thief in scores),
-    }
-    if series is not None:
-        claim["series"] = series
-    return claim
+    return consensus_scope(game_id, series or {}, list(rows))
 
 
 def claim_sha256(claim: dict[str, Any]) -> str:
@@ -67,8 +60,8 @@ def claim_sha256(claim: dict[str, Any]) -> str:
 
 
 def claim_and_digest(
-    game_uid: str,
-    scores: Sequence[tuple[int, int]],
+    game_id: str,
+    rows: Sequence[dict[str, Any]],
     series: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], str]:
     """The claim and the digest over it, built together so they cannot disagree.
@@ -81,5 +74,5 @@ def claim_and_digest(
     digest that silently fails to match the one actually exchanged — and the
     report would then attest to an agreement that never happened.
     """
-    claim = result_claim(game_uid, scores, series=series)
+    claim = result_claim(game_id, rows, series=series)
     return claim, claim_sha256(claim)

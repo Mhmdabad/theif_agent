@@ -465,10 +465,20 @@ class TestAgreeingTheResultBeforeAnybodyReportsIt:
         """What is offered to the opponent is what the report will carry."""
         runner = a_runner(tmp_path)
         runner.outcomes.extend([an_outcome(1), an_outcome(2)])
-        claim = result_claim(runner.declaration.game_uid, [o.scores() for o in runner.outcomes])
-        assert claim["game_uid"] == "u-0001"
-        assert [entry["sub_game"] for entry in claim["sub_games"]] == [1, 2]
-        assert claim["cop_total"] == sum(o.scores()[0] for o in runner.outcomes)
+        rows = [
+            {
+                "sub_game_number": o.number,
+                "roles": {"a": "police", "b": "thief"},
+                "result": "capture",
+                "winner_group": "a",
+                "score": {"a": o.scores()[0], "b": o.scores()[1]},
+            }
+            for o in runner.outcomes
+        ]
+        claim = result_claim(runner.game_id, rows)
+        assert claim["game_id"] == runner.game_id
+        assert [entry["sub_game_number"] for entry in claim["sub_games"]] == [1, 2]
+        assert claim["sub_games"][0]["score"]["a"] == runner.outcomes[0].scores()[0]
 
 
 class TestWritingTheEvidence:

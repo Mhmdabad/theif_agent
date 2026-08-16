@@ -20,6 +20,7 @@ from thief_agent.infra.report import (
     SubGameResult,
     recipient,
 )
+from thief_agent.shared.consensus import CONSENSUS_KEY
 
 REPOS = Repositories(
     cop_repo="https://github.com/Mhmdabad/police_agent",
@@ -100,14 +101,14 @@ class TestTheMandatoryFieldsAreRequiredNotValidated:
                 opponent_thief_repo="https://github.com/other/thief",
             )
 
-    def test_the_field_set_is_exactly_the_references(self) -> None:
-        """Field for field, no more and no less.
+    def test_the_field_set_is_the_reference_plus_the_consensus_signature(self) -> None:
+        """The reference's fields, and exactly one more.
 
-        The reference's sample is the specification for this document, so an
-        extra key is as wrong as a missing one: a reader diffing the two should
-        find nothing.
+        Its sample carries no signature; the cohort's settlement does, and a
+        team that cannot verify our report cannot agree it. That one addition
+        is deliberate -- any other extra key would be a mistake.
         """
-        assert set(json.loads(report().to_json())) == {
+        assert set(json.loads(report().to_json())) == {CONSENSUS_KEY} | {
             "_schema",
             "schema_version",
             "report_type",

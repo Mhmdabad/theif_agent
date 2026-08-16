@@ -11,18 +11,9 @@ up across a series. The book scores a group pair; this document says so
 directly, and a reader building league standings never has to work out who sat
 where.
 
-**A superset of the reference, because §9.3.3 requires more than it emits.** The
-book names what the attached JSON must carry -- identity, GitHub addresses, MCP
-addresses, signed hardware, the game timestamp, SHA-256 agreement -- then lists
-the mandatory fields outright: both groups' links, each sub-game's commit id,
-and the tokens consumed. The reference omits several, because its declaration
-sits in the repository beside it; the attachment is the report. So the shape is
-the reference's and the contents are the book's.
-
-Two fields are honest about what this peer cannot know. The opponent's commit
-is ``unknown`` -- the greeting carries a role, a group id, a URL and a protocol
-version, and nothing else crosses the wire -- and the opponent's token spend is
-theirs to report, not ours to guess. The reference's own sample writes
+Two fields are honest about what this peer cannot know: the opponent's commit
+is ``unknown`` -- nothing about their code crosses the wire -- and their token
+spend is theirs to report, not ours to guess. The reference's own sample writes
 ``unknown`` in exactly this place.
 """
 
@@ -30,13 +21,14 @@ from typing import TYPE_CHECKING, Any
 
 from ..domain.alternation import role_for
 from ..domain.scoring import Outcome
+from ..shared.consensus import sign_consensus
 from ..shared.naming import declaration_filename, log_filename, result_filename
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle only matters to type checkers
     from .report_document import Report
     from .report_parts import SubGameResult
 
-__all__ = ["SCHEMA_VERSION", "TIMEZONE", "UNKNOWN", "links", "result_document"]
+__all__ = ["SCHEMA_VERSION", "TIMEZONE", "UNKNOWN", "by_group", "links", "result_document"]
 
 SCHEMA = "".join(
     [
@@ -86,7 +78,7 @@ def _outcome(sub: "SubGameResult") -> str:
     return Outcome.CAPTURE.value if sub.cop_score > sub.thief_score else Outcome.SURVIVAL.value
 
 
-def _by_group(
+def by_group(
     sub: "SubGameResult", us: str, them: str, natural: str, game_id: str
 ) -> dict[str, Any]:
     """One sub-game, with every per-team fact keyed by group id."""
@@ -112,11 +104,22 @@ def _by_group(
 
 
 def result_document(report: "Report") -> dict[str, Any]:
-    """The whole result, exactly the field set the reference's sample carries."""
+    """The whole result, consensus-signed.
+
+    The reference's sample carries no signature; the cohort's settlement does,
+    and a team that cannot verify our report cannot agree it. The key is added
+    last and over everything else, so a reader pops it, re-serialises in the
+    spaced form and re-hashes -- see :mod:`~..shared.consensus`.
+    """
+    return sign_consensus(_body(report))
+
+
+def _body(report: "Report") -> dict[str, Any]:
+    """Everything the consensus signature covers."""
     us, them = report.team, report.opponent_team
     natural = report.starting_role or report.role
     standing = report.series_result or {}
-    subs = [_by_group(sub, us, them, natural, report.game_id) for sub in report.sub_games]
+    subs = [by_group(sub, us, them, natural, report.game_id) for sub in report.sub_games]
     return {
         "_schema": SCHEMA,
         "schema_version": SCHEMA_VERSION,

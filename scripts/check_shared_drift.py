@@ -201,6 +201,7 @@ SHARED: tuple[str, ...] = (
     "runtime/scheduler.py",
     "runtime/state_machine.py",
     "runtime/watchdog.py",
+    "shared/pairing_identity.py",
     "ui/banner.py",
     "ui/app.py",
     "ui/paint.py",

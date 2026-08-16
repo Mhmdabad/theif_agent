@@ -120,6 +120,7 @@ def _conclude(
             commit_hash=declaration.provenance.github_commit or "unknown",
             total_tokens=runner.spent_tokens,
             agreed=agreed,
+            counted=not rehearsal,
             repositories=Repositories(
                 cop_repo=us.cop_repo,
                 thief_repo=us.thief_repo,

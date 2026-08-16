@@ -21,8 +21,8 @@ from typing import TYPE_CHECKING, Any
 
 from ..domain.alternation import role_for
 from ..domain.scoring import Outcome
-from ..shared.consensus import sign_consensus
 from ..shared.naming import declaration_filename, log_filename, result_filename
+from .report_league import league_block
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle only matters to type checkers
     from .report_document import Report
@@ -104,18 +104,13 @@ def by_group(
 
 
 def result_document(report: "Report") -> dict[str, Any]:
-    """The whole result, consensus-signed.
+    """The lecturer's field set, plus the cohort's league block.
 
-    The reference's sample carries no signature; the cohort's settlement does,
-    and a team that cannot verify our report cannot agree it. The key is added
-    last and over everything else, so a reader pops it, re-serialises in the
-    spaced form and re-hashes -- see :mod:`~..shared.consensus`.
+    No consensus signature key: neither the lecturer's sample nor the cohort's
+    example carries one. The kit pins the signature's *construction* and the
+    scope it covers, and what two teams must agree on is
+    ``mutual_agreement.sha256`` -- not a field beside it.
     """
-    return sign_consensus(_body(report))
-
-
-def _body(report: "Report") -> dict[str, Any]:
-    """Everything the consensus signature covers."""
     us, them = report.team, report.opponent_team
     natural = report.starting_role or report.role
     standing = report.series_result or {}
@@ -140,4 +135,5 @@ def _body(report: "Report") -> dict[str, Any]:
             "tokens_total_series": {us: report.total_tokens, them: 0},
         },
         "mutual_agreement": {"sha256": report.result_claim_sha256, "confirmed": report.agreed},
+        "league": league_block(report.counted),
     }

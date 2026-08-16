@@ -36,6 +36,13 @@ class Report:
     the reference's result omits static team metadata and refers back to the
     declaration by ``game_id``, and this document matches it field for field."""
 
+    counted: bool = True
+    """Whether this series is the pairing's one counted game (rule 52).
+
+    True by default: a rehearsal is the deliberate exception and says so, and a
+    match that forgot to declare itself counted is a worse failure than one
+    that over-claims and is corrected."""
+
     game_uid: str = ""
     started_at: str = ""
     ended_at: str = ""

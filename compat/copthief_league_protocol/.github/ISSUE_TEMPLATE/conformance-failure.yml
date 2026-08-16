@@ -1,0 +1,46 @@
+name: Conformance failure
+description: My implementation disagrees with a fixture
+labels: ["conformance"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The most valuable kind of report. **Include your canonical string, not just the hash** —
+        a digest mismatch cannot be diagnosed by anyone, and a preimage mismatch usually
+        diagnoses itself.
+
+  - type: input
+    id: fixture
+    attributes:
+      label: Fixture and case
+      description: Which file, and which case inside it.
+      placeholder: vectors/commit_reveal.json — commit #2
+    validations:
+      required: true
+
+  - type: textarea
+    id: canonical
+    attributes:
+      label: The canonical strings
+      description: >
+        Yours and the fixture's, verbatim — no pretty-printing, no truncation. If they differ,
+        this field is the whole diagnosis.
+      render: text
+      placeholder: |
+        mine:    {"hint":"אני ...","move":"MOVE:N",...}
+        fixture: {"hint":"אני ...","move":"MOVE:N",...}
+    validations:
+      required: true
+
+  - type: input
+    id: stack
+    attributes:
+      label: Language and JSON serializer
+      description: Only matters if you are not on Python's `json`.
+      placeholder: Go 1.22, encoding/json with a custom canonicalizer
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: What you have already ruled out is useful.

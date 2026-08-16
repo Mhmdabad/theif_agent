@@ -1,0 +1,58 @@
+name: Reproduction
+description: I built this independently and my numbers match
+labels: ["reproduction"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is what promotes a `PROPOSED` fixture to `PROMOTED`. The bar is in
+        [docs/GOVERNANCE.md](../blob/main/docs/GOVERNANCE.md). Partial reproductions are welcome
+        and are recorded as partial.
+
+  - type: input
+    id: fixture
+    attributes:
+      label: Fixture
+      placeholder: vectors/scent_book_v3.json
+    validations:
+      required: true
+
+  - type: textarea
+    id: cases
+    attributes:
+      label: Which cases you reproduced
+      description: List them. If you skipped any, say which and why.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provenance
+    attributes:
+      label: How was your implementation built?
+      description: >
+        The load-bearing question. An implementation corrected by reading our numbers has
+        confirmed our numbers to itself and nothing more — we will record it that way, and it
+        does not meet the promotion bar.
+      options:
+        - From the book alone, and it predates these vectors
+        - From the book alone, written after these vectors existed but without reading them
+        - From this kit's SPEC prose, without reading the fixture values
+        - It was corrected by comparing against these fixtures
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tolerance
+    attributes:
+      label: Comparison tolerance
+      options:
+        - Exact — byte or value equality, zero tolerance
+        - Approximate — say what tolerance below
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Disagreements you hit on the way are as interesting as the match.

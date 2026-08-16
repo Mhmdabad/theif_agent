@@ -1,0 +1,346 @@
+{
+  "_schema": "Per-sub-game log: every step sealed commit-reveal, both step-0 spellings (ours slim + declaration_ref, theirs the reference's inline system_spec). Static team metadata is NOT repeated here - it lives in the declaration; join by game_uid. The nonces are DERIVABLE BY DESIGN (see the generator): a real game needs unpredictable ones or the commitment hides nothing.",
+  "schema_version": "1.1",
+  "game_id": "team-aleph-vs-team-bet",
+  "game_uid": "da4f6f1e-c9b0-6051-1485-b02030c5b1e6",
+  "links": {
+    "declaration": "declaration_team-aleph-vs-team-bet.json",
+    "config": "config_team-aleph-vs-team-bet_g<NN>.json",
+    "log": "log_team-aleph-vs-team-bet_g<NN>.json",
+    "result": "result_team-aleph-vs-team-bet.json",
+    "github": {
+      "team-aleph": {
+        "cop": "https://github.com/team-aleph/cop",
+        "thief": "https://github.com/team-aleph/thief"
+      },
+      "team-bet": {
+        "cop": "https://github.com/team-bet/cop",
+        "thief": "https://github.com/team-bet/thief"
+      }
+    }
+  },
+  "league": {
+    "authority": "book App. E rule 52 — the one counted series of this pairing",
+    "counted": true,
+    "reason": "counted",
+    "_synthetic": "example bundle: no game was played to produce these bytes"
+  },
+  "sub_game_number": 5,
+  "summary": {
+    "sub_game_number": 5,
+    "group_id": "team-aleph",
+    "role": "police",
+    "opponent_group_id": "team-bet",
+    "result": "capture",
+    "winner_group": "team-aleph",
+    "timezone": "Asia/Jerusalem",
+    "steps": 7,
+    "audit": {
+      "passed": true,
+      "skipped": false,
+      "verified_steps": 8,
+      "failed_steps": []
+    }
+  },
+  "records": [
+    {
+      "payload": {
+        "step": 0,
+        "type": "step_zero",
+        "declaration_ref": "declaration_team-aleph-vs-team-bet.json",
+        "group_id": "team-aleph",
+        "role": "police",
+        "sub_game_number": 5,
+        "github_commit": "a1ef0000c0fc0fc0fc0fc0fc0fc0fc0fc0fc0f5c"
+      },
+      "nonce": "b5b01d5695e53afdd218fdfdddc33335",
+      "commit": "f7ada44529a486b1e4c9a5f3aeadbfbefb8fa43a4cba26f29997a03583fd20be"
+    },
+    {
+      "payload": {
+        "step": 1,
+        "sub_game": 5,
+        "role": "police",
+        "state": "grid=7x7;self=[0, 0];barriers=[[0, 1]]",
+        "position": [
+          0,
+          0
+        ],
+        "move": "STAY",
+        "intent": "truth",
+        "hint": "Blocking the eastern alley before I start walking.",
+        "verdict": "placed_barrier",
+        "barrier_placed": [
+          0,
+          1
+        ]
+      },
+      "nonce": "913a5bfa7ddb4b546603df2216c13fa8",
+      "commit": "34c85f059d57fef2b97446cbc0d69b1e3a478f4c902b1b81bdbc3b5c2ac6d1d0"
+    },
+    {
+      "payload": {
+        "step": 2,
+        "sub_game": 5,
+        "role": "police",
+        "state": "grid=7x7;self=[1, 0];barriers=[[0, 1]]",
+        "position": [
+          1,
+          0
+        ],
+        "move": "MOVE:S",
+        "intent": "truth",
+        "hint": "Working south through the avenues, closing the block.",
+        "verdict": "moved"
+      },
+      "nonce": "365e30d37330a66099a841d4a5597a30",
+      "commit": "cc5bd2d346e10b9514d725e9769bccd8947772ec7552d0ec74984794fefdacf5"
+    },
+    {
+      "payload": {
+        "step": 3,
+        "sub_game": 5,
+        "role": "police",
+        "state": "grid=7x7;self=[2, 0];barriers=[[0, 1]]",
+        "position": [
+          2,
+          0
+        ],
+        "move": "MOVE:S",
+        "intent": "truth",
+        "hint": "Working south through the avenues, closing the block.",
+        "verdict": "moved"
+      },
+      "nonce": "a62bb75ba7ca0d5d2d21a6d06752585e",
+      "commit": "6faae990cf392dfc0af52a1cbda3af81075ddabc9aad419849b6b7774f1c5d83"
+    },
+    {
+      "payload": {
+        "step": 4,
+        "sub_game": 5,
+        "role": "police",
+        "state": "grid=7x7;self=[3, 0];barriers=[[0, 1]]",
+        "position": [
+          3,
+          0
+        ],
+        "move": "MOVE:S",
+        "intent": "truth",
+        "hint": "Working south through the avenues, closing the block.",
+        "verdict": "moved"
+      },
+      "nonce": "32748c9739206b1193b88c6355571e1d",
+      "commit": "560620753a8c879187f5c4c7dc46e59e211d8e86a44a0ba8d3a7d278b667bf23"
+    },
+    {
+      "payload": {
+        "step": 5,
+        "sub_game": 5,
+        "role": "police",
+        "state": "grid=7x7;self=[3, 1];barriers=[[0, 1]]",
+        "position": [
+          3,
+          1
+        ],
+        "move": "MOVE:E",
+        "intent": "truth",
+        "hint": "Working south through the avenues, closing the block.",
+        "verdict": "moved"
+      },
+      "nonce": "143f8617de42bd8d66cae8f4844df3f7",
+      "commit": "61eba3b61c8bcf46676e6a4e0f742a44d255573329cb8144bbfd0bfa5ff45b2a"
+    },
+    {
+      "payload": {
+        "step": 6,
+        "sub_game": 5,
+        "role": "police",
+        "state": "grid=7x7;self=[3, 2];barriers=[[0, 1]]",
+        "position": [
+          3,
+          2
+        ],
+        "move": "MOVE:E",
+        "intent": "truth",
+        "hint": "Working south through the avenues, closing the block.",
+        "verdict": "moved"
+      },
+      "nonce": "daa08da0b96ffc2d275e9c2d507fe676",
+      "commit": "d16ca3182279cae3ecae7efd550e8d6257f67844fc97bdc144599fc8fe0a999c"
+    },
+    {
+      "payload": {
+        "step": 7,
+        "sub_game": 5,
+        "role": "police",
+        "state": "grid=7x7;self=[3, 3];barriers=[[0, 1]]",
+        "position": [
+          3,
+          3
+        ],
+        "move": "MOVE:E",
+        "intent": "truth",
+        "hint": "Working south through the avenues, closing the block.",
+        "verdict": "moved",
+        "capture_claim": [
+          3,
+          3
+        ]
+      },
+      "nonce": "4d6b3ffa6a8d2e3a34b01b38a78c596f",
+      "commit": "0b9d5bc49bd730956292f06e1c14bc840adbca3c18b070ba12c330f2f47732d7"
+    }
+  ],
+  "opponent_records": [
+    {
+      "payload": {
+        "step": 0,
+        "type": "system_spec",
+        "spec": {
+          "os": "Windows (10.0.19045)",
+          "cpu_type": "AuthenticAMD x86_64",
+          "cpu_cores": 24,
+          "cpu_freq_mhz": 3693,
+          "ram_gb": 31.9,
+          "gpu_type": "RTX 3080 Ti",
+          "gpu_cores_or_cuda": "cuda",
+          "vram_gb": 12.0
+        },
+        "model": "none",
+        "code_version": "1.00",
+        "group_name": "team-bet",
+        "sub_game_number": 5,
+        "github_commit": "b2e70001de2de2de2de2de2de2de2de2de2de271",
+        "num_games_declared": 6
+      },
+      "nonce": "957e019ce925988392d68f987b39ee7e",
+      "commit": "cab45e507436e7f94624ce43ad7e2df51075b5de3a4b7884bc5ed678d4ac1c88"
+    },
+    {
+      "payload": {
+        "step": 1,
+        "sub_game": 5,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 3];barriers=[]",
+        "position": [
+          3,
+          3
+        ],
+        "move": "STAY",
+        "intent": "truth",
+        "hint": "Holding position, watching the avenue.",
+        "verdict": "moved"
+      },
+      "nonce": "0b3a1c56444a505fac2b5c8b2042280a",
+      "commit": "aa418e0b342683f0277e9e0350eb7ea817114cc1f007b0243f012e08f3a12467"
+    },
+    {
+      "payload": {
+        "step": 2,
+        "sub_game": 5,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 3];barriers=[]",
+        "position": [
+          3,
+          3
+        ],
+        "move": "STAY",
+        "intent": "truth",
+        "hint": "Holding position, watching the avenue.",
+        "verdict": "moved"
+      },
+      "nonce": "943aab1d5f5f9e39f36718fbd24f1978",
+      "commit": "aa3de6496b203e3220a6b8659825135e08224ff2296c64a9fcdea26e040acb37"
+    },
+    {
+      "payload": {
+        "step": 3,
+        "sub_game": 5,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 3];barriers=[]",
+        "position": [
+          3,
+          3
+        ],
+        "move": "STAY",
+        "intent": "truth",
+        "hint": "Holding position, watching the avenue.",
+        "verdict": "moved"
+      },
+      "nonce": "465f848706f30e8393e7952f7198a39b",
+      "commit": "d4dcd18f4e3803c62eaafaff57f6fb154b69cf49a81aa2b8f5839cea8e1468b4"
+    },
+    {
+      "payload": {
+        "step": 4,
+        "sub_game": 5,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 3];barriers=[]",
+        "position": [
+          3,
+          3
+        ],
+        "move": "STAY",
+        "intent": "truth",
+        "hint": "Holding position, watching the avenue.",
+        "verdict": "moved"
+      },
+      "nonce": "489fe8ae3b3719429b427bd8f1ce003e",
+      "commit": "57fdcba711da3b73dde60402ebcf16f6177d692fa3ebc2c4c5659e7e5b5af443"
+    },
+    {
+      "payload": {
+        "step": 5,
+        "sub_game": 5,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 3];barriers=[]",
+        "position": [
+          3,
+          3
+        ],
+        "move": "STAY",
+        "intent": "truth",
+        "hint": "Holding position, watching the avenue.",
+        "verdict": "moved"
+      },
+      "nonce": "f24a97f339605ab5f0ce46f7012c2baa",
+      "commit": "b79655c58d853d2ae4c366f9ef05b9bb703dbdd6c4a615ffdba9329f08482c6d"
+    },
+    {
+      "payload": {
+        "step": 6,
+        "sub_game": 5,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 3];barriers=[]",
+        "position": [
+          3,
+          3
+        ],
+        "move": "STAY",
+        "intent": "truth",
+        "hint": "Holding position, watching the avenue.",
+        "verdict": "moved"
+      },
+      "nonce": "4c396f04520aff590dedb45ede5b55e5",
+      "commit": "4793177c659b371605c6c006c5e32c24ca3712b5fbc4093cf0c90a102b5ff5b5"
+    },
+    {
+      "payload": {
+        "step": 7,
+        "sub_game": 5,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 3];barriers=[]",
+        "position": [
+          3,
+          3
+        ],
+        "move": "STAY",
+        "intent": "truth",
+        "hint": "Holding position, watching the avenue.",
+        "verdict": "moved"
+      },
+      "nonce": "7744b6567dd762d4256fc9b650e5a92e",
+      "commit": "aea32d52283723e3b522768faa33c267ad89b7a6757a8a0591acce0d8e9845aa"
+    }
+  ]
+}

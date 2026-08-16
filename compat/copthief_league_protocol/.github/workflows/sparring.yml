@@ -1,0 +1,75 @@
+# The ONLY workflow permitted to install a dependency.
+#
+# `verify.yml` installs nothing and must keep installing nothing — the repository root's
+# zero-dependency promise is what lets any team verify the kit without a toolchain decision.
+# `sparring/guards/purity.py` rule P-4 fails the build if `verify.yml` ever grows a `pip install`.
+#
+# Everything that can run without fastmcp already runs in verify.yml, including the full
+# six-sub-game series. What is left here is what genuinely needs a network stack: the four MCP
+# tools over real HTTP, and two containers playing each other.
+
+name: sparring
+
+on:
+  push:
+    paths:
+      - "sparring/**"
+      - "verify_vectors.py"
+      - "tools/**"
+      - ".github/workflows/sparring.yml"
+  pull_request:
+    paths:
+      - "sparring/**"
+      - "verify_vectors.py"
+      - "tools/**"
+      - ".github/workflows/sparring.yml"
+
+jobs:
+  http:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the one dependency
+        run: pip install -r sparring/requirements.txt
+      - name: The dependency claim covers the environment, not only our source
+        run: python -m sparring.guards.no_mail --check-env
+      - name: The four MCP tools answer over real HTTP
+        run: python -m unittest discover -s sparring/tests/http -t . -v
+
+  compose:
+    # Two peers, two containers, one whole series over HTTP — which is also what the book
+    # requires of a real submission (App. E rules 1-2: cop and thief in completely separate
+    # processes, no shared memory). The `http` job proves the networked driver settles a sub-game
+    # identically on both sides; this proves the packaging a team would actually run.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Two peers, two containers, one series
+        run: |
+          # The peers run as a non-root user (they are meant to be run by strangers), but a
+          # bind-mount target that does not exist is created root-owned by the daemon — so the
+          # container cannot write its artifacts. Create it first, writable.
+          mkdir -p sparring/runs && chmod 777 sparring/runs
+          docker compose -f sparring/docker-compose.yml up \
+            --abort-on-container-exit --exit-code-from spar-a
+      - name: Each side's artifacts verify, and the two sides agree on one game_uid
+        run: |
+          # Each peer wrote into its own directory, exactly as two teams on two machines would.
+          python -m sparring.cli replay sparring/runs/spar-a --expect-clean
+          python -m sparring.cli replay sparring/runs/spar-b --expect-clean
+          # Two directories: each is checked, and then the CROSS-TEAM join between them — the
+          # check no single team can run alone, and the one the 2026-07-25 series needed.
+          python tools/check_artifacts.py sparring/runs/spar-a/sparring_* \
+                                          sparring/runs/spar-b/sparring_*
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sparring-run
+          path: sparring/runs/

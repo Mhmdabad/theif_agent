@@ -1,0 +1,50 @@
+﻿# One sparring peer, waiting for YOUR implementation to dial it.
+#
+#     SPAR_PEER=http://host.docker.internal:<your-port>/mcp \
+#     docker compose -f sparring/docker-compose.await.yml up
+#
+# Point your peer at  http://localhost:8931/mcp  (or host.docker.internal from inside a container).
+#
+# SPAR_PEER is your OWN implementation's MCP URL, and it is what makes this peer PLAY: MCP
+# pushes one way per session, so a peer that only listens answers tools and moves nothing —
+# both sides must dial each other. Without SPAR_PEER this compose stands up the tools-only
+# mode: useful for probing the wire surface, but no game loop runs and greetings queue
+# unanswered. SPAR_ROLE picks our side of sub-game 1 (default police-first; set thief if your
+# implementation opens as police).
+#
+# If you expose this through a tunnel to play from elsewhere, rewrite the Host header or fastmcp
+# answers 421 to every request â€” its DNS-rebinding guard rejects any Host that is not its bind
+# address, which is every request arriving through a tunnel:
+#
+#     Cloudflare   originRequest.httpHostHeader: 127.0.0.1:8931
+#     ngrok        --host-header=rewrite
+#
+# (SPEC Appendix D. It is the single most common first-contact failure between two teams.)
+#
+# On Linux: mkdir -p sparring/runs && chmod 777 sparring/runs  before you start, or the daemon\n# creates the bind-mount target root-owned and this peer (which runs as non-root on purpose)\n# cannot write its artifacts.\n#\n# Expect NO report from this host. Sparring is an uncounted warm-up (App. E rule 52), so nothing
+# is owed by either side â€” and point your OWN mail at yourselves or at nothing while practising,
+# never at the lecturer. See docs/WARNINGS.md.
+
+services:
+  sparring:
+    build:
+      context: ..
+      dockerfile: sparring/Dockerfile
+    command:
+      - serve
+      - --host=0.0.0.0
+      - --port=8931
+      - --await-peer
+      - --peer=${SPAR_PEER:-}
+      - --role=${SPAR_ROLE:-alternate}
+      - --artifacts=/kit/runs
+    ports:
+      - "8931:8931"
+    volumes:
+      - ./runs:/kit/runs
+    # SPAR_PEER's natural value is http://host.docker.internal:<port>/mcp — but that name only
+    # exists by magic on Docker Desktop. On a Linux engine it is "Name or service not known" and
+    # the peer burns its whole await budget polling a URL that can never answer. host-gateway
+    # makes the name real on both.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

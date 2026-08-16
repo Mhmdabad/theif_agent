@@ -1,0 +1,47 @@
+name: Proposal
+description: The kit should also pin something
+labels: ["proposal"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The bar is specifically **interop**: a construction belongs here if two independent
+        implementations can silently disagree on it and lose a game as a result. Strategy,
+        performance and architecture are private by design and are out of scope.
+
+        Accepted proposals land as `PROPOSED` — an accurate statement that one implementation
+        has it, not a hedge.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What should be pinned
+    validations:
+      required: true
+
+  - type: textarea
+    id: failure
+    attributes:
+      label: What breaks without it
+      description: >
+        Ideally a concrete divergence: two reasonable readings, and the game state or artifact
+        where they collide.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Where does it belong?
+      options:
+        - CORE — the book or the reference forces it
+        - Enhancement (Appendix A) — opt-in, both teams must sign it in
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: implementations
+    attributes:
+      label: Who has implemented it
+      description: Yours, ours, the reference, nobody yet — this decides the tier it can start at.

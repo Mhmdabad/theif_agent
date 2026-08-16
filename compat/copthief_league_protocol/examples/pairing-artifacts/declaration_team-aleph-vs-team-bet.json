@@ -1,0 +1,100 @@
+{
+  "_schema": "Pre-game declaration: the single home for everything fixed across the series - identity, members, repos, MCP endpoints, BOTH teams' hardware specs, LLM model, token cap (book ch5 step-0; section 9.3.3's template list). No end time: nothing here is known only after the games.",
+  "schema_version": "1.1",
+  "declaration_type": "pre_game_declaration",
+  "report_type": "declaration",
+  "league": {
+    "authority": "book App. E rule 52 — the one counted series of this pairing",
+    "counted": true,
+    "reason": "counted",
+    "_synthetic": "example bundle: no game was played to produce these bytes"
+  },
+  "game_id": "team-aleph-vs-team-bet",
+  "game_uid": "da4f6f1e-c9b0-6051-1485-b02030c5b1e6",
+  "links": {
+    "declaration": "declaration_team-aleph-vs-team-bet.json",
+    "config": "config_team-aleph-vs-team-bet_g<NN>.json",
+    "log": "log_team-aleph-vs-team-bet_g<NN>.json",
+    "result": "result_team-aleph-vs-team-bet.json",
+    "github": {
+      "team-aleph": {
+        "cop": "https://github.com/team-aleph/cop",
+        "thief": "https://github.com/team-aleph/thief"
+      },
+      "team-bet": {
+        "cop": "https://github.com/team-bet/cop",
+        "thief": "https://github.com/team-bet/thief"
+      }
+    }
+  },
+  "timezone": "Asia/Jerusalem",
+  "game_started_at": "2026-08-04T01:00:00+03:00",
+  "num_sub_games": 6,
+  "max_tokens_per_game": 200000,
+  "groups": {
+    "group_1": {
+      "group_id": "team-aleph",
+      "group_name": "team-aleph",
+      "members": [
+        "team-aleph-member-1",
+        "team-aleph-member-2"
+      ],
+      "repos": {
+        "cop": "https://github.com/team-aleph/cop",
+        "thief": "https://github.com/team-aleph/thief"
+      },
+      "mcp_servers": {
+        "cop": "https://cop.team-aleph.example/mcp",
+        "thief": "https://thief.team-aleph.example/mcp"
+      },
+      "llm_model": "template",
+      "hardware_spec": {
+        "os": "Windows 10",
+        "cpu_type": "GenuineIntel x86_64",
+        "cpu_cores": 24,
+        "cpu_freq_mhz": 3418,
+        "ram_gb": 32,
+        "gpu_model": "Radeon RX 7900 XTX",
+        "vram_gb": 24,
+        "python": "3.13.13"
+      },
+      "hardware_spec_sha256": "037e57f3c77e45024df87f35d90bc43c1dfb5dd69f3751979946629e2d7c4d5d",
+      "github_commit": "a1ef0000c0fc0fc0fc0fc0fc0fc0fc0fc0fc0f5c",
+      "counted_games_played": 0,
+      "code_version": "1.00",
+      "signature": "sha256:42cad27e3141df536b3ccfda37bf2c1d29c434e6c752147214a6b806efcf51fb"
+    },
+    "group_2": {
+      "group_id": "team-bet",
+      "group_name": "team-bet",
+      "members": [
+        "team-bet-member-1",
+        "team-bet-member-2"
+      ],
+      "repos": {
+        "cop": "https://github.com/team-bet/cop",
+        "thief": "https://github.com/team-bet/thief"
+      },
+      "mcp_servers": {
+        "cop": "https://cop.team-bet.example/mcp",
+        "thief": "https://thief.team-bet.example/mcp"
+      },
+      "llm_model": "template",
+      "hardware_spec": {
+        "os": "Windows (10.0.19045)",
+        "cpu_type": "AuthenticAMD x86_64",
+        "cpu_cores": 24,
+        "cpu_freq_mhz": 3693,
+        "ram_gb": 31.9,
+        "gpu_type": "RTX 3080 Ti",
+        "gpu_cores_or_cuda": "cuda",
+        "vram_gb": 12.0
+      },
+      "hardware_spec_sha256": "ee0a87e54271ca07bebb8cdc4dd02b4394cdd4490236aff49f4b5b130ba2f3ec",
+      "github_commit": "b2e70000abcabcabcabcabcabcabcabcabcabc90",
+      "counted_games_played": 0,
+      "code_version": "1.00",
+      "signature": "sha256:1b971086ca162b29f526904b987a035e518c53a80a30fc2ec0848c47ab809b95"
+    }
+  }
+}

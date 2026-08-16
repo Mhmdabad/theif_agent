@@ -1,0 +1,64 @@
+name: verify
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Regenerate vectors, worked example, evidence and pairing bundle
+        run: |
+          python gen_vectors.py
+          python examples/gen_sample_exchange.py
+          python gen_evidence.py
+          python examples/gen_pairing_artifacts.py
+      - name: Pairing bundle still passes the artifact gate
+        run: python tools/check_artifacts.py examples/pairing-artifacts
+
+      - name: Pairing bundle's games are still playable
+        # check_artifacts never opens a sealed payload, so it cannot see a log that
+        # contradicts its own summary. This walks both sides' moves and requires each
+        # sub-game to reach the outcome its row declares.
+        run: python examples/verify_pairing_physics.py
+      - name: Verify all fixtures (core + enhancements)
+        run: python verify_vectors.py
+      - name: Tools still catch what they claim to
+        # A checker that only ever passes is decoration, so both tools carry negative cases and
+        # CI runs them. netcheck's self-test is loopback-only and needs no network.
+        run: |
+          python tools/check_artifacts.py --selftest
+          python tools/netcheck.py --selftest
+      - name: anrbj666's audit probes stay green (a red probe = a fixed finding regressed)
+        run: python tools/probes/run_all.py .
+      - name: Sparring peer — guarantees about its own source
+        # Both guards run here, in the job that installs NOTHING, so the claims hold even on a
+        # change that never touches the peer.
+        run: |
+          python -m sparring.guards.no_mail
+          python -m sparring.guards.purity
+      - name: Sparring peer — the whole game layer, with no dependencies installed
+        # A full six-sub-game series over an in-process transport: role alternation, mutual
+        # audits, artifacts, and the same series again over a transport that duplicates,
+        # reorders and retries.
+        run: python -m unittest discover -s sparring/tests -t . -v
+      - name: Sparring peer — a series still produces the artifacts a checker accepts
+        run: |
+          python -m sparring.cli selfplay --skip-vectors --artifacts /tmp/spar
+          python tools/check_artifacts.py /tmp/spar/sparring_*
+          python -m sparring.cli replay /tmp/spar --expect-clean
+      - name: Regenerate the behavioural golden
+        run: python -m sparring.tests.gen_golden
+      - name: Fail on any drift between reference code and committed artifacts
+        run: |
+          git status --porcelain
+          # `git diff --exit-code` catches edits to committed artifacts. It does NOT see untracked
+          # files, so a newly generated artifact that was never committed would pass silently —
+          # hence the porcelain check beside it.
+          git diff --exit-code
+          test -z "$(git status --porcelain)"

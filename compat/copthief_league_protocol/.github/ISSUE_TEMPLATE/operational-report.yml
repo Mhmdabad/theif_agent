@@ -1,0 +1,43 @@
+name: Operational report
+description: This failed against a real peer
+labels: ["ops"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tunnels, host headers, delivery semantics, handshake races. SPEC Appendix D and §7.1 both
+        started as reports like this one.
+
+        **Keep the observation and the conclusion separate** — the observation stays useful even
+        if the conclusion turns out to be wrong.
+
+  - type: textarea
+    id: observed
+    attributes:
+      label: What you observed
+      description: Status codes, timings, message shapes. Redact anything strategic.
+    validations:
+      required: true
+
+  - type: textarea
+    id: concluded
+    attributes:
+      label: What you concluded
+      description: Separate from the above, and clearly marked as inference.
+
+  - type: input
+    id: transport
+    attributes:
+      label: Transport
+      placeholder: Cloudflare named tunnel → fastmcp streamable-HTTP, Python 3.12
+
+  - type: dropdown
+    id: reproducible
+    attributes:
+      label: Can you reproduce it on demand?
+      options:
+        - "Yes"
+        - "Intermittently"
+        - "Once, and I could not repeat it"
+    validations:
+      required: true

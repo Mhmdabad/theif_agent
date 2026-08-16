@@ -119,6 +119,21 @@ PUBLIC_URL=https://ours.ngrok.io OPPONENT_URL=https://theirs.ngrok.io/mcp \
     python -m thief_agent play --game-id AGREED_ID --out artefacts
 ```
 
+### Reference-v3 kit rehearsal
+
+Use this path for a friendly against a team running `copthief-league-protocol`. Both peers must
+dial each other and choose complementary starting roles:
+
+```bash
+python -m thief_agent.reference_v3 serve \
+  --host 0.0.0.0 --port 8802 --peer https://their-host/mcp \
+  --role thief --group-id sparring-s82kma9e --policy search \
+  --await-peer --artifacts runs/reference-v3
+```
+
+This command intentionally produces the kit's uncounted sparring artifacts and sends no report.
+Use it to complete a clean six-game warm-up before scheduling a counted match.
+
 Handshake → agree the config digest → play the sub-games → audit the opponent →
 write `declaration_`, `config_`, `log_` and `result_`. The `game_id` is agreed
 with the opponent beforehand: both sides name their files from it.

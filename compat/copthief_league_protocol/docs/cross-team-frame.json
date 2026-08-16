@@ -1,0 +1,63 @@
+{
+  "_remark": "A REAL inbound greeting from another team's peer, 2026-07-25. Redaction is MARKED, never silent: every key the wire carried is present, and only five values are replaced. A dropped field would be a claim about the protocol, and a false one.",
+  "_source": "the first fully autonomous cross-team series, 2026-07-25 — six sub-games, one wire game_uid, mutual audits clean both ways. The logs are in a private implementation repository; the run is cited, not the path.",
+  "_redacted": {
+    "identity.counted_games_played": "their league standing at that moment",
+    "identity.mcp_servers.*": "their tunnel URLs",
+    "identity.repos.*": "their private repository URLs"
+  },
+  "greeting": {
+    "group_id": "anrbj666",
+    "hardware_spec_sha256": "58209ad522fc252de904bc262f9ee1d41336fd31c43ec07d5e38227119837fcd",
+    "identity": {
+      "counted_games_played": "<redacted - their league standing at that moment>",
+      "group_id": "anrbj666",
+      "mcp_servers": {
+        "cop": "<redacted - their infrastructure>",
+        "thief": "<redacted - their infrastructure>"
+      },
+      "repos": {
+        "cop": "<redacted - private repository>",
+        "thief": "<redacted - private repository>"
+      }
+    },
+    "info_mode": "belief",
+    "nonce": "172141cb383fca02ac3878a72a00e1d6",
+    "role": "police",
+    "scent_model_sha256": "934c220d5bf62acaa3297c6c9d723ea954c220260b02292ca17f6d5daef9f4d9",
+    "signature": "9df1ea6507caca8c848a8e87b9250c2a7a65cf0fe4a51267869fd2ed7909e985",
+    "sub_game_number": 1,
+    "terms": {
+      "axis_origin_corner": "top-left",
+      "axis_start_index": 0,
+      "barriers_max": 14,
+      "board_size": 7,
+      "cop_start": [
+        0,
+        0
+      ],
+      "decay_per_step": 0.1,
+      "emit_intensity": 0.9,
+      "hint_max_words": 15,
+      "max_steps": 35,
+      "min_center_intensity": 0.5,
+      "num_games": 6,
+      "setting": "New York",
+      "smell_grid_size": 5,
+      "thief_start": [
+        3,
+        3
+      ]
+    },
+    "wire_shape_sha256": "229ae6487a418c3fcb6da9be404de2f2533c288ebc228811bff6dedc4164d6f7"
+  },
+  "audit_claim": {
+    "result_claim": "survival",
+    "sender": "thief"
+  },
+  "our_verdict_on_their_records": {
+    "audit_ok": true,
+    "outcome": "thief_survival",
+    "steps": 35
+  }
+}

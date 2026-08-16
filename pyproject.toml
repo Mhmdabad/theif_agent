@@ -35,7 +35,7 @@ src = ["src", "tests"]
 # rewritten by the formatter: `project-book/` is a faithful transcription of the
 # course rulebook (hash-verified against the source PDF) and the PRD snippets are
 # deliberately illustrative rather than runnable.
-extend-exclude = ["*.md", "project-book", "docs"]
+extend-exclude = ["*.md", "project-book", "docs", "compat"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "ANN"]
@@ -60,4 +60,8 @@ show_missing = true
 
 [[tool.mypy.overrides]]
 module = ["google_auth_oauthlib.*", "googleapiclient.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["sparring.*"]
 ignore_missing_imports = true

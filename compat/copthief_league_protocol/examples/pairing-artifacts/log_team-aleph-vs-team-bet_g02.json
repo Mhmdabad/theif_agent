@@ -1,0 +1,1349 @@
+{
+  "_schema": "Per-sub-game log: every step sealed commit-reveal, both step-0 spellings (ours slim + declaration_ref, theirs the reference's inline system_spec). Static team metadata is NOT repeated here - it lives in the declaration; join by game_uid. The nonces are DERIVABLE BY DESIGN (see the generator): a real game needs unpredictable ones or the commitment hides nothing.",
+  "schema_version": "1.1",
+  "game_id": "team-aleph-vs-team-bet",
+  "game_uid": "da4f6f1e-c9b0-6051-1485-b02030c5b1e6",
+  "links": {
+    "declaration": "declaration_team-aleph-vs-team-bet.json",
+    "config": "config_team-aleph-vs-team-bet_g<NN>.json",
+    "log": "log_team-aleph-vs-team-bet_g<NN>.json",
+    "result": "result_team-aleph-vs-team-bet.json",
+    "github": {
+      "team-aleph": {
+        "cop": "https://github.com/team-aleph/cop",
+        "thief": "https://github.com/team-aleph/thief"
+      },
+      "team-bet": {
+        "cop": "https://github.com/team-bet/cop",
+        "thief": "https://github.com/team-bet/thief"
+      }
+    }
+  },
+  "league": {
+    "authority": "book App. E rule 52 — the one counted series of this pairing",
+    "counted": true,
+    "reason": "counted",
+    "_synthetic": "example bundle: no game was played to produce these bytes"
+  },
+  "sub_game_number": 2,
+  "summary": {
+    "sub_game_number": 2,
+    "group_id": "team-aleph",
+    "role": "thief",
+    "opponent_group_id": "team-bet",
+    "result": "survival",
+    "winner_group": "team-aleph",
+    "timezone": "Asia/Jerusalem",
+    "steps": 35,
+    "audit": {
+      "passed": true,
+      "skipped": false,
+      "verified_steps": 36,
+      "failed_steps": []
+    }
+  },
+  "records": [
+    {
+      "payload": {
+        "step": 0,
+        "type": "step_zero",
+        "declaration_ref": "declaration_team-aleph-vs-team-bet.json",
+        "group_id": "team-aleph",
+        "role": "thief",
+        "sub_game_number": 2,
+        "github_commit": "a1ef00017f17f17f17f17f17f17f17f17f17f13e"
+      },
+      "nonce": "3e7f4a97aea6027bf10dd295c6647f09",
+      "commit": "99dd604b1015c94669ab56d6dd5a39ed1f0b55a1e29754350f4392438792cc23"
+    },
+    {
+      "payload": {
+        "step": 1,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 4];barriers=[]",
+        "position": [
+          3,
+          4
+        ],
+        "move": "MOVE:E",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "0cccaef47d2c1a733bbc32f49e308029",
+      "commit": "f4891390f370d07b3f70d27504af498862aa31acfcf8656a72444294f8d1e86b"
+    },
+    {
+      "payload": {
+        "step": 2,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[4, 4];barriers=[]",
+        "position": [
+          4,
+          4
+        ],
+        "move": "MOVE:S",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "43707a5c1f20eadc3e531ed5ea11d691",
+      "commit": "f13cea2971e67877de9dc2c9915b8c00b7ea5f97df4804cc4392670addf9f511"
+    },
+    {
+      "payload": {
+        "step": 3,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[4, 3];barriers=[]",
+        "position": [
+          4,
+          3
+        ],
+        "move": "MOVE:W",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "abb8c29ed793caa098d491e0180a1973",
+      "commit": "22f3090affc253aedc0b99799386c87a67a9909b3cc23e50d25070d6e8b86cbf"
+    },
+    {
+      "payload": {
+        "step": 4,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 3];barriers=[]",
+        "position": [
+          3,
+          3
+        ],
+        "move": "MOVE:N",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "6f293eea288821b588f31527aa8bb58f",
+      "commit": "8c3e4a409259c76ec6fdd6d088df010b2c9f5b9e5fce24e314812058040bc25c"
+    },
+    {
+      "payload": {
+        "step": 5,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 4];barriers=[]",
+        "position": [
+          3,
+          4
+        ],
+        "move": "MOVE:E",
+        "intent": "lie",
+        "hint": "אני בדרך צפונה, הרחק מכאן 🚕",
+        "verdict": "moved"
+      },
+      "nonce": "0aabfda165a8e8615a26d65ec2ffbb68",
+      "commit": "8e6be4203b66482f62eed8f47f40c2c78f1c08aaa8c02b3d2e491d9723f2b799"
+    },
+    {
+      "payload": {
+        "step": 6,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[4, 4];barriers=[]",
+        "position": [
+          4,
+          4
+        ],
+        "move": "MOVE:S",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "58f956ab6515d1f5490a08ec237af56f",
+      "commit": "42067a51dc5b69e81d7248c46fb6b9b5e0bf304b875b3f13a42ca67c9fcb152b"
+    },
+    {
+      "payload": {
+        "step": 7,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[4, 3];barriers=[]",
+        "position": [
+          4,
+          3
+        ],
+        "move": "MOVE:W",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "7e9de6ff3111a457145debb94575e7df",
+      "commit": "9b4f4a468543dba466d248903eb8edca3aa18bf5b77c8ab8e03dc1456026e870"
+    },
+    {
+      "payload": {
+        "step": 8,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 3];barriers=[]",
+        "position": [
+          3,
+          3
+        ],
+        "move": "MOVE:N",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "ca49363a8e8684bb93bce18790fae1fc",
+      "commit": "a20202f86e78f52f405f87ff501b856702554abf87d99907be9c548de1fa75e0"
+    },
+    {
+      "payload": {
+        "step": 9,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 4];barriers=[]",
+        "position": [
+          3,
+          4
+        ],
+        "move": "MOVE:E",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "f3fe9fb237dfd894fde88d672aa9ace1",
+      "commit": "09ed3c7884df8cd49454a073f7adad07b634518cbf2ec0310dc7d2e7ebb9e78b"
+    },
+    {
+      "payload": {
+        "step": 10,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[4, 4];barriers=[]",
+        "position": [
+          4,
+          4
+        ],
+        "move": "MOVE:S",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "08d769152e1a9f70d9578a8b08f16619",
+      "commit": "ee45600ed392c2117eb5652b9f6ec9538b87d5163b82fc69b527d3aff17deb50"
+    },
+    {
+      "payload": {
+        "step": 11,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[4, 3];barriers=[]",
+        "position": [
+          4,
+          3
+        ],
+        "move": "MOVE:W",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "2237293dc8fc578ee3c187122e57bc03",
+      "commit": "8244c849b0609a87c5c6a8d34f4c6e0ba9af82066240ecd54d9f596a2df1a80c"
+    },
+    {
+      "payload": {
+        "step": 12,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 3];barriers=[]",
+        "position": [
+          3,
+          3
+        ],
+        "move": "MOVE:N",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "908ffc7a29cec42815f2960b27203357",
+      "commit": "68907c9efaef90e64f2e4ae6046706f19a4af3201b37a5cb9395f41afb947586"
+    },
+    {
+      "payload": {
+        "step": 13,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 4];barriers=[]",
+        "position": [
+          3,
+          4
+        ],
+        "move": "MOVE:E",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "8f4e00eed28bfec9653912e4fd5790fc",
+      "commit": "6278e02548c01de536f023a2b1aaadf67c28de9a6e1ac4620be5a99daf2ed75b"
+    },
+    {
+      "payload": {
+        "step": 14,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[4, 4];barriers=[]",
+        "position": [
+          4,
+          4
+        ],
+        "move": "MOVE:S",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "f1bdfc945dbac75e4db7d4f30d72520e",
+      "commit": "bb086041a0b27e6b0fe3e0f687a2b2035657c51432302d4cacd87e8f52e26e20"
+    },
+    {
+      "payload": {
+        "step": 15,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[4, 3];barriers=[]",
+        "position": [
+          4,
+          3
+        ],
+        "move": "MOVE:W",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "accfc33d2490f53baaee450c3ba84a17",
+      "commit": "38f8b1cae7cc1bb7f28c3a66962b451c08bb843734dd954e2b606c3e4d05e2f8"
+    },
+    {
+      "payload": {
+        "step": 16,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 3];barriers=[]",
+        "position": [
+          3,
+          3
+        ],
+        "move": "MOVE:N",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "9e5fddf1ba5e2d04bd9c0f26286ff5be",
+      "commit": "f3e6a70b61d5cc7892550a4068d8c3813a0f637f865d12c2a91c3e8fcffe3743"
+    },
+    {
+      "payload": {
+        "step": 17,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 4];barriers=[]",
+        "position": [
+          3,
+          4
+        ],
+        "move": "MOVE:E",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "358525a869029b3796e908da11f9ba52",
+      "commit": "194006efa265ff1398f7370a45396fcd7dbfa79d0e7accc423e0457073275002"
+    },
+    {
+      "payload": {
+        "step": 18,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[4, 4];barriers=[]",
+        "position": [
+          4,
+          4
+        ],
+        "move": "MOVE:S",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "dd853b7ba33f1e517eb49ab7ebdebc12",
+      "commit": "d8dff893fea52148dcb166af4c6556486787d242378277be6254d0c8a0e01603"
+    },
+    {
+      "payload": {
+        "step": 19,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[4, 3];barriers=[]",
+        "position": [
+          4,
+          3
+        ],
+        "move": "MOVE:W",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "5b8fbafc13ea994100fc881e2d06a183",
+      "commit": "ee05e5667f0b3875979014a848509810cc4199228baf73fdda0c6c0bd721e9de"
+    },
+    {
+      "payload": {
+        "step": 20,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 3];barriers=[]",
+        "position": [
+          3,
+          3
+        ],
+        "move": "MOVE:N",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "abeae007539e8f9737d3ee9274719ce2",
+      "commit": "4bf3cba07b19312792af498ae036297ddda38b8da0fad55ad468bf3078d5c7ac"
+    },
+    {
+      "payload": {
+        "step": 21,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 4];barriers=[]",
+        "position": [
+          3,
+          4
+        ],
+        "move": "MOVE:E",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "c322b37e32376104503e2e75bbb52b9e",
+      "commit": "d6b0543a932c2ab6054c8ea19f0e495a5d5bf7ef2e1f3be9eee4df092d4bbe00"
+    },
+    {
+      "payload": {
+        "step": 22,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[4, 4];barriers=[]",
+        "position": [
+          4,
+          4
+        ],
+        "move": "MOVE:S",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "10229e9b7bad6789489c5f86fe5fd480",
+      "commit": "6b29a9d34c8b4b6c5e1484b60c584df6c5ea37f407efbd8647687d4ece4c190f"
+    },
+    {
+      "payload": {
+        "step": 23,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[4, 3];barriers=[]",
+        "position": [
+          4,
+          3
+        ],
+        "move": "MOVE:W",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "0713cccfd5b3480ab34b3cf2942349ee",
+      "commit": "6b19752b0f83f2620492028cc6c013125d367a746bb9ac92950e96bc4bf16900"
+    },
+    {
+      "payload": {
+        "step": 24,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 3];barriers=[]",
+        "position": [
+          3,
+          3
+        ],
+        "move": "MOVE:N",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "a11d94cf15b826ecb73befb11e98b18f",
+      "commit": "3f6ec8374e0b7677ba649ffb5e01114d228244232a2f62dfb5d8791a7466d473"
+    },
+    {
+      "payload": {
+        "step": 25,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 4];barriers=[]",
+        "position": [
+          3,
+          4
+        ],
+        "move": "MOVE:E",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "3f2e87d1f2d8071288d30a6e94eff5c3",
+      "commit": "ea1b1a3940bf68d60c78e0cadc75207567bbd32fc4dd4b0eb8ad9d08fa2d4c13"
+    },
+    {
+      "payload": {
+        "step": 26,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[4, 4];barriers=[]",
+        "position": [
+          4,
+          4
+        ],
+        "move": "MOVE:S",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "9781d7aa19d1c82e0b04db5f3f4ffbc2",
+      "commit": "ad0d46684d9e92fb5d8502a2fa18352c489db7657b00440a8ff49c4c6356eb0a"
+    },
+    {
+      "payload": {
+        "step": 27,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[4, 3];barriers=[]",
+        "position": [
+          4,
+          3
+        ],
+        "move": "MOVE:W",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "410f8ea46a658cf64af86941cc5eb71f",
+      "commit": "84c743aaa8beeb62b1b2ce37073cf37455fb54fdccb94fdc09df98456a50a527"
+    },
+    {
+      "payload": {
+        "step": 28,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 3];barriers=[]",
+        "position": [
+          3,
+          3
+        ],
+        "move": "MOVE:N",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "b9aee6cbbedc4f9ebc30f62b36ac9c1f",
+      "commit": "f33ba61b1b39f95fdc82cca5ded394fb465cc0126f0b6309bcaae94f448d7ba6"
+    },
+    {
+      "payload": {
+        "step": 29,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 4];barriers=[]",
+        "position": [
+          3,
+          4
+        ],
+        "move": "MOVE:E",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "901dae14bd45cba2cf37bbf9d179cc4f",
+      "commit": "dad083532563c3e0be4d59ee06ae7d63b35e19cc682a0129416e2b31f5b2395d"
+    },
+    {
+      "payload": {
+        "step": 30,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[4, 4];barriers=[]",
+        "position": [
+          4,
+          4
+        ],
+        "move": "MOVE:S",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "d4e03cd6381317a663013ed75ddd9caa",
+      "commit": "ff4efc4d89f2daf7095507c4e340858136189c373eeae083fa2e950b812c40a8"
+    },
+    {
+      "payload": {
+        "step": 31,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[4, 3];barriers=[]",
+        "position": [
+          4,
+          3
+        ],
+        "move": "MOVE:W",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "0acefb937b87fb8c00ae2915d271c240",
+      "commit": "72581d33ec144c57e93dd923539676590346ede1555a896bc25b23804d51d2f9"
+    },
+    {
+      "payload": {
+        "step": 32,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 3];barriers=[]",
+        "position": [
+          3,
+          3
+        ],
+        "move": "MOVE:N",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "a547f600da34d66e28a01cf553439d6f",
+      "commit": "5fe0a0d7048b3d25b579d2f07a5c3c439f6afb3be2b85870fc4a3512b3587579"
+    },
+    {
+      "payload": {
+        "step": 33,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[3, 4];barriers=[]",
+        "position": [
+          3,
+          4
+        ],
+        "move": "MOVE:E",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "49f97b7187df8ea3917304fec943c8d5",
+      "commit": "4572906fbc4d8c49771b10821fc33fbd09ac7b0ffdad2fc95bb3f75e85615f40"
+    },
+    {
+      "payload": {
+        "step": 34,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[4, 4];barriers=[]",
+        "position": [
+          4,
+          4
+        ],
+        "move": "MOVE:S",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved"
+      },
+      "nonce": "cf9d1249497af5b20686dfeb3104e2c6",
+      "commit": "752b391d625acd9ee3569b9e9c48a59d001492e8fd02cedd377ee1e6ad760db4"
+    },
+    {
+      "payload": {
+        "step": 35,
+        "sub_game": 2,
+        "role": "thief",
+        "state": "grid=7x7;self=[4, 3];barriers=[]",
+        "position": [
+          4,
+          3
+        ],
+        "move": "MOVE:W",
+        "intent": "truth",
+        "hint": "Circling the same few blocks, staying loose.",
+        "verdict": "moved",
+        "win_claim": {
+          "type": "survival"
+        }
+      },
+      "nonce": "41ccd8f88f1c4568261df9c3ed39609c",
+      "commit": "03b728dfd8fe00bc7d6ed41dcb72afaa0d68b60579a46b4c492a1589fb3512ce"
+    }
+  ],
+  "opponent_records": [
+    {
+      "payload": {
+        "step": 0,
+        "type": "system_spec",
+        "spec": {
+          "os": "Windows (10.0.19045)",
+          "cpu_type": "AuthenticAMD x86_64",
+          "cpu_cores": 24,
+          "cpu_freq_mhz": 3693,
+          "ram_gb": 31.9,
+          "gpu_type": "RTX 3080 Ti",
+          "gpu_cores_or_cuda": "cuda",
+          "vram_gb": 12.0
+        },
+        "model": "none",
+        "code_version": "1.00",
+        "group_name": "team-bet",
+        "sub_game_number": 2,
+        "github_commit": "b2e70000abcabcabcabcabcabcabcabcabcabc90",
+        "num_games_declared": 6
+      },
+      "nonce": "8437635583e32d53e10e68803aabaa51",
+      "commit": "2bdb483884cc3b1ac055299dd777afc1b4e34945af3827d4b69b1f9b8726802a"
+    },
+    {
+      "payload": {
+        "step": 1,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[1, 0];barriers=[]",
+        "position": [
+          1,
+          0
+        ],
+        "move": "MOVE:S",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "5b44f87ea617079f40cc15042cdffe7f",
+      "commit": "7fdb87754f942151ec13d3e8252cd0a5fdaa69746b816afc21676e26df7ab09f"
+    },
+    {
+      "payload": {
+        "step": 2,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[1, 1];barriers=[]",
+        "position": [
+          1,
+          1
+        ],
+        "move": "MOVE:E",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "878bfd770d560cf9b61399cd0639c82b",
+      "commit": "7e3732c1f5cedabea82c208ddcc4700e5b3d5779d6518aa7947347b2e4df38d2"
+    },
+    {
+      "payload": {
+        "step": 3,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[1, 2];barriers=[]",
+        "position": [
+          1,
+          2
+        ],
+        "move": "MOVE:E",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "b175061cb54c507697eb2d7a46d60366",
+      "commit": "2c4c87d479d30bbee1276fb48d8bdeff285dc2a05e2e3ae52261a85e708e6b3f"
+    },
+    {
+      "payload": {
+        "step": 4,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[2, 2];barriers=[]",
+        "position": [
+          2,
+          2
+        ],
+        "move": "MOVE:S",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "3fa8425ca59863a0d3b76d6f567529ea",
+      "commit": "aa29d88955270a0cbb94652fe35fb37897b1017e78fea933d8c10fb0f4794853"
+    },
+    {
+      "payload": {
+        "step": 5,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[2, 1];barriers=[]",
+        "position": [
+          2,
+          1
+        ],
+        "move": "MOVE:W",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "481243610f77e2d782dd99ff282d515f",
+      "commit": "cd446a60d55a3c42d4a1203640b7f5993753c9797a729e615c6c507f79127466"
+    },
+    {
+      "payload": {
+        "step": 6,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[1, 1];barriers=[]",
+        "position": [
+          1,
+          1
+        ],
+        "move": "MOVE:N",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "1dd6682c0d82088693109d032aaa1649",
+      "commit": "57bb4b8f08de30d6b46c007fa83cd537f49cd7fcc69fdf5ccd8afb02010afdbd"
+    },
+    {
+      "payload": {
+        "step": 7,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[1, 2];barriers=[]",
+        "position": [
+          1,
+          2
+        ],
+        "move": "MOVE:E",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "12b656b600eb8b5eeeac142ea1a7a1a3",
+      "commit": "31a17d672334476e1b4bf9dc34e915a1b2862fdf19a899898478b9c7d3c9809a"
+    },
+    {
+      "payload": {
+        "step": 8,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[2, 2];barriers=[]",
+        "position": [
+          2,
+          2
+        ],
+        "move": "MOVE:S",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "f582709afea948841a18c7436663532e",
+      "commit": "97f6a4d0fa8f6de56f22a075643d96cf8c01b1ee3db6a82c60c0595bcd0af117"
+    },
+    {
+      "payload": {
+        "step": 9,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[2, 1];barriers=[]",
+        "position": [
+          2,
+          1
+        ],
+        "move": "MOVE:W",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "1f86ad04a0a3d46e0b6e55f0153c0f2a",
+      "commit": "6e1ead999144cc9d862fe697b7049354c2c32d7d10580f7b0858cd37780aae03"
+    },
+    {
+      "payload": {
+        "step": 10,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[1, 1];barriers=[]",
+        "position": [
+          1,
+          1
+        ],
+        "move": "MOVE:N",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "0812822ee9ef68d9e03448446fbc44e6",
+      "commit": "639ee4ccbce0dfaac27786d6b530dc8e1b4cdaa06229c517af5ae0e3be09490d"
+    },
+    {
+      "payload": {
+        "step": 11,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[1, 2];barriers=[]",
+        "position": [
+          1,
+          2
+        ],
+        "move": "MOVE:E",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "277cded247a4fa25819a148c0e9b9381",
+      "commit": "c9f1081ecf41be886449c9283d51269ecd74df02c3627ec145db8b0205b21c55"
+    },
+    {
+      "payload": {
+        "step": 12,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[2, 2];barriers=[]",
+        "position": [
+          2,
+          2
+        ],
+        "move": "MOVE:S",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "606c6e022e00373ee4b941ba331c8d8c",
+      "commit": "a817777fc4633d4e6557b36b4fcb603218528f64b641c56cf3151982207c6389"
+    },
+    {
+      "payload": {
+        "step": 13,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[2, 1];barriers=[]",
+        "position": [
+          2,
+          1
+        ],
+        "move": "MOVE:W",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "09a11e8dc7de085ea6068b295ae048a8",
+      "commit": "fa7149eeb88240a27d47fb66c9f8b1a8228ceb0552aeb1a7269751e82e449255"
+    },
+    {
+      "payload": {
+        "step": 14,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[1, 1];barriers=[]",
+        "position": [
+          1,
+          1
+        ],
+        "move": "MOVE:N",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "745ef2d2ea5c4b382b067d15910e3eeb",
+      "commit": "b2022051e00b36573be11facd88777716704bd025c6db62282c09cc574366630"
+    },
+    {
+      "payload": {
+        "step": 15,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[1, 2];barriers=[]",
+        "position": [
+          1,
+          2
+        ],
+        "move": "MOVE:E",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "cecefdf9e8d8c15b9ab6e7ee07ab8f76",
+      "commit": "617b84432a484941ef65c8278179d2828065c8564819df2705269d47f6038b19"
+    },
+    {
+      "payload": {
+        "step": 16,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[2, 2];barriers=[]",
+        "position": [
+          2,
+          2
+        ],
+        "move": "MOVE:S",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "407574bb6b933be251d8d84cb026b037",
+      "commit": "2165ba06b6ce1ff27dbd5c43931da668716974ca6ee9d0a7e21fcffc3a744c7c"
+    },
+    {
+      "payload": {
+        "step": 17,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[2, 1];barriers=[]",
+        "position": [
+          2,
+          1
+        ],
+        "move": "MOVE:W",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "a1fb1023ca481ddd1d9afc3a8ec6ef4e",
+      "commit": "0200888777d1cb322c89ee1740ed9c97b25ab0115efd5ee80d81a9a2232abbd6"
+    },
+    {
+      "payload": {
+        "step": 18,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[1, 1];barriers=[]",
+        "position": [
+          1,
+          1
+        ],
+        "move": "MOVE:N",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "b59ecea929eb0914e8b8e6b87a66cf5f",
+      "commit": "03002d1d5912b78adb09cb15e3fc7b3bb6187448ef3ec1d1c095322c569532be"
+    },
+    {
+      "payload": {
+        "step": 19,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[1, 2];barriers=[]",
+        "position": [
+          1,
+          2
+        ],
+        "move": "MOVE:E",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "229d260ec9eb11406bd583d16594aaca",
+      "commit": "4ce7299142e7a5dfc2cbea44a42ccaba6b7bb910ba038fd5bbe70826a0fca97e"
+    },
+    {
+      "payload": {
+        "step": 20,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[2, 2];barriers=[]",
+        "position": [
+          2,
+          2
+        ],
+        "move": "MOVE:S",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "55c9ea1ecc911326506b26f56dfc2f14",
+      "commit": "0b9591b028705c48cb32fef91d5ef5b74a83d6d65beee029cb21033cf1bdeacf"
+    },
+    {
+      "payload": {
+        "step": 21,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[2, 1];barriers=[]",
+        "position": [
+          2,
+          1
+        ],
+        "move": "MOVE:W",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "5a17667582995fd12e3804627d71a750",
+      "commit": "4f2ddf9e939a92d6368856091ff1409c39cbb4033917a443d7e52f4e0dfd8ccf"
+    },
+    {
+      "payload": {
+        "step": 22,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[1, 1];barriers=[]",
+        "position": [
+          1,
+          1
+        ],
+        "move": "MOVE:N",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "79fe27b173817260e7f944e8a2429d56",
+      "commit": "93962aa94d77f1d3a48b742799f8ea67db92773a4c5194915d819df0ea14aff5"
+    },
+    {
+      "payload": {
+        "step": 23,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[1, 2];barriers=[]",
+        "position": [
+          1,
+          2
+        ],
+        "move": "MOVE:E",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "6839f643ff7e4be28e445e414065e2e7",
+      "commit": "879997e9600971fb2311516704ead3ef4af1b1b9279c2479e9ca25d88342f7d5"
+    },
+    {
+      "payload": {
+        "step": 24,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[2, 2];barriers=[]",
+        "position": [
+          2,
+          2
+        ],
+        "move": "MOVE:S",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "3af8f075edb5712576cbe1353d2146d0",
+      "commit": "5e62f1bf727209da41bf089e055ec7556f6ae7a229cb69403ec7afebe7ffe547"
+    },
+    {
+      "payload": {
+        "step": 25,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[2, 1];barriers=[]",
+        "position": [
+          2,
+          1
+        ],
+        "move": "MOVE:W",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "77fe26ce2998b0cb24b218a94d39e850",
+      "commit": "54d39b52f3ac982096767453d24432b1151325d54b610ef3e466a26786d87ced"
+    },
+    {
+      "payload": {
+        "step": 26,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[1, 1];barriers=[]",
+        "position": [
+          1,
+          1
+        ],
+        "move": "MOVE:N",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "31c48ecceef62f0a6a8e51ef6f13288f",
+      "commit": "36a0628e5057714763119a6a73006e61c63718257e425810e4d3470b9a72bd0a"
+    },
+    {
+      "payload": {
+        "step": 27,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[1, 2];barriers=[]",
+        "position": [
+          1,
+          2
+        ],
+        "move": "MOVE:E",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "84a177d05332c2f946d3b1863cdc27eb",
+      "commit": "3fa99e51ede0b711139f2230eef3336b31426bfb7b84300ba762a5dacde22b32"
+    },
+    {
+      "payload": {
+        "step": 28,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[2, 2];barriers=[]",
+        "position": [
+          2,
+          2
+        ],
+        "move": "MOVE:S",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "ecd990836ec65d8e74510ce71e240aa0",
+      "commit": "a109dcc364bee6da824b97fea4c9943fa5d1f93cb75c0777ce125910d99af676"
+    },
+    {
+      "payload": {
+        "step": 29,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[2, 1];barriers=[]",
+        "position": [
+          2,
+          1
+        ],
+        "move": "MOVE:W",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "c1eb6a8d8695fa130d94ed256eb444b3",
+      "commit": "b84fbb9de4e104518788634913993abf9ed77b74c96c7767f696c9777a228e1c"
+    },
+    {
+      "payload": {
+        "step": 30,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[1, 1];barriers=[]",
+        "position": [
+          1,
+          1
+        ],
+        "move": "MOVE:N",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "78ef44670bce87865a7cdb9ff736d637",
+      "commit": "b46c33c1913ea36b80f354cf334836306287eaa8e608766ca97c86f979944da5"
+    },
+    {
+      "payload": {
+        "step": 31,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[1, 2];barriers=[]",
+        "position": [
+          1,
+          2
+        ],
+        "move": "MOVE:E",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "e2b92a0f569eed0fc763815a6fc409e1",
+      "commit": "dbf1d27a6f911df896f6dd259d22e7619d028e8cd9a8c8bf1d0ad331070473c8"
+    },
+    {
+      "payload": {
+        "step": 32,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[2, 2];barriers=[]",
+        "position": [
+          2,
+          2
+        ],
+        "move": "MOVE:S",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "102378447a26d0cec31d6ce983feaf6f",
+      "commit": "519243301d27c19234c0178453de152c0b11c8f367883e891d1307fb9fe4806c"
+    },
+    {
+      "payload": {
+        "step": 33,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[2, 1];barriers=[]",
+        "position": [
+          2,
+          1
+        ],
+        "move": "MOVE:W",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "95b8b8fbe0a52d93de27c18dec074ea8",
+      "commit": "4130ca7c094bb669e51acceee9f5da3c91ab80c9e2d721d20fd4156fa00c26c2"
+    },
+    {
+      "payload": {
+        "step": 34,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[1, 1];barriers=[]",
+        "position": [
+          1,
+          1
+        ],
+        "move": "MOVE:N",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "ab594648d1d7d0ce8db933c06c2fbe24",
+      "commit": "3df0517845e3a4f3678a43218adb63d3c4ee5883c44006b4ce85f50d8059117f"
+    },
+    {
+      "payload": {
+        "step": 35,
+        "sub_game": 2,
+        "role": "police",
+        "state": "grid=7x7;self=[1, 2];barriers=[]",
+        "position": [
+          1,
+          2
+        ],
+        "move": "MOVE:E",
+        "intent": "truth",
+        "hint": "Sweeping the north-west grid, no contact yet.",
+        "verdict": "moved"
+      },
+      "nonce": "7c0cc37d9358a1031796fe96e205cef3",
+      "commit": "b9bf59edc01f49abac7f11d1aa62aded8bc5f3007906487efd7abc5a9ffb2c93"
+    }
+  ]
+}

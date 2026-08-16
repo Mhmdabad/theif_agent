@@ -1,0 +1,265 @@
+{
+  "_schema": "Final series result - the emailed binding report (book section 9.3.3). EMAIL THE COMPACT CANONICAL BYTES, not this pretty-print (SPEC section 2). The league fields below are ARMED because this is a counted series; a warm-up that copies them armed is a false declaration (App. E rules 37-38).",
+  "schema_version": "1.1",
+  "report_type": "final_game_result",
+  "league": {
+    "authority": "book App. E rule 52 — the one counted series of this pairing",
+    "counted": true,
+    "reason": "counted",
+    "_synthetic": "example bundle: no game was played to produce these bytes"
+  },
+  "game_id": "team-aleph-vs-team-bet",
+  "game_uid": "da4f6f1e-c9b0-6051-1485-b02030c5b1e6",
+  "links": {
+    "declaration": "declaration_team-aleph-vs-team-bet.json",
+    "config": "config_team-aleph-vs-team-bet_g<NN>.json",
+    "log": "log_team-aleph-vs-team-bet_g<NN>.json",
+    "result": "result_team-aleph-vs-team-bet.json",
+    "github": {
+      "team-aleph": {
+        "cop": "https://github.com/team-aleph/cop",
+        "thief": "https://github.com/team-aleph/thief"
+      },
+      "team-bet": {
+        "cop": "https://github.com/team-bet/cop",
+        "thief": "https://github.com/team-bet/thief"
+      }
+    }
+  },
+  "timezone": "Asia/Jerusalem",
+  "groups": [
+    "team-aleph",
+    "team-bet"
+  ],
+  "num_sub_games": 6,
+  "sub_games": [
+    {
+      "sub_game_number": 1,
+      "roles": {
+        "team-aleph": "police",
+        "team-bet": "thief"
+      },
+      "started_at": "2026-08-04T01:00:10+03:00",
+      "ended_at": "2026-08-04T01:00:19+03:00",
+      "result": "capture",
+      "winner_group": "team-aleph",
+      "tie": false,
+      "steps": 6,
+      "github_commit": {
+        "team-aleph": "a1ef0000c0fc0fc0fc0fc0fc0fc0fc0fc0fc0f5c",
+        "team-bet": "b2e70001de2de2de2de2de2de2de2de2de2de271"
+      },
+      "tokens": {
+        "team-aleph": 0,
+        "team-bet": 0
+      },
+      "score": {
+        "team-aleph": 20,
+        "team-bet": 5
+      },
+      "log_files": {
+        "team-aleph": "log_team-aleph-vs-team-bet_g01.json",
+        "team-bet": "log_team-aleph-vs-team-bet_g01.json"
+      },
+      "audit": {
+        "log_verified": true,
+        "tampered": false
+      }
+    },
+    {
+      "sub_game_number": 2,
+      "roles": {
+        "team-aleph": "thief",
+        "team-bet": "police"
+      },
+      "started_at": "2026-08-04T01:00:20+03:00",
+      "ended_at": "2026-08-04T01:00:29+03:00",
+      "result": "survival",
+      "winner_group": "team-aleph",
+      "tie": false,
+      "steps": 35,
+      "github_commit": {
+        "team-aleph": "a1ef00017f17f17f17f17f17f17f17f17f17f13e",
+        "team-bet": "b2e70000abcabcabcabcabcabcabcabcabcabc90"
+      },
+      "tokens": {
+        "team-aleph": 0,
+        "team-bet": 0
+      },
+      "score": {
+        "team-aleph": 10,
+        "team-bet": 5
+      },
+      "log_files": {
+        "team-aleph": "log_team-aleph-vs-team-bet_g02.json",
+        "team-bet": "log_team-aleph-vs-team-bet_g02.json"
+      },
+      "audit": {
+        "log_verified": true,
+        "tampered": false
+      }
+    },
+    {
+      "sub_game_number": 3,
+      "roles": {
+        "team-aleph": "police",
+        "team-bet": "thief"
+      },
+      "started_at": "2026-08-04T01:00:30+03:00",
+      "ended_at": "2026-08-04T01:00:39+03:00",
+      "result": "capture",
+      "winner_group": "team-aleph",
+      "tie": false,
+      "steps": 6,
+      "github_commit": {
+        "team-aleph": "a1ef0000c0fc0fc0fc0fc0fc0fc0fc0fc0fc0f5c",
+        "team-bet": "b2e70001de2de2de2de2de2de2de2de2de2de271"
+      },
+      "tokens": {
+        "team-aleph": 0,
+        "team-bet": 0
+      },
+      "score": {
+        "team-aleph": 20,
+        "team-bet": 5
+      },
+      "log_files": {
+        "team-aleph": "log_team-aleph-vs-team-bet_g03.json",
+        "team-bet": "log_team-aleph-vs-team-bet_g03.json"
+      },
+      "audit": {
+        "log_verified": true,
+        "tampered": false
+      }
+    },
+    {
+      "sub_game_number": 4,
+      "roles": {
+        "team-aleph": "thief",
+        "team-bet": "police"
+      },
+      "started_at": "2026-08-04T01:00:40+03:00",
+      "ended_at": "2026-08-04T01:00:49+03:00",
+      "result": "survival",
+      "winner_group": "team-aleph",
+      "tie": false,
+      "steps": 35,
+      "github_commit": {
+        "team-aleph": "a1ef00017f17f17f17f17f17f17f17f17f17f13e",
+        "team-bet": "b2e70000abcabcabcabcabcabcabcabcabcabc90"
+      },
+      "tokens": {
+        "team-aleph": 0,
+        "team-bet": 0
+      },
+      "score": {
+        "team-aleph": 10,
+        "team-bet": 5
+      },
+      "log_files": {
+        "team-aleph": "log_team-aleph-vs-team-bet_g04.json",
+        "team-bet": "log_team-aleph-vs-team-bet_g04.json"
+      },
+      "audit": {
+        "log_verified": true,
+        "tampered": false
+      }
+    },
+    {
+      "sub_game_number": 5,
+      "roles": {
+        "team-aleph": "police",
+        "team-bet": "thief"
+      },
+      "started_at": "2026-08-04T01:00:50+03:00",
+      "ended_at": "2026-08-04T01:00:59+03:00",
+      "result": "capture",
+      "winner_group": "team-aleph",
+      "tie": false,
+      "steps": 7,
+      "github_commit": {
+        "team-aleph": "a1ef0000c0fc0fc0fc0fc0fc0fc0fc0fc0fc0f5c",
+        "team-bet": "b2e70001de2de2de2de2de2de2de2de2de2de271"
+      },
+      "tokens": {
+        "team-aleph": 0,
+        "team-bet": 0
+      },
+      "score": {
+        "team-aleph": 20,
+        "team-bet": 5
+      },
+      "log_files": {
+        "team-aleph": "log_team-aleph-vs-team-bet_g05.json",
+        "team-bet": "log_team-aleph-vs-team-bet_g05.json"
+      },
+      "audit": {
+        "log_verified": true,
+        "tampered": false
+      }
+    },
+    {
+      "sub_game_number": 6,
+      "roles": {
+        "team-aleph": "thief",
+        "team-bet": "police"
+      },
+      "started_at": "2026-08-04T01:01:00+03:00",
+      "ended_at": "2026-08-04T01:01:09+03:00",
+      "result": "survival",
+      "winner_group": "team-aleph",
+      "tie": false,
+      "steps": 35,
+      "github_commit": {
+        "team-aleph": "a1ef00017f17f17f17f17f17f17f17f17f17f13e",
+        "team-bet": "b2e70000abcabcabcabcabcabcabcabcabcabc90"
+      },
+      "tokens": {
+        "team-aleph": 0,
+        "team-bet": 0
+      },
+      "score": {
+        "team-aleph": 10,
+        "team-bet": 5
+      },
+      "log_files": {
+        "team-aleph": "log_team-aleph-vs-team-bet_g06.json",
+        "team-bet": "log_team-aleph-vs-team-bet_g06.json"
+      },
+      "audit": {
+        "log_verified": true,
+        "tampered": false
+      }
+    }
+  ],
+  "final_result": {
+    "total_score": {
+      "team-aleph": 90,
+      "team-bet": 30
+    },
+    "sub_games_won": {
+      "team-aleph": 6,
+      "team-bet": 0
+    },
+    "ties": 0,
+    "winner_group": "team-aleph",
+    "series_tie": false,
+    "tokens_total_series": {
+      "team-aleph": 0,
+      "team-bet": 0
+    },
+    "games_played_including_this": {
+      "team-aleph": 1,
+      "team-bet": 1
+    },
+    "first_meeting_between_groups": true,
+    "diversity_reward_applied": {
+      "team-aleph": true,
+      "team-bet": false
+    }
+  },
+  "mutual_agreement": {
+    "sha256": "f47666a35230d0327f2136cb425a421c2b9035ab8e97b823d4a7943e69a15dbf",
+    "confirmed": true
+  }
+}

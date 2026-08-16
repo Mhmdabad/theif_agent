@@ -1,0 +1,13 @@
+blank_issues_enabled: true
+contact_links:
+  - name: The game spec (this kit is not it)
+    url: https://github.com/rmisegal/Game-P2P-Cop-Chase
+    about: >
+      The book and its reference implementation are the authority. Where the book and this kit
+      disagree, the book wins — and that disagreement is a bug worth filing here.
+  - name: How to file, and how we respond
+    url: https://github.com/Imreec/copthief-league-protocol/blob/main/CONTRIBUTING.md
+    about: Candid per-item dispositions, you close your own issue, contributors credited by name.
+  - name: What the fixture tiers mean
+    url: https://github.com/Imreec/copthief-league-protocol/blob/main/docs/GOVERNANCE.md
+    about: CORE / PROMOTED / PROPOSED / ENH, and what it takes to promote one.

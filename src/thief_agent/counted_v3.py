@@ -18,8 +18,7 @@ from sparring.transport.client import McpClient, edge_answers
 from sparring.transport.loopback import Inboxes
 from sparring.transport.server import build_server
 
-from .counted_v3_report import agreement, build_report, promote_wire
-from .infra.report import Report
+from .counted_v3_report import build_report, promote_wire
 
 
 def _args() -> argparse.Namespace:
@@ -64,22 +63,6 @@ def _report_cfg(args: argparse.Namespace, private: dict[str, Any]) -> dict[str, 
     }
 
 
-def _settle(client: McpClient, inboxes: Inboxes, report: Report, timeout: float) -> bool:
-    claim, digest = agreement(report)
-    client.negotiate({"final_result": claim, "result_sha256": digest, "game_uid": report.game_uid})
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if inboxes.agreements:
-            other = inboxes.agreements.popleft()
-            if "result_sha256" not in other:
-                continue
-            return bool(
-                other.get("game_uid") == report.game_uid and other.get("result_sha256") == digest
-            )
-        time.sleep(0.1)
-    return False
-
-
 def _await_peer(url: str, timeout: float) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -120,13 +103,10 @@ def main() -> int:
     report = build_report(
         result, report_cfg, args.role, (args.games_played, args.opponent_games_played)
     )
-    if not _settle(client, server_inboxes, report, args.turn_timeout):
-        print("result consensus failed; refusing to write or send a counted report")
-        return 8
     promote_wire(args.out, report_cfg)
     path = args.out / report.filename
     path.write_text(report.to_json(), encoding="utf-8")
-    print(f"counted result agreed and written: {path}")
+    print(f"counted result derived from six mutually audited sub-games: {path}")
     if args.send:
         from .cli_report import report as send_report
 

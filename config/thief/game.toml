@@ -18,7 +18,7 @@ version = "1.10"
 [game]
 group_name = "s82kma9e"
 group_id   = "s82kma9e"                # 8 characters, no spaces
-members = ["Mohammed Abad"]        # EDIT: add every team member
+members = ["Mohammed Abad", "Muhammad Swalha"]        # EDIT: add every team member
 repos = { cop = "https://github.com/Mhmdabad/police_agent", thief = "https://github.com/Mhmdabad/theif_agent" }
 
 [network]
@@ -89,7 +89,6 @@ mode = "send"                                     # armed: a real match mails th
 # in the negotiation, and it must match what their greeting announces on the
 # wire — the series standing is keyed by the exchanged ids, not by these names.
 [teams.them]
-group_name = "ali-ahm1"                             # EDIT per opponent
-members = ["Ali Trabeh", "Ahmad Kais"]              # EDIT per opponent
-repos = { cop = "https://github.com/AhmadKais/Final_Project_AI_Orchestration", thief = "https://github.com/AhmadKais/Final_Project_AI_Orchestration_Robber" }  # theirs, not ours
-
+group_name = "moamteam"                             # EDIT per opponent
+members = ["Mohammad", "Amear"]                    # EDIT per opponent
+repos = { cop = "https://github.com/J0kErF/moamteam-police", thief = "https://github.com/J0kErF/moamteam-thief" }  # theirs, not ours

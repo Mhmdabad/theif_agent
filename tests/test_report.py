@@ -20,7 +20,6 @@ from thief_agent.infra.report import (
     SubGameResult,
     recipient,
 )
-from thief_agent.shared.consensus import CONSENSUS_KEY
 
 REPOS = Repositories(
     cop_repo="https://github.com/Mhmdabad/police_agent",
@@ -101,14 +100,14 @@ class TestTheMandatoryFieldsAreRequiredNotValidated:
                 opponent_thief_repo="https://github.com/other/thief",
             )
 
-    def test_the_field_set_is_the_reference_plus_the_consensus_signature(self) -> None:
-        """The reference's fields, and exactly one more.
+    def test_the_field_set_matches_both_published_examples(self) -> None:
+        """The lecturer's twelve fields plus the cohort's league block.
 
-        Its sample carries no signature; the cohort's settlement does, and a
-        team that cannot verify our report cannot agree it. That one addition
-        is deliberate -- any other extra key would be a mistake.
+        The two published examples differ by exactly that one key, and this
+        carries it: the lecturer's reader ignores what it does not know, while
+        a cohort reader needs to be told which series counted.
         """
-        assert set(json.loads(report().to_json())) == {CONSENSUS_KEY} | {
+        assert set(json.loads(report().to_json())) == {"league"} | {
             "_schema",
             "schema_version",
             "report_type",

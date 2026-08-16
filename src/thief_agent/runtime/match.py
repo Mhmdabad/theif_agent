@@ -49,7 +49,12 @@ class MatchRunner(MatchPlay):
     :meth:`agree_result` so the report records the bytes that went on the wire."""
 
     def result(
-        self, commit_hash: str, total_tokens: int, agreed: bool, repositories: Repositories
+        self,
+        commit_hash: str,
+        total_tokens: int,
+        agreed: bool,
+        repositories: Repositories,
+        counted: bool = True,
     ) -> Report:
         """The binding report, scored from what was actually played.
 
@@ -67,6 +72,7 @@ class MatchRunner(MatchPlay):
             sub_games=tuple(scored(outcome, commit_hash) for outcome in self.outcomes),
             total_tokens=total_tokens,
             agreed=agreed,
+            counted=counted,
             started_at=self.declaration.started_at,
             ended_at=self.now(),
             starting_role=self.role,

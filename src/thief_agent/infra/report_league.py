@@ -38,7 +38,10 @@ def final_result(report: "Report", standing: dict[str, Any], us: str, them: str)
         "winner_group": winner,
         "series_tie": standing.get("series_tie", False),
         "tokens_total_series": {us: report.total_tokens, them: 0},
-        "games_played_including_this": {us: report.games_played_including_this, them: None},
+        "games_played_including_this": {
+            us: report.games_played_including_this,
+            them: report.opponent_games_played_including_this,
+        },
         "first_meeting_between_groups": first,
         "diversity_reward_applied": {
             us: bool(report.counted and first and winner == us),

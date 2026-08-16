@@ -106,6 +106,9 @@ def load(path: Path) -> Report:
             games_played_including_this=int(
                 final.get("games_played_including_this", {}).get(us, 1)
             ),
+            opponent_games_played_including_this=final.get("games_played_including_this", {}).get(
+                them
+            ),
             first_meeting_between_groups=bool(final.get("first_meeting_between_groups", True)),
         )
     except (KeyError, TypeError, ValueError) as exc:

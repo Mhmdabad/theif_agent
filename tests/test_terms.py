@@ -36,7 +36,7 @@ class TestTranslation:
         assert terms["cop_start"] == [0, 0]
 
     def test_map_area_becomes_setting(self) -> None:
-        assert to_terms(shipped())["setting"] == "New York"
+        assert to_terms(shipped())["setting"] == "Haifa"
 
     def test_axis_convention_travels(self) -> None:
         """Both peers must agree it, so it belongs in the agreement."""

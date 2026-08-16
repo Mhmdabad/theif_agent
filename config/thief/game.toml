@@ -90,5 +90,5 @@ mode = "send"                                     # armed: a real match mails th
 # wire — the series standing is keyed by the exchanged ids, not by these names.
 [teams.them]
 group_name = "moamteam"                             # EDIT per opponent
-members = ["Mohammad", "Amear"]                    # EDIT per opponent
+members = ["Mohammad Yosef", "Amear Abu Farekh"]  # EDIT per opponent
 repos = { cop = "https://github.com/J0kErF/moamteam-police", thief = "https://github.com/J0kErF/moamteam-thief" }  # theirs, not ours

@@ -75,6 +75,7 @@ class Report:
     """
 
     games_played_including_this: int = 1
+    opponent_games_played_including_this: int | None = None
     first_meeting_between_groups: bool = True
 
     def __post_init__(self) -> None:

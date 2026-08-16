@@ -1,7 +1,7 @@
 {
   "schema_version": "1.3",
-  "_note": "SHARED, AGREED game terms. Both peers must hold a BYTE-IDENTICAL copy of this file; the pre-game signature exchange refuses to play on any mismatch (book Appendix E rule 11). Values are the binding minimums of the Appendix F parameter table: a 'minimum' parameter may be raised by mutual agreement but never lowered; a 'permanent' parameter must not change at all.",
-  "agreed_between": ["ali-ahm1", "s82kma9e"],
+  "_note": "Shared, agreed game contract. BOTH peers must hold a byte-identical copy; the pre-game signature exchange refuses to play on any mismatch. Values are the binding defaults of Appendix F (book v3.0.0); 'minimum' parameters may only be raised by mutual agreement, never lowered.",
+  "agreed_between": ["moamteam", "s82kma9e"],
   "board_and_agents": {
     "grid_size": 7,
     "num_agents": 2,
@@ -11,7 +11,7 @@
     "axis_start_index": 0
   },
   "world": {
-    "map_area": "New York",
+    "map_area": "Haifa",
     "hint_max_words": 15
   },
   "movement_and_barriers": {

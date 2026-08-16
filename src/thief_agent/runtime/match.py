@@ -33,10 +33,7 @@ from .match_settled import settled
 from .match_standing import series_block
 from .orchestrator_book import RESULT_TIMEOUT_SEC
 
-__all__ = [
-    "MatchRunner",
-    "SubGameOutcome",
-]
+__all__ = ["MatchRunner", "SubGameOutcome"]
 """Re-exported explicitly: ``no_implicit_reexport`` rejects importers otherwise."""
 
 
@@ -55,13 +52,10 @@ class MatchRunner(MatchPlay):
         agreed: bool,
         repositories: Repositories,
         counted: bool = True,
+        games_played_including_this: int = 1,
+        first_meeting_between_groups: bool = True,
     ) -> Report:
-        """The binding report, scored from what was actually played.
-
-        ``agreed`` has no default: rule 35 wants both sides to accept the result
-        before either reports, and a literal here would assert that rather than
-        establish it.
-        """
+        """The binding report, scored from what was actually played."""
         return Report(
             game_id=self.game_id,
             game_uid=self.declaration.game_uid,
@@ -81,6 +75,8 @@ class MatchRunner(MatchPlay):
             machine=statement(self.declaration.hardware, self.declaration.provenance),
             signature=self.declaration.signature,
             result_claim_sha256=self.offered_digest if agreed else "",
+            games_played_including_this=games_played_including_this,
+            first_meeting_between_groups=first_meeting_between_groups,
         )
 
     def series_result(self) -> dict[str, object]:

@@ -47,8 +47,7 @@ from .match import MatchRunner
 from .orchestrator import Orchestrator
 
 ROLE = "thief"
-"""This repository's natural role: the sub-game-1 default. Alternation gives
-even sub-games to the opposite brain regardless of where we start."""
+"""This repository's natural role in sub-game 1."""
 
 
 def open_match(
@@ -63,16 +62,7 @@ def open_match(
 ) -> tuple[Path, ...]:  # pragma: no cover - the other side of this is another team
     """Run a whole match and write its evidence. Returns the files written.
 
-    Uncovered, and the reason is that the thing under test would be **an
-    opponent**. Every step it composes is covered against a real peer over real
-    sockets in ``test_localhost_match``; what is left is the argument order,
-    which no test short of a second team can exercise. The pure helpers — the
-    ones that parse config and can silently produce a wrong board — are covered.
-
-    **How many sub-games is not an argument.** It comes from the configuration
-    both peers sign, which is loaded and validated before the first packet, so
-    a deviation from Appendix F table 18 row 1 costs a startup message rather
-    than a disqualification.
+    The series length comes from the signed configuration, never this call.
     """
     parameters = load_shared(SHARED_CONFIG)
     network = private.get("network", {})
@@ -92,6 +82,8 @@ def open_match(
     peering = await_opponent(orchestrator, ours, directory, game_id)
 
     us, them = _us(private), _them(private)
+    ledger = MatchLedger(directory)
+    first_meeting = them.name not in ledger.opponents()
     declaration = _declaration(
         game_id=game_id,
         role=starting_role,
@@ -102,7 +94,7 @@ def open_match(
         them=them,
         ours=ours,
         peering=peering,
-        games_already_played=MatchLedger(directory).played(),
+        games_already_played=ledger.played(),
     )
 
     runner = MatchRunner(
@@ -131,7 +123,16 @@ def open_match(
     if not agreed:
         print("  RESULT NOT AGREED: the opponent did not publish the score we did")
 
-    return _conclude(runner, declaration, us, them, agreed, rehearsal)
+    return _conclude(
+        runner,
+        declaration,
+        us,
+        them,
+        agreed,
+        rehearsal,
+        declaration.games_already_played + (0 if rehearsal else 1),
+        first_meeting,
+    )
 
 
 __all__ = [
@@ -139,7 +140,6 @@ __all__ = [
     "ROLE",
     "StartupTimeout",
     "_cell",
-    "_max_moves",
     "_now",
     "_side",
     "_them",

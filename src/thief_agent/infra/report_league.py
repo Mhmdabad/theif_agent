@@ -10,7 +10,10 @@ It costs a reader nothing to ignore and costs us a graded match to omit, so it
 is here.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .report_document import Report
 
 __all__ = ["league_block"]
 
@@ -21,4 +24,24 @@ def league_block(counted: bool) -> dict[str, Any]:
         "authority": "book App. E rule 52 — the one counted series of this pairing",
         "counted": counted,
         "reason": "counted" if counted else "friendly",
+    }
+
+
+def final_result(report: "Report", standing: dict[str, Any], us: str, them: str) -> dict[str, Any]:
+    """The aggregate plus the kit's counted-league declarations."""
+    first = report.first_meeting_between_groups
+    winner = standing.get("winner_group")
+    return {
+        "total_score": standing.get("total_score", {}),
+        "sub_games_won": standing.get("sub_games_won", {}),
+        "ties": standing.get("ties", 0),
+        "winner_group": winner,
+        "series_tie": standing.get("series_tie", False),
+        "tokens_total_series": {us: report.total_tokens, them: 0},
+        "games_played_including_this": {us: report.games_played_including_this, them: None},
+        "first_meeting_between_groups": first,
+        "diversity_reward_applied": {
+            us: bool(report.counted and first and winner == us),
+            them: bool(report.counted and first and winner == them),
+        },
     }

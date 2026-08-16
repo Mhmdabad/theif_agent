@@ -100,6 +100,8 @@ def _conclude(
     them: Team,
     agreed: bool,
     rehearsal: bool = False,
+    games_played_including_this: int = 1,
+    first_meeting_between_groups: bool = True,
 ) -> tuple[Path, ...]:  # pragma: no cover - reached only with an opponent on the wire
     """Write the played match to disk, and answer with the files written.
 
@@ -127,6 +129,8 @@ def _conclude(
                 opponent_cop_repo=them.cop_repo,
                 opponent_thief_repo=them.thief_repo,
             ),
+            games_played_including_this=games_played_including_this,
+            first_meeting_between_groups=first_meeting_between_groups,
         )
     )
     _record_game(runner.directory, declaration, them, rehearsal)

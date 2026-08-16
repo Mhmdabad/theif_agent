@@ -12,10 +12,8 @@ function that accepts a body of prose, and a test reads the source to keep it
 that way. An escape hatch that exists gets used at 2am by somebody who is sure
 this once is fine.
 
-**The attachment is the report; the body is not.** A MIME body is for the human
-who opens the mail, so it says what the attachment contains and stops. Anything
-a parser needs lives in ``result_<game_id>.json``, because a summary in the body
-is a second copy of the truth that will eventually disagree with the first.
+**The body and attachment are the same report bytes.** This satisfies both the
+book's body example and its attachment rule without maintaining two truths.
 
 **Both teams' four GitHub links, the per-sub-game commit hashes and the total
 tokens are mandatory** (FR-7.28), so they are required at construction rather
@@ -105,17 +103,8 @@ class Message:
         return f"[uoh26] {self.report.role} result — {self.report.game_id}"
 
     def body(self) -> str:
-        """What a person reads. Deliberately says nothing a parser would want.
-
-        A summary here would be a second copy of the result, and two copies of
-        one fact disagree eventually — usually after somebody edits the easier
-        one to read.
-        """
-        return (
-            f"Automated match report from the {self.report.role} agent.\n"
-            f"The result is the attached {self.report.filename}; this text is not "
-            "part of the report and is not machine-readable on purpose.\n"
-        )
+        """The exact canonical report text, also used by the attachment."""
+        return self.report.to_json()
 
     def build(self) -> EmailMessage:
         """Assemble the MIME message with the report attached as JSON."""
@@ -123,7 +112,10 @@ class Message:
         mail["To"] = self.to
         mail["From"] = self.sender
         mail["Subject"] = self.subject()
-        mail.set_content(self.body())
+        encoded = base64.b64encode(self.body().encode("utf-8")).decode("ascii")
+        mail.set_payload(encoded)
+        mail["Content-Type"] = 'text/plain; charset="utf-8"'
+        mail["Content-Transfer-Encoding"] = "base64"
         mail.add_attachment(
             self.report.to_json().encode("utf-8"),
             maintype=CONTENT_TYPE[0],

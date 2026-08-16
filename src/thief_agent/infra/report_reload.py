@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from .report_document import Report
-from .report_parts import ReportError, SubGameResult
+from .report_parts import ReportError, Repositories, SubGameResult
 
 __all__ = ["load"]
 
@@ -76,6 +76,14 @@ def load(path: Path) -> Report:
         agreement = body.get("mutual_agreement", {})
         played = [_sub_game(entry, us, them) for entry in body["sub_games"]]
         first_role = str(body["sub_games"][0]["roles"][us]) if played else ""
+        github = body.get("links", {}).get("github", {})
+        our_repos, their_repos = github.get(us, {}), github.get(them, {})
+        repositories = Repositories(
+            cop_repo=str(our_repos.get("cop", "")),
+            thief_repo=str(our_repos.get("thief", "")),
+            opponent_cop_repo=str(their_repos.get("cop", "")),
+            opponent_thief_repo=str(their_repos.get("thief", "")),
+        )
         report = Report(
             game_id=str(body["game_id"]),
             game_uid=str(body.get("game_uid", "")),
@@ -93,6 +101,12 @@ def load(path: Path) -> Report:
             machine=body.get("machine"),
             signature=str(body.get("signature", "")),
             result_claim_sha256=str(agreement.get("sha256", "")),
+            repositories=repositories,
+            counted=bool(body.get("league", {}).get("counted", True)),
+            games_played_including_this=int(
+                final.get("games_played_including_this", {}).get(us, 1)
+            ),
+            first_meeting_between_groups=bool(final.get("first_meeting_between_groups", True)),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise ReportError(f"{path} is missing something a report needs: {exc}") from exc

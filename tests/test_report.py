@@ -51,6 +51,11 @@ def report(**overrides: object) -> Report:
         "started_at": "2026-08-12T15:00:54+00:00",
         "ended_at": "2026-08-12T15:03:09+00:00",
         "agreed": True,
+        "series_result": {
+            "total_score": {"uoh26-cops": 180, "uoh26-others": 0},
+            "sub_games_won": {"uoh26-cops": 2, "uoh26-others": 0},
+            "winner_group": "uoh26-cops",
+        },
     }
     fields.update(overrides)
     return Report(**fields)  # type: ignore[arg-type]
@@ -67,7 +72,8 @@ class TestTheReportIsAStructure:
     def test_the_bytes_are_stable_between_peers(self) -> None:
         """Sorted keys, so two sides with the same result produce the same file."""
         assert report().to_json() == report().to_json()
-        assert report().to_json().endswith("}\n")
+        assert report().to_json().endswith("}")
+        assert "\n" not in report().to_json()
 
     def test_scores_are_keyed_by_group_not_by_role(self) -> None:
         """Roles alternate, so a role-keyed total cannot be summed over a series.
@@ -134,6 +140,20 @@ class TestTheMandatoryFieldsAreRequiredNotValidated:
             f"{2:040x}",
         ]
 
+    def test_kit_github_and_league_fields_are_present(self) -> None:
+        body = json.loads(report().to_json())
+        assert body["links"]["github"]["uoh26-cops"]["cop"] == REPOS.cop_repo
+        final = body["final_result"]
+        assert final["games_played_including_this"] == {
+            "uoh26-cops": 1,
+            "uoh26-others": None,
+        }
+        assert final["first_meeting_between_groups"] is True
+        assert final["diversity_reward_applied"] == {
+            "uoh26-cops": True,
+            "uoh26-others": False,
+        }
+
     def test_the_opponents_commit_is_unknown_rather_than_invented(self) -> None:
         """Nothing about their code crosses the wire, so we do not claim it."""
         played = json.loads(report().to_json())["sub_games"]
@@ -192,12 +212,12 @@ class TestTheAttachmentIsTheReport:
         assert isinstance(payload, bytes)
         assert json.loads(payload) == report().to_dict()
 
-    def test_the_body_carries_nothing_a_parser_would_want(self) -> None:
-        """A summary in the body is a second copy of the truth."""
-        body = Message(report=report(), sender="cop@example.com").body()
-        assert "100" not in body
-        assert "41233" not in body
-        assert "not machine-readable on purpose" in body
+    def test_body_and_attachment_are_the_exact_report_bytes(self) -> None:
+        mail = Message(report=report(), sender="cop@example.com").build()
+        parts = list(mail.iter_parts())
+        expected = report().to_json().encode("utf-8")
+        assert parts[0].get_payload(decode=True) == expected
+        assert parts[1].get_payload(decode=True) == expected
 
     def test_the_destination_is_whatever_the_environment_supplied(self) -> None:
         mail = Message(report=report(), sender="cop@example.com").build()

@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 from ..domain.alternation import role_for
 from ..domain.scoring import Outcome
 from ..shared.naming import declaration_filename, log_filename, result_filename
-from .report_league import league_block
+from .report_league import final_result, league_block
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle only matters to type checkers
     from .report_document import Report
@@ -52,13 +52,13 @@ UNKNOWN = "unknown"
 """What the reference writes for a fact the reporting peer cannot have."""
 
 
-def links(game_id: str) -> dict[str, str]:
+def links(game_id: str, report: "Report | None" = None) -> dict[str, Any]:
     """The four artefact names, derived from ``game_id`` as the reference requires.
 
     ``config`` and ``log`` keep the literal ``<NN>``: one file per sub-game, so a
     single name would be a lie about a series.
     """
-    return {
+    body: dict[str, Any] = {
         "_remark": (
             "Logical roles, not fixed filenames. Every name is derived from game_id so "
             "files from different games are never mixed. Match-level files are "
@@ -69,6 +69,16 @@ def links(game_id: str) -> dict[str, str]:
         "log": f"log_{game_id}_g<NN>.json",
         "result": result_filename(game_id),
     }
+    if report and report.repositories:
+        repos = report.repositories
+        body["github"] = {
+            report.team: {"cop": repos.cop_repo, "thief": repos.thief_repo},
+            report.opponent_team: {
+                "cop": repos.opponent_cop_repo,
+                "thief": repos.opponent_thief_repo,
+            },
+        }
+    return body
 
 
 def _outcome(sub: "SubGameResult") -> str:
@@ -121,19 +131,12 @@ def result_document(report: "Report") -> dict[str, Any]:
         "report_type": "final_game_result",
         "game_id": report.game_id,
         "game_uid": report.game_uid,
-        "links": links(report.game_id),
+        "links": links(report.game_id, report),
         "timezone": TIMEZONE,
         "groups": [us, them],
         "num_sub_games": len(report.sub_games),
         "sub_games": subs,
-        "final_result": {
-            "total_score": standing.get("total_score", {}),
-            "sub_games_won": standing.get("sub_games_won", {}),
-            "ties": standing.get("ties", 0),
-            "winner_group": standing.get("winner_group"),
-            "series_tie": standing.get("series_tie", False),
-            "tokens_total_series": {us: report.total_tokens, them: 0},
-        },
+        "final_result": final_result(report, standing, us, them),
         "mutual_agreement": {"sha256": report.result_claim_sha256, "confirmed": report.agreed},
         "league": league_block(report.counted),
     }

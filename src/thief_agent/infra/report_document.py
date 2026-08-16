@@ -5,11 +5,11 @@ Serialisation lives here, next to the fields it serialises, so the committed
 out of :mod:`.report`, which re-exports everything defined here.
 """
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..shared.config import canonical_bytes
 from ..shared.naming import result_filename
 from .report_parts import ReportError, Repositories, SubGameResult
 from .report_reference import SCHEMA_VERSION as REFERENCE_SCHEMA
@@ -74,6 +74,9 @@ class Report:
     independently-sent reports describe one match rather than two claims.
     """
 
+    games_played_including_this: int = 1
+    first_meeting_between_groups: bool = True
+
     def __post_init__(self) -> None:
         if not self.sub_games:
             raise ReportError("a report with no sub-games describes no match")
@@ -106,15 +109,8 @@ class Report:
         return (self.team, self.opponent_team)
 
     def to_json(self) -> str:
-        """Sorted keys and a trailing newline, so two peers produce identical bytes.
-
-        ``ensure_ascii=False`` for the same reason the digests use it: the file
-        should read as what it is. The consensus signature key is Hebrew, and
-        escaping rendered it ``\\u05d7\\u05ea…`` in every emailed report --
-        verifiable, since a parser decodes it back, but unreadable to the person
-        the attachment is for.
-        """
-        return json.dumps(self.to_dict(), indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+        """The compact canonical bytes used by the file, body, and attachment."""
+        return canonical_bytes(self.to_dict()).decode("utf-8")
 
     @property
     def filename(self) -> str:

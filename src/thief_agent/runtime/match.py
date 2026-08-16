@@ -25,6 +25,7 @@ from ..infra.artefacts import ArtefactSet
 from ..infra.report import Report, Repositories
 from ..infra.step_zero_signing import statement
 from ..shared.result_claim import claim_and_digest
+from .match_claim_rows import claim_rows, groups_for_claim
 from .match_outcome import SubGameOutcome
 from .match_play import MatchPlay
 from .match_scored import scored
@@ -102,11 +103,12 @@ class MatchRunner(MatchPlay):
         """
         if not self.opponent_played_fairly:
             return False
-        claim, digest = claim_and_digest(
-            self.declaration.game_uid,
-            [o.scores() for o in self.outcomes],
-            self.series_result(),
-        )
+        # Built by the same function the result document uses, so the rows we
+        # hash now and the rows we publish later cannot describe different
+        # games. The commit is a placeholder: the agreed scope trims it away,
+        # and it is not known until the artefacts are written.
+        rows = claim_rows(self, *groups_for_claim(self))
+        claim, digest = claim_and_digest(self.game_id, rows, self.series_result())
         self.offered_digest = digest
         return self.orchestrator.agree_result(claim, digest, self.declaration.game_uid, timeout)
 

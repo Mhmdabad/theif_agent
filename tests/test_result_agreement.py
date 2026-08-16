@@ -59,11 +59,31 @@ did not.
 """
 
 
+def rows_for(scores: list[tuple[int, int]]) -> list[dict[str, Any]]:
+    """Trimmed consensus rows for a list of ``(cop, thief)`` scores.
+
+    The scope keys by group, so a test that wants two sides to agree has to
+    speak in groups too -- which is the point of the change these tests now
+    describe: role-keyed scores were exactly what could never match a
+    stranger's digest.
+    """
+    return [
+        {
+            "sub_game_number": number,
+            "roles": {"a": "police", "b": "thief"},
+            "result": "capture" if cop > thief else "survival",
+            "winner_group": None if cop == thief else ("a" if cop > thief else "b"),
+            "score": {"a": cop, "b": thief},
+        }
+        for number, (cop, thief) in enumerate(scores, start=1)
+    ]
+
+
 def settle(
     side: Side, scores: list[tuple[int, int]], uid: str = GAME_UID, timeout: float = PATIENCE
 ) -> Callable[[], bool]:
     """One side's half of the exchange, ready to run beside the other's."""
-    claim = result_claim(uid, scores)
+    claim = result_claim(uid, rows_for(scores))
     return lambda: side.orchestrator.agree_result(claim, claim_sha256(claim), uid, timeout)
 
 
@@ -79,15 +99,27 @@ class TestTwoPeersWhoPlayedTheSameMatch:
         A claim phrased from the sender's point of view would be two different
         claims, and two honest peers could never match.
         """
-        assert claim_sha256(result_claim(GAME_UID, OURS)) == claim_sha256(
-            result_claim(GAME_UID, list(OURS))
+        assert claim_sha256(result_claim(GAME_UID, rows_for(OURS))) == claim_sha256(
+            result_claim(GAME_UID, rows_for(list(OURS)))
         )
 
-    def test_the_totals_are_carried_not_recomputed_by_the_reader(self) -> None:
-        claim = result_claim(GAME_UID, OURS)
-        assert claim["cop_total"] == sum(cop for cop, _ in OURS)
-        assert claim["thief_total"] == sum(thief for _, thief in OURS)
-        assert [entry["sub_game"] for entry in claim["sub_games"]] == [1, 2, 3, 4, 5, 6]
+    def test_it_carries_the_scope_every_conformant_team_hashes(self) -> None:
+        """Three keys, and rows trimmed to five.
+
+        Anything a peer may legitimately differ on -- its timestamps, its token
+        counts, its own commit -- is out, because a scope containing them is
+        per-side by construction and could never equal a stranger's.
+        """
+        claim = result_claim(GAME_UID, rows_for(OURS))
+        assert sorted(claim) == ["aggregate", "game_id", "sub_games"]
+        assert sorted(claim["sub_games"][0]) == [
+            "result",
+            "roles",
+            "score",
+            "sub_game_number",
+            "winner_group",
+        ]
+        assert [entry["sub_game_number"] for entry in claim["sub_games"]] == [1, 2, 3, 4, 5, 6]
 
 
 class TestTwoPeersWhoDisagree:
@@ -118,7 +150,7 @@ class TestAnOpponentWhoNeverAnswers:
     ) -> None:
         """A result agreed for one series cannot be replayed to close another."""
         ours, theirs = fresh(wire)
-        stale = result_claim(OTHER_UID, OURS)
+        stale = result_claim(OTHER_UID, rows_for(OURS))
         theirs.orchestrator.call_opponent(
             "negotiate",
             {
@@ -138,7 +170,7 @@ class TestWhatArrivesAtTheDoor:
     ) -> None:
         """A fourth mailbox: the other three are drained on a different schedule."""
         ours, theirs = fresh(wire)
-        claim = result_claim(GAME_UID, OURS)
+        claim = result_claim(GAME_UID, rows_for(OURS))
         body: dict[str, Any] = {
             RESULT_KEY: claim,
             RESULT_DIGEST_KEY: claim_sha256(claim),
@@ -151,14 +183,14 @@ class TestWhatArrivesAtTheDoor:
     def test_a_claim_without_a_series_is_refused_at_the_door(self, wire: tuple[Side, Side]) -> None:
         """This body is our dialect, so a claim that will not say which series is unreadable."""
         ours, theirs = fresh(wire)
-        claim = result_claim(GAME_UID, OURS)
+        claim = result_claim(GAME_UID, rows_for(OURS))
         reply = theirs.send({RESULT_KEY: claim, RESULT_DIGEST_KEY: claim_sha256(claim)})
         assert reply["ok"] is False
         assert ours.inboxes.results.empty()
 
     def test_a_claim_with_a_malformed_digest_is_refused(self, wire: tuple[Side, Side]) -> None:
         ours, theirs = fresh(wire)
-        claim = result_claim(GAME_UID, OURS)
+        claim = result_claim(GAME_UID, rows_for(OURS))
         reply = theirs.send(
             {RESULT_KEY: claim, RESULT_DIGEST_KEY: "not-a-digest", SERIES_KEY: GAME_UID}
         )

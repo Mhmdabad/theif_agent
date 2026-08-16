@@ -17,11 +17,10 @@ and "theirs", because a claim phrased from the sender's point of view would be
 two different claims and could never match.
 """
 
-import hashlib
 from collections.abc import Sequence
 from typing import Any
 
-from .config import canonical_bytes
+from .consensus import consensus_signature
 from .consensus_scope import consensus_scope
 
 __all__ = ["claim_and_digest", "claim_sha256", "result_claim"]
@@ -52,11 +51,10 @@ def result_claim(
 def claim_sha256(claim: dict[str, Any]) -> str:
     """The digest exchanged before either side reports.
 
-    Over :func:`~.config.canonical_bytes`, the one canonical form every other
-    digest in this system is taken over — so the property that makes the config
-    digest comparable across two machines holds here for the same reason.
+    The reference report writer uses its exceptional spaced serialization for
+    this digest.  :func:`consensus_signature` pins that form to the kit vector.
     """
-    return hashlib.sha256(canonical_bytes(claim)).hexdigest()
+    return consensus_signature(claim)
 
 
 def claim_and_digest(

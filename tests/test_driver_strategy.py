@@ -54,14 +54,14 @@ def private_config(strategy: dict[str, Any] | None = None) -> dict[str, Any]:
     config: dict[str, Any] = {
         "version": "1.0",
         "game": {
-            "group_id": "s82kma9e",
-            "group_name": "Us",
+            "group_id": "z-team",
+            "group_name": "z-team",
             "members": ["a"],
             "repos": {"cop": "https://example.invalid/cop", "thief": "https://example.invalid/th"},
         },
         "teams": {
             "them": {
-                "group_name": "Them",
+                "group_name": "a-team",
                 "members": ["b"],
                 "repos": {
                     "cop": "https://example.invalid/their-cop",
@@ -191,14 +191,18 @@ def match(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Match:
             driver,
             "await_opponent",
             lambda orchestrator, ours, directory, game_id, **kw: Peering(
-                ours=ours, theirs=ours, sub_game=1
+                ours=ours,
+                theirs=Greeting(
+                    "police", "a-team", "https://theirs.example.com/mcp", PROTOCOL_VERSION
+                ),
+                sub_game=1,
             ),
         )
         driver.open_match(
             inboxes=PeerInboxes(),
             private=private,
             environ={},
-            game_id="m1",
+            game_id="a-team-vs-z-team",
             directory=tmp_path,
             rehearsal=True,
         )

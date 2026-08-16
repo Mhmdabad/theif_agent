@@ -18,6 +18,7 @@ from ..infra.match_ledger import MatchLedger
 from ..infra.report import Repositories
 from ..infra.step_zero import SIGNING_KEY_ENV, collect, provenance
 from ..shared.naming import game_uid
+from ..shared.pairing_identity import validate_pairing_identity
 from ..shared.terms import to_terms
 from .match import MatchRunner
 
@@ -54,6 +55,7 @@ def _declaration(
     function assembles a document and the ledger is the driver's to read — and a
     count taken twice, in two places, is the one that eventually disagrees.
     """
+    validate_pairing_identity(game_id, us, them, ours, peering)
     hardware = collect(declared_model(private.get("trash_talk")), environ)
 
     return build(

@@ -105,6 +105,7 @@ def by_group(
         "result": _outcome(sub),
         "winner_group": winner,
         "tie": our_score == their_score,
+        "steps": sub.steps,
         "github_commit": {us: sub.commit_hash, them: UNKNOWN},
         "tokens": {us: sub.tokens, them: 0},
         "score": {us: our_score, them: their_score},

@@ -84,6 +84,7 @@ class TestTheReportIsAStructure:
         """
         body = json.loads(report().to_json())
         assert body["num_sub_games"] == 2
+        assert [entry["steps"] for entry in body["sub_games"]] == [17, 17]
         assert body["groups"] == ["uoh26-cops", "uoh26-others"]
         assert [entry["score"]["uoh26-cops"] for entry in body["sub_games"]] == [100, 80]
         assert [entry["roles"]["uoh26-cops"] for entry in body["sub_games"]] == [

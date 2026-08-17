@@ -34,6 +34,25 @@ def _wire_move(move: str) -> str:
     return move if move == "STAY" else f"MOVE:{move}"
 
 
+def _fallback(obs: Observation, rival: tuple[int, int]) -> Action:
+    """Choose a purposeful legal move if the full search cannot be translated."""
+    offsets = {
+        "MOVE:N": (-1, 0),
+        "MOVE:S": (1, 0),
+        "MOVE:W": (0, -1),
+        "MOVE:E": (0, 1),
+        "STAY": (0, 0),
+    }
+    ranked = []
+    for index, move in enumerate(obs.legal_moves):
+        dr, dc = offsets.get(move, (0, 0))
+        landed = obs.self_pos[0] + dr, obs.self_pos[1] + dc
+        distance = abs(landed[0] - rival[0]) + abs(landed[1] - rival[1])
+        value = -distance if obs.role == "police" else distance
+        ranked.append((value, -index, move))
+    return Action(max(ranked)[2] if ranked else "STAY")
+
+
 class SearchPolicy:
     """Translate the kit observation into the existing hidden-state brain API."""
 
@@ -45,6 +64,8 @@ class SearchPolicy:
 
     def decide(self, obs: Observation, rng: random.Random) -> Action:
         rival = _rival_estimate(obs)
+        if self.role == "police":
+            self.brain.max_barriers = len(obs.barriers) + obs.barriers_left
         state = BoardState(
             grid_size=obs.board_size,
             cop=obs.self_pos if self.role == "police" else rival,
@@ -54,7 +75,14 @@ class SearchPolicy:
         )
         belief = {rival: 1.0}
         try:
-            chosen = self.brain.decide(state, belief=belief, threat=rival, rng=rng).action
+            chosen = self.brain.decide(
+                state,
+                belief=belief,
+                threat=rival,
+                concentration=1.0,
+                uncertainty=0.0,
+                rng=rng,
+            ).action
             if isinstance(chosen, PlaceBarrier) and chosen.at in obs.barrier_targets:
                 return Action("STAY", chosen.at)
             if isinstance(chosen, MoveAction):
@@ -63,7 +91,7 @@ class SearchPolicy:
                     return Action(move)
         except (RuntimeError, ValueError):
             pass
-        return Action(obs.legal_moves[0] if obs.legal_moves else "STAY")
+        return _fallback(obs, rival)
 
 
 class PoliceSearchPolicy(SearchPolicy):

@@ -36,8 +36,8 @@ from .police_brain import PoliceBrain
 
 __all__ = ["SearchingPolice"]
 
-DEPTH = 4
-"""Plies per hypothesis: two moves each. *Negotiable tuning, not Appendix F.*"""
+DEPTH = 5
+"""Plies per hypothesis: three cop decisions. *Negotiable, not Appendix F.*"""
 
 
 @dataclass

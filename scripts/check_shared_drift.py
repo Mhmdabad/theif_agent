@@ -36,6 +36,9 @@ SIBLING_PACKAGE = "cop_agent"
 OUR_PACKAGE = "thief_agent"
 
 SHARED: tuple[str, ...] = (
+    "counted_v3_evidence.py",
+    "counted_v3_report.py",
+    "reference_v3_commits.py",
     "domain/axes.py",
     "domain/board.py",
     "domain/crypto.py",
@@ -258,6 +261,7 @@ SHARED: tuple[str, ...] = (
 """Modules that must be identical once the package name is normalised."""
 
 DIVERGENT: dict[str, str] = {
+    "counted_v3.py": "loads this repository's role-specific private config path",
     "reference_v3.py": "imports this repository's package-specific strategy and domain types",
     "runtime/driver.py": "names this role and its private config path",
     "cli_identity.py": "holds this role, its private config path and its package name",

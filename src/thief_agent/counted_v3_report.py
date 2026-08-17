@@ -66,6 +66,8 @@ def build_report(
                 steps=int(item["steps"]),
                 log_verified=bool(item["audit_ok"]),
                 tampered=bool(item.get("tampered", False)),
+                started_at=str(item["started_at"]),
+                ended_at=str(item["ended_at"]),
             )
         )
     repos = Repositories(

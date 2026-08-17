@@ -21,6 +21,7 @@ from sparring.transport.loopback import Inboxes
 from sparring.transport.server import build_server
 
 from .counted_v3_report import build_report, promote_wire
+from .counted_v3_evidence import add_timings, capture, require_complete
 from .reference_v3_commits import annotate as annotate_commits
 from .reference_v3_commits import require_clean, reset as reset_commits
 
@@ -105,7 +106,9 @@ def main() -> int:
 
     netplay.assert_uncounted_group = lambda _group: None
     netplay.assert_sparring_ready = lambda _cfg: SimpleNamespace(mail_scan_sha256="counted-v3")
-    result = netplay.play_series(cfg, client, server_inboxes, args.out / ".wire")
+    with capture(netplay) as timings:
+        result = netplay.play_series(cfg, client, server_inboxes, args.out / ".wire")
+    add_timings(result.ledger, timings)
     if not result.settled or len(result.ledger) != 6:
         return 6
     try:
@@ -117,6 +120,7 @@ def main() -> int:
     report = build_report(
         result, report_cfg, args.role, (args.games_played, args.opponent_games_played)
     )
+    require_complete(report)
     promote_wire(args.out, report_cfg)
     path = args.out / report.filename
     path.write_text(report.to_json(), encoding="utf-8")

@@ -100,6 +100,7 @@ class Negotiation:
                                             # string and a hash are uncomparable, so it is silence
     game_uid: str | None = None             # SPEC section 7.3 — declared when the opponent is
                                             # known, so a wrong-input uid refuses at the handshake
+    github_commit: str | None = None         # book rule 53 — exact checkout used in this sub-game
 
     def to_wire(self) -> dict:
         return {k: v for k, v in asdict(self).items() if v is not None}

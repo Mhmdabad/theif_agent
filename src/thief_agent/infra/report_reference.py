@@ -11,10 +11,8 @@ up across a series. The book scores a group pair; this document says so
 directly, and a reader building league standings never has to work out who sat
 where.
 
-Two fields are honest about what this peer cannot know: the opponent's commit
-is ``unknown`` -- nothing about their code crosses the wire -- and their token
-spend is theirs to report, not ours to guess. The reference's own sample writes
-``unknown`` in exactly this place.
+    Unknown values are explicit rather than invented. Counted reference-v3 exchanges
+    the opponent's commit; legacy paths retain ``unknown`` when it never crossed the wire.
 """
 
 from typing import TYPE_CHECKING, Any
@@ -106,7 +104,7 @@ def by_group(
         "winner_group": winner,
         "tie": our_score == their_score,
         "steps": sub.steps,
-        "github_commit": {us: sub.commit_hash, them: UNKNOWN},
+        "github_commit": {us: sub.commit_hash, them: sub.opponent_commit_hash},
         "tokens": {us: sub.tokens, them: 0},
         "score": {us: our_score, them: their_score},
         "log_files": dict.fromkeys((us, them), log_filename(game_id, sub.sub_game)),

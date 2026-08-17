@@ -21,6 +21,8 @@ from sparring.transport.loopback import Inboxes
 from sparring.transport.server import build_server
 
 from .counted_v3_report import build_report, promote_wire
+from .reference_v3_commits import annotate as annotate_commits
+from .reference_v3_commits import require_clean, reset as reset_commits
 
 
 def _args() -> argparse.Namespace:
@@ -35,6 +37,8 @@ def _args() -> argparse.Namespace:
     parser.add_argument("--out", type=Path, default=Path("artefacts"))
     parser.add_argument("--games-played", type=int, required=True)
     parser.add_argument("--opponent-games-played", type=int, required=True)
+    parser.add_argument("--opponent-cop-commit")
+    parser.add_argument("--opponent-thief-commit")
     parser.add_argument("--turn-timeout", type=float, default=180.0)
     parser.add_argument("--send", action="store_true")
     return parser.parse_args()
@@ -77,6 +81,8 @@ def _await_peer(url: str, timeout: float) -> bool:
 def main() -> int:
     load_dotenv()
     args, private = _args(), _private()
+    reset_commits()
+    require_clean()
     cfg = SparConfig(
         group_id=args.group_id,
         group_name=args.group_id,
@@ -102,6 +108,11 @@ def main() -> int:
     result = netplay.play_series(cfg, client, server_inboxes, args.out / ".wire")
     if not result.settled or len(result.ledger) != 6:
         return 6
+    try:
+        annotate_commits(result.ledger, args.opponent_cop_commit, args.opponent_thief_commit)
+    except ValueError as exc:
+        print(f"counted report blocked: {exc}")
+        return 8
     report_cfg = _report_cfg(args, private)
     report = build_report(
         result, report_cfg, args.role, (args.games_played, args.opponent_games_played)

@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Protocol
@@ -23,13 +22,6 @@ class SettledResult(Protocol):
     game_id: str
     game_uid: str
     ledger: list[dict[str, Any]]
-
-
-def _commit() -> str:
-    answer = subprocess.run(
-        ["git", "rev-parse", "HEAD"], capture_output=True, check=False, text=True
-    ).stdout.strip()
-    return answer or "unknown"
 
 
 def _standing(ledger: list[dict[str, Any]], ours: str, theirs: str) -> dict[str, Any]:
@@ -61,7 +53,6 @@ def build_report(
 ) -> Report:
     ours, theirs = cfg["ours"], cfg["theirs"]
     standing = _standing(result.ledger, ours, theirs)
-    commit = _commit()
     subs = []
     for item in result.ledger:
         outcome = Outcome(item["outcome"])
@@ -70,7 +61,8 @@ def build_report(
                 sub_game=int(item["sub_game_number"]),
                 cop_score=score_for(outcome, Role.POLICE),
                 thief_score=score_for(outcome, Role.THIEF),
-                commit_hash=commit,
+                commit_hash=str(item["github_commit"]),
+                opponent_commit_hash=str(item["opponent_commit"]),
                 steps=int(item["steps"]),
                 log_verified=bool(item["audit_ok"]),
                 tampered=bool(item.get("tampered", False)),

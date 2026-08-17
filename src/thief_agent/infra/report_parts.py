@@ -31,6 +31,7 @@ class SubGameResult:
 
     log_verified: bool = True
     tampered: bool = False
+    opponent_commit_hash: str = "unknown"
     """The audit's verdict on this sub-game's log, as the reference records it.
 
     Defaulted to a clean audit rather than an unknown one: a sub-game that

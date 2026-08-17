@@ -44,6 +44,7 @@ def _sub_game(body: dict[str, Any], us: str, them: str) -> SubGameResult:
         cop_score=cop,
         thief_score=thief,
         commit_hash=str(body["github_commit"][us]),
+        opponent_commit_hash=str(body["github_commit"].get(them, "unknown")),
         steps=int(body.get("steps", 0)),
         technical_loss=str(body.get("result", "")) == "technical_loss",
         started_at=str(body.get("started_at", "")),

@@ -8,7 +8,9 @@ def observation(role: str) -> Observation:
         self_pos=(0, 0) if role == "police" else (3, 3),
         board_size=7,
         barriers=(),
-        legal_moves=("S", "E", "STAY") if role == "police" else ("N", "S", "E", "W", "STAY"),
+        legal_moves=("MOVE:S", "MOVE:E", "STAY")
+        if role == "police"
+        else ("MOVE:N", "MOVE:S", "MOVE:W", "MOVE:E", "STAY"),
         barrier_targets=((0, 0), (0, 1), (1, 0)) if role == "police" else (),
         barriers_left=14,
         steps_left=34,
@@ -24,3 +26,11 @@ def test_search_policies_only_return_kit_legal_actions() -> None:
         action = policy.decide(obs, random.Random(7))
         assert action.move in obs.legal_moves
         assert action.barrier is None or action.barrier in obs.barrier_targets
+
+
+def test_thief_move_is_translated_instead_of_falling_back_to_north() -> None:
+    import random
+
+    action = ThiefSearchPolicy().decide(observation("thief"), random.Random(7))
+
+    assert action.move == "MOVE:S"

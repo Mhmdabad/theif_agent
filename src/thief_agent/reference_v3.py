@@ -29,6 +29,10 @@ def _rival_estimate(obs: Observation) -> tuple[int, int]:
     return (3, 3) if obs.role == "police" else (0, 0)
 
 
+def _wire_move(move: str) -> str:
+    return move if move == "STAY" else f"MOVE:{move}"
+
+
 class SearchPolicy:
     """Translate the kit observation into the existing hidden-state brain API."""
 
@@ -52,8 +56,10 @@ class SearchPolicy:
             chosen = self.brain.decide(state, belief=belief, threat=rival, rng=rng).action
             if isinstance(chosen, PlaceBarrier) and chosen.at in obs.barrier_targets:
                 return Action("STAY", chosen.at)
-            if isinstance(chosen, MoveAction) and chosen.move in obs.legal_moves:
-                return Action(chosen.move)
+            if isinstance(chosen, MoveAction):
+                move = _wire_move(chosen.move)
+                if move in obs.legal_moves:
+                    return Action(move)
         except (RuntimeError, ValueError):
             pass
         return Action(obs.legal_moves[0] if obs.legal_moves else "STAY")

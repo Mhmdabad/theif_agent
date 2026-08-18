@@ -49,6 +49,11 @@ htmlcov/
 # must be committed (Appendix F, mandatory rule 4), and match logs are the
 # evidence the Replay App verifies.
 
+# Reference-v3 scratch output is not league evidence. Counted commands promote
+# the canonical declaration/config/log/result files above these working trees.
+runs/
+artefacts/**/.wire/
+
 # Gatekeeper runtime state: the daily quota ledger and the DoS lock. Machine-
 # local counters, not code — and untracked-but-not-ignored files used to be
 # counted as a dirty tree, which is the one thing they must never be.

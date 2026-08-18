@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from thief_agent import reference_v3 as _reference_v3  # noqa: F401
 from thief_agent.counted_v3_evidence import add_timings, capture, require_complete
 from thief_agent.infra.report import Report, Repositories, SubGameResult
 from thief_agent.infra.report_parts import ReportError
@@ -14,12 +15,16 @@ class Artifacts:
 
 
 def test_capture_adds_real_timestamps_after_the_audit_log() -> None:
+    from sparring.turnloop import SubGamePeer
+
+    peer = object.__new__(SubGamePeer)
+    peer.n = 1
     netplay = SimpleNamespace(
-        _play_one=lambda peer: peer.sub_game_number,
+        _play_one=lambda current: current.n,
         ArtifactSet=Artifacts,
     )
     with capture(netplay) as timings:
-        assert netplay._play_one(SimpleNamespace(sub_game_number=1)) == 1
+        assert netplay._play_one(peer) == 1
         assert netplay.ArtifactSet().log(1) == 1
     ledger = [{"sub_game_number": 1}]
     add_timings(ledger, timings)

@@ -45,7 +45,7 @@ TOP_KEYS = {
 
 
 class _Peer(Protocol):
-    sub_game_number: int
+    n: int
 
 
 class _Artifacts(Protocol):
@@ -69,7 +69,7 @@ def capture(netplay: _Netplay) -> Iterator[dict[int, dict[str, str]]]:
     original_play, original_log = netplay._play_one, artifact_set.log
 
     def timed_play(peer: _Peer, *args: object, **kwargs: object) -> object:
-        timings[peer.sub_game_number] = {"started_at": _now()}
+        timings[peer.n] = {"started_at": _now()}
         return original_play(peer, *args, **kwargs)
 
     def timed_log(owner: object, number: int, *args: object, **kwargs: object) -> object:

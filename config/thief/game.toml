@@ -89,6 +89,6 @@ mode = "send"                                     # armed: a real match mails th
 # in the negotiation, and it must match what their greeting announces on the
 # wire — the series standing is keyed by the exchanged ids, not by these names.
 [teams.them]
-group_name = "ali-ahm1"                             # EDIT per opponent
-members = ["Ali Trabeh", "Ahmad Kais"]
-repos = { cop = "https://github.com/AhmadKais/Final_Project_AI_Orchestration", thief = "https://github.com/AhmadKais/Final_Project_AI_Orchestration_Robber" }  # theirs, not ours
+group_name = "yamanagh"                             # EDIT per opponent
+members = ["Yaman Dahle", "Nagham Manasra"]
+repos = { cop = "https://github.com/Nagham1023/yamanagh-cop", thief = "https://github.com/yamandahle/thief-peer" }  # theirs, not ours

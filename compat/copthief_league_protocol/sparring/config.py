@@ -57,6 +57,7 @@ class SparConfig:
     mode: RunMode = RunMode.SPARRING
     group_id: str = DEFAULT_GROUP_ID
     group_name: str = "Sparring Peer (uncounted)"
+    opponent_group: str | None = None
 
     board_size: int = 7
     smell_grid_size: int = 5

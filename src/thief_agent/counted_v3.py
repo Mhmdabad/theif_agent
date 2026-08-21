@@ -87,6 +87,7 @@ def main() -> int:
     cfg = SparConfig(
         group_id=args.group_id,
         group_name=args.group_id,
+        opponent_group=args.opponent_group,
         natural_role=args.role,
         policy="search",
         budgets=Budgets(turn_timeout=args.turn_timeout),

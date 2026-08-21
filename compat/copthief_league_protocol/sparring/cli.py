@@ -45,6 +45,7 @@ ASSUMPTIONS = (
 def _config(args) -> SparConfig:
     return SparConfig(
         group_id=args.group_id,
+        opponent_group=args.opponent_group,
         policy=args.policy,
         scent_model=args.scent_model,
         seed=args.seed,
@@ -155,6 +156,8 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--group-id", default=DEFAULT_GROUP_ID,
                        help="must start with 'sparring-' — game_id is built from the group ids, "
                             "so this is what keeps practice artifacts distinguishable")
+        p.add_argument("--opponent-group", default=None,
+                       help="predeclare the paired group so game_uid is present in greeting 1")
         p.add_argument("--policy", default="greedy", choices=sorted(REGISTRY))
         p.add_argument("--scent-model", default=MODELS[0], choices=list(MODELS))
         p.add_argument("--seed", type=int, default=1234)

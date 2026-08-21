@@ -31,3 +31,20 @@ def test_reference_greeting_declares_the_running_commit() -> None:
     cfg = SparConfig(group_id="sparring-s82kma9e", natural_role="police")
     greeting = netplay.our_greeting(cfg, "police", 1, "1" * 32, {})
     assert greeting.to_wire()["github_commit"] == local_commit()
+
+
+def test_configured_pairing_declares_uid_in_first_greeting() -> None:
+    import sparring.netplay as netplay
+    from sparring import kitref
+    from sparring.cli import _config, build_parser
+
+    args = build_parser().parse_args(
+        ["serve", "--group-id", "sparring-s82kma9e", "--opponent-group", "sparring-yamanagh"]
+    )
+    cfg = _config(args)
+    greeting = netplay.our_greeting(
+        cfg, "police", 1, "1" * 32, {}, opponent_group=cfg.opponent_group
+    )
+    assert greeting.game_uid == kitref.game_uid(
+        cfg.terms(), "sparring-s82kma9e", "sparring-yamanagh"
+    )

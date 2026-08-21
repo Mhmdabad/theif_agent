@@ -115,13 +115,13 @@ def play_series(cfg: SparConfig, client, inboxes, artifacts_dir: Path,
     result = NetResult()
     artifacts: ArtifactSet | None = None
 
-    known_opponent: str | None = None
+    known_opponent: str | None = cfg.opponent_group
     for n in range(1, sub_games + 1):
         role = role_for(natural, n)
         print(f"\n  sub-game {n}: we are {role.value}")
         try:
-            # From sub-game 2 onward the opponent is known, so the greeting declares the derived
-            # game_uid (SPEC section 7.3). Sub-game 1 declares none — omission never refuses.
+            # A configured pairing declares game_uid immediately; otherwise the peer learns the
+            # opponent in sub-game 1 and declares it from sub-game 2 onward.
             agreed = handshake(cfg, transport, role, n, lock_hashes,
                                budgets.turn_timeout, budgets.poll_interval, clock,
                                opponent_group=known_opponent)

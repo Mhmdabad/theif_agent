@@ -16,6 +16,7 @@ from sparring.policies.base import Action, Observation  # noqa: E402
 from .domain.actions import MoveAction, PlaceBarrier  # noqa: E402
 from .domain.board import BoardState  # noqa: E402
 from .reference_v3_commits import install as _install_commit_exchange  # noqa: E402
+from .reference_v3_series_consensus import install as _install_series_consensus  # noqa: E402
 from .strategy.police_search import SearchingPolice  # noqa: E402
 from .strategy.thief_search import SearchingThief  # noqa: E402
 
@@ -106,6 +107,7 @@ class ThiefSearchPolicy(SearchPolicy):
 
 REGISTRY["search"] = {"police": PoliceSearchPolicy, "thief": ThiefSearchPolicy}
 _install_commit_exchange()
+_install_series_consensus()
 
 
 def main() -> int:

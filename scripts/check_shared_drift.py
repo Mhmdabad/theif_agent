@@ -39,6 +39,7 @@ SHARED: tuple[str, ...] = (
     "counted_v3_evidence.py",
     "counted_v3_report.py",
     "reference_v3_commits.py",
+    "reference_v3_series_consensus.py",
     "domain/axes.py",
     "domain/board.py",
     "domain/crypto.py",

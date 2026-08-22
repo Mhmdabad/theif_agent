@@ -13,7 +13,7 @@
 # OAuth material. Those live outside the repo and are gitignored.
 # ---------------------------------------------------------------------------
 
-version = "1.10"
+version = "1.11"
 
 [game]
 group_name = "s82kma9e"
@@ -24,7 +24,7 @@ repos = { cop = "https://github.com/Mhmdabad/police_agent", thief = "https://git
 [network]
 my_port      = 8802                          # THIS agent's MCP server port
 opponent_url = "http://127.0.0.1:8801/mcp"   # the only thing we know about the opponent
-turn_timeout_seconds = 180
+turn_timeout_seconds = 30
 
 # LEAGUE PLAY: leave the loopback address above alone and export the opponent's
 # tunnel URL instead. OPPONENT_URL overrides this file (see ClientSettings.
@@ -89,6 +89,6 @@ mode = "send"                                     # armed: a real match mails th
 # in the negotiation, and it must match what their greeting announces on the
 # wire — the series standing is keyed by the exchanged ids, not by these names.
 [teams.them]
-group_name = "yamanagh"                             # EDIT per opponent
-members = ["Yaman Dahle", "Nagham Manasra"]
-repos = { cop = "https://github.com/Nagham1023/yamanagh-cop", thief = "https://github.com/yamandahle/thief-peer" }  # theirs, not ours
+group_name = "MaRs-777"                             # EDIT per opponent
+members = ["Mohamed Awad", "Rawey Sleiman"]
+repos = { cop = "https://github.com/mohammedawad99/mars-777-police-agent", thief = "https://github.com/mohammedawad99/mars-777-thief-agent" }  # theirs, not ours

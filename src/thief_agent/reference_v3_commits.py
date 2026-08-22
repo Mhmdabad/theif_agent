@@ -16,16 +16,28 @@ from sparring.turnloop import SubGamePeer
 SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
 _OPPONENT: dict[int, str] = {}
 _CONFLICTS: set[int] = set()
+_LOCAL_BY_ROLE: dict[str, str] = {}
 _INSTALLED = False
 
 
-def local_commit() -> str:
+def local_commit(role: str | None = None) -> str:
+    if role and role in _LOCAL_BY_ROLE:
+        return _LOCAL_BY_ROLE[role]
     answer = subprocess.run(
         ["git", "rev-parse", "HEAD"], capture_output=True, check=False, text=True
     ).stdout.strip()
     if not SHA_PATTERN.fullmatch(answer):
         raise RuntimeError("cannot resolve the Git commit used by this counted peer")
     return answer
+
+
+def configure_local(commits: dict[str, str]) -> None:
+    if set(commits) != {"police", "thief"}:
+        raise ValueError("local commits must contain police and thief")
+    if any(not SHA_PATTERN.fullmatch(value) for value in commits.values()):
+        raise ValueError("local role commits must be lowercase 40-character Git SHAs")
+    _LOCAL_BY_ROLE.clear()
+    _LOCAL_BY_ROLE.update(commits)
 
 
 def require_clean() -> str:
@@ -47,15 +59,16 @@ def _remember(number: int | None, value: object) -> None:
 def reset() -> None:
     _OPPONENT.clear()
     _CONFLICTS.clear()
+    _LOCAL_BY_ROLE.clear()
 
 
 def annotate(
     ledger: list[dict[str, Any]], cop_fallback: str | None, thief_fallback: str | None
 ) -> None:
     fallback = {"police": cop_fallback, "thief": thief_fallback}
-    ours = local_commit()
     for row in ledger:
         number, role = int(row["sub_game_number"]), str(row["role"])
+        ours = local_commit(role)
         opponent_role = "thief" if role == "police" else "police"
         theirs = _OPPONENT.get(number) or str(fallback[opponent_role] or "").lower()
         if number in _CONFLICTS:
@@ -88,7 +101,7 @@ def install() -> None:
         opponent_group: str | None = None,
     ) -> Negotiation:
         message = original_greeting(cfg, role, sub_game_number, nonce, locks, opponent_group)
-        message.github_commit = local_commit()
+        message.github_commit = local_commit(role)
         return message
 
     def verify(cfg: SparConfig, ours: Negotiation, raw: dict[str, Any]) -> Agreed:
@@ -98,7 +111,7 @@ def install() -> None:
 
     def step_zero(self: SubGamePeer, group_name: str) -> dict[str, Any]:
         record = cast(dict[str, Any], original_step_zero(self, group_name))
-        record["payload"]["github_commit"] = local_commit()
+        record["payload"]["github_commit"] = local_commit(self.role.value)
         record["commit"] = kitref.commit(record["payload"], record["nonce"])
         return record
 

@@ -36,8 +36,16 @@ SIBLING_PACKAGE = "cop_agent"
 OUR_PACKAGE = "thief_agent"
 
 SHARED: tuple[str, ...] = (
+    "counted_v3_args.py",
+    "counted_v3_contract.py",
     "counted_v3_evidence.py",
     "counted_v3_report.py",
+    "counted_v3_revisions.py",
+    "counted_v3_setup.py",
+    "counted_v3_step0_exchange.py",
+    "counted_v3_step0_model.py",
+    "counted_v3_step0_peer.py",
+    "counted_v3_wire.py",
     "reference_v3_commits.py",
     "reference_v3_series_consensus.py",
     "domain/axes.py",

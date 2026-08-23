@@ -4,10 +4,21 @@ from __future__ import annotations
 
 import argparse
 import tomllib
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from .counted_v3_contract import SCENT_MODEL
+
+
+def _utc_stamp(value: str) -> str:
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("expected UTC YYYY-MM-DDTHH:MM:SSZ") from exc
+    if parsed.strftime("%Y-%m-%dT%H:%M:%SZ") != value:
+        raise argparse.ArgumentTypeError("expected UTC YYYY-MM-DDTHH:MM:SSZ")
+    return value
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -26,6 +37,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--opponent-thief-commit")
     parser.add_argument("--scent-model", default=SCENT_MODEL, choices=(SCENT_MODEL,))
     parser.add_argument("--turn-timeout", type=float, default=30.0)
+    parser.add_argument("--game-start", required=True, type=_utc_stamp)
     parser.add_argument("--manual-start", action="store_true")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--send", action="store_true")

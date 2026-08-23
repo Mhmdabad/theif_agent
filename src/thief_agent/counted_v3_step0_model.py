@@ -6,7 +6,6 @@ import hashlib
 import hmac
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import Any
 
 from .counted_v3_step0_hardware import collect_hardware, decode_frequency
@@ -20,6 +19,7 @@ class StepZeroSpec:
     group_id: str
     opponent_group: str
     public_url: str
+    game_start: str
     token_budget: int
     own_team: dict[str, Any]
     peer_team: dict[str, Any]
@@ -82,7 +82,6 @@ def _mac(declaration: dict[str, Any], slot: str, secret: str) -> str:
 def build_payload(
     spec: StepZeroSpec,
     *,
-    started_at: str | None = None,
     hardware: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     slot = _slot(spec.group_id, spec.opponent_group)
@@ -93,7 +92,7 @@ def build_payload(
         "game_uid": spec.game_uid,
         "token_budget_per_series": spec.token_budget,
         "times": {
-            "game_start": started_at or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "game_start": spec.game_start,
             "game_end": None,
         },
         "teams": teams,

@@ -62,7 +62,9 @@ S82 = _team(
 )
 
 
-def _spec(ours: str, token_budget: int = 200000) -> StepZeroSpec:
+def _spec(
+    ours: str, token_budget: int = 200000, game_start: str = "2026-08-23T18:30:00Z"
+) -> StepZeroSpec:
     mars = ours == "MaRs-777"
     expected: dict[str, str | None] = dict(S82_COMMITS if mars else MARS_COMMITS)
     return StepZeroSpec(
@@ -71,6 +73,7 @@ def _spec(ours: str, token_budget: int = 200000) -> StepZeroSpec:
         group_id=ours,
         opponent_group="s82kma9e" if mars else "MaRs-777",
         public_url="https://example.invalid/mcp",
+        game_start=game_start,
         token_budget=token_budget,
         own_team=MARS if mars else S82,
         peer_team=S82 if mars else MARS,
@@ -89,8 +92,7 @@ def test_frozen_game_contract_hashes() -> None:
 
 def test_step_zero_v2_golden_vector() -> None:
     payload = build_payload(
-        _spec("MaRs-777", 100000),
-        started_at="2026-08-23T12:00:00Z",
+        _spec("MaRs-777", 100000, "2026-08-23T12:00:00Z"),
         hardware=TEST_HARDWARE,
     )
     declaration = payload["declaration"]
@@ -105,7 +107,8 @@ def test_step_zero_v2_golden_vector() -> None:
         "07246bbe1efa3509b0891f2da78542aa15d44d05390c121ca9ab6f69a5b9731f"
     )
     decoded_wire = json.loads(json.dumps(payload, ensure_ascii=False))
-    assert verify_payload(decoded_wire, _spec("s82kma9e", 100000)) == MARS_COMMITS
+    peer = _spec("s82kma9e", 100000, "2026-08-23T12:00:00Z")
+    assert verify_payload(decoded_wire, peer) == MARS_COMMITS
 
 
 def test_each_producer_uses_explicit_null_and_verifies() -> None:
@@ -122,6 +125,12 @@ def test_tampered_role_commit_is_refused() -> None:
     payload["declaration"]["teams"]["group_a"]["github_commits"]["police"] = "f" * 40
     with pytest.raises(ValueError, match="commit|HMAC"):
         verify_payload(payload, _spec("s82kma9e"))
+
+
+def test_different_game_start_is_refused() -> None:
+    payload = build_payload(_spec("MaRs-777"), hardware=TEST_HARDWARE)
+    with pytest.raises(ValueError, match="game_start mismatch"):
+        verify_payload(payload, _spec("s82kma9e", game_start="2026-08-23T18:31:00Z"))
 
 
 def test_real_fastmcp_surface_routes_step_zero_and_game_negotiate() -> None:

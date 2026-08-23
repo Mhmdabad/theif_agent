@@ -23,6 +23,8 @@ BASE_ARGS = [
     "5",
     "--opponent-games-played",
     "1",
+    "--game-start",
+    "2026-08-23T18:30:00Z",
 ]
 
 
@@ -33,6 +35,11 @@ def test_rehearsal_and_send_are_mutually_exclusive() -> None:
 
 def test_manual_start_gate_is_available() -> None:
     assert parse_args([*BASE_ARGS, "--rehearsal", "--manual-start"]).manual_start is True
+
+
+def test_game_start_requires_exact_utc_seconds() -> None:
+    with pytest.raises(SystemExit):
+        parse_args([*BASE_ARGS[:-1], "2026-08-23T18:30:00+00:00"])
 
 
 def test_rehearsal_delivery_cannot_call_mail(monkeypatch: pytest.MonkeyPatch) -> None:

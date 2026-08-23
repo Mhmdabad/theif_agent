@@ -25,6 +25,8 @@ def validate_declaration(body: dict[str, Any], spec: Any) -> None:
     times = body.get("times", {})
     if not STAMP.fullmatch(str(times.get("game_start", ""))) or times.get("game_end") is not None:
         raise ValueError("Step-0 times must contain UTC game_start and null game_end")
+    if times["game_start"] != spec.game_start:
+        raise ValueError("Step-0 game_start mismatch")
     slot = _slot(spec.opponent_group, spec.group_id)
     other = "group_b" if slot == "group_a" else "group_a"
     teams = body.get("teams", {})

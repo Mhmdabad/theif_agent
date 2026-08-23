@@ -34,6 +34,7 @@ def step_zero_spec(
         group_id=args.group_id,
         opponent_group=args.opponent_group,
         public_url=args.public,
+        game_start=args.game_start,
         token_budget=int(shared["network_and_league"]["token_budget_per_series"]),
         own_team=own,
         peer_team=peer,

@@ -54,15 +54,12 @@ def build_server(cfg: Any, inboxes: Any) -> Any:
 
 
 def send_step_zero(client: Any, payload: dict[str, Any]) -> None:
-    last: Exception | None = None
-    for _attempt in range(2):
-        client._ensure_session()
-        try:
-            call = client._client.call_tool("negotiate", {"kind": "step0", "payload": payload})
-            client._await(call)
-            return
-        except Exception as exc:  # noqa: BLE001
-            last = exc
-            client._entered = False
-            client._client = None
-    raise RuntimeError(f"Step-0 negotiate failed: {last}") from last
+    client._ensure_session()
+    try:
+        call = client._client.call_tool("negotiate", {"kind": "step0", "payload": payload})
+        client._await(call)
+    except Exception as exc:  # noqa: BLE001
+        client._entered = False
+        client._client = None
+        # Step-0 is not idempotent: a retry after a lost response becomes stale.
+        raise RuntimeError(f"Step-0 negotiate failed: {exc}") from exc

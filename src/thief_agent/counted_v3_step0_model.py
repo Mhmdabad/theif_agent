@@ -5,12 +5,11 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import os
-import platform
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from .counted_v3_step0_hardware import collect_hardware, decode_frequency
 from .counted_v3_step0_peer import validate_declaration
 
 
@@ -41,19 +40,7 @@ def _slot(group_id: str, opponent: str) -> str:
     return "group_a" if group_id == ordered[0] else "group_b"
 
 
-def _hardware() -> dict[str, Any]:
-    pages = os.sysconf("SC_PHYS_PAGES") if hasattr(os, "sysconf") else 0
-    size = os.sysconf("SC_PAGE_SIZE") if pages else 0
-    return {
-        "os": platform.system() or "unknown",
-        "cpu_cores": os.cpu_count() or 1,
-        "cpu_freq_ghz": os.getenv("COUNTED_CPU_FREQ_GHZ", "unknown"),
-        "ram_gb": round(pages * size / 1024**3) if pages else 0,
-        "gpu": False,
-    }
-
-
-def _team(spec: StepZeroSpec) -> dict[str, Any]:
+def _team(spec: StepZeroSpec, hardware: dict[str, Any] | None = None) -> dict[str, Any]:
     team = spec.own_team
     return {
         "group_id": spec.group_id,
@@ -62,35 +49,53 @@ def _team(spec: StepZeroSpec) -> dict[str, Any]:
         "repos": {"police": team["repos"]["cop"], "thief": team["repos"]["thief"]},
         "github_commits": spec.own_commits,
         "mcp_endpoint": spec.public_url,
-        "hardware": _hardware(),
+        "hardware": hardware or collect_hardware(),
         "llm_model": team.get("llm_model", "template"),
         "code_version": team["code_version"],
     }
 
 
 def _core(declaration: dict[str, Any], slot: str) -> dict[str, Any]:
+    team = dict(declaration["teams"][slot])
+    hardware = dict(team["hardware"])
+    hardware["cpu_freq_ghz"] = decode_frequency(hardware.get("cpu_freq_ghz"))
+    team["hardware"] = hardware
     return {
         "game_id": declaration["game_id"],
         "game_uid": declaration["game_uid"],
-        "teams": {slot: declaration["teams"][slot]},
+        "teams": {slot: team},
         "times": {"game_start": declaration["times"]["game_start"]},
         "token_budget_per_series": declaration["token_budget_per_series"],
     }
 
 
-def _mac(core: dict[str, Any], secret: str) -> str:
-    return hmac.new(secret.encode("utf-8"), b"step0" + _canonical(core), hashlib.sha256).hexdigest()
+def authenticated_preimage(declaration: dict[str, Any], slot: str) -> bytes:
+    return b"step0" + _canonical(_core(declaration, slot))
 
 
-def build_payload(spec: StepZeroSpec) -> dict[str, Any]:
+def _mac(declaration: dict[str, Any], slot: str, secret: str) -> str:
+    return hmac.new(
+        secret.encode("utf-8"), authenticated_preimage(declaration, slot), hashlib.sha256
+    ).hexdigest()
+
+
+def build_payload(
+    spec: StepZeroSpec,
+    *,
+    started_at: str | None = None,
+    hardware: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     slot = _slot(spec.group_id, spec.opponent_group)
     teams: dict[str, dict[str, Any] | None] = {"group_a": None, "group_b": None}
-    teams[slot] = _team(spec)
+    teams[slot] = _team(spec, hardware)
     declaration = {
         "game_id": spec.game_id,
         "game_uid": spec.game_uid,
         "token_budget_per_series": spec.token_budget,
-        "times": {"game_start": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"), "game_end": None},
+        "times": {
+            "game_start": started_at or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "game_end": None,
+        },
         "teams": teams,
     }
     return {
@@ -98,7 +103,7 @@ def build_payload(spec: StepZeroSpec) -> dict[str, Any]:
         "auth": {
             "profile": "HMAC_SHA256",
             "key_id": spec.key_id,
-            "value": _mac(_core(declaration, slot), spec.secret),
+            "value": _mac(declaration, slot, spec.secret),
         },
     }
 
@@ -111,7 +116,7 @@ def verify_payload(payload: dict[str, Any], spec: StepZeroSpec) -> dict[str, str
         raise ValueError("Step-0 authentication profile or key_id mismatch")
     validate_declaration(declaration, spec)
     slot = _slot(spec.opponent_group, spec.group_id)
-    expected = _mac(_core(declaration, slot), spec.secret)
+    expected = _mac(declaration, slot, spec.secret)
     if not hmac.compare_digest(str(auth.get("value", "")), expected):
         raise ValueError("Step-0 HMAC verification failed")
     commits = declaration["teams"][slot]["github_commits"]

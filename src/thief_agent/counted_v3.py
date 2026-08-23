@@ -105,6 +105,8 @@ def main() -> int:
     arm_consensus(shared)
     inboxes = Inboxes()
     _start_server(args, cfg, inboxes)
+    if args.manual_start:
+        input("origin serving; press Enter to initiate authenticated Step-0: ")
     if not _await_peer(args.peer, args.turn_timeout):
         print(f"opponent edge did not become reachable: {args.peer}")
         return 7

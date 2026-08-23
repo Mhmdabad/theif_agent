@@ -31,6 +31,10 @@ def test_rehearsal_and_send_are_mutually_exclusive() -> None:
         parse_args([*BASE_ARGS, "--rehearsal", "--send"])
 
 
+def test_manual_start_gate_is_available() -> None:
+    assert parse_args([*BASE_ARGS, "--rehearsal", "--manual-start"]).manual_start is True
+
+
 def test_rehearsal_delivery_cannot_call_mail(monkeypatch: pytest.MonkeyPatch) -> None:
     def fail(*_args: object, **_kwargs: object) -> int:
         raise AssertionError("mail path was called")

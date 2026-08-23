@@ -26,6 +26,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--opponent-thief-commit")
     parser.add_argument("--scent-model", default=SCENT_MODEL, choices=(SCENT_MODEL,))
     parser.add_argument("--turn-timeout", type=float, default=30.0)
+    parser.add_argument("--manual-start", action="store_true")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--send", action="store_true")
     mode.add_argument("--rehearsal", action="store_true")

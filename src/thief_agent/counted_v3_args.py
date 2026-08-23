@@ -10,7 +10,7 @@ from typing import Any
 from .counted_v3_contract import SCENT_MODEL
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Counted authenticated reference-v3 series")
     parser.add_argument("--peer", required=True)
     parser.add_argument("--public", required=True)
@@ -26,8 +26,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--opponent-thief-commit")
     parser.add_argument("--scent-model", default=SCENT_MODEL, choices=(SCENT_MODEL,))
     parser.add_argument("--turn-timeout", type=float, default=30.0)
-    parser.add_argument("--send", action="store_true")
-    return parser.parse_args()
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--send", action="store_true")
+    mode.add_argument("--rehearsal", action="store_true")
+    return parser.parse_args(argv)
 
 
 def private_config() -> dict[str, Any]:

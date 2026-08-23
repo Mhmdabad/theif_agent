@@ -100,3 +100,9 @@ def test_wire_digest_is_the_digest_stored_in_the_counted_report() -> None:
     assert (
         settlement_sha(played, SimpleNamespace(group_id="s82kma9e")) == report.result_claim_sha256
     )
+    rehearsal = build_report(played, cfg, "police", (4, 3), counted=False)
+    assert rehearsal.to_dict()["league"] == {
+        "authority": "book App. E rule 52 — the one counted series of this pairing",
+        "counted": False,
+        "reason": "friendly",
+    }

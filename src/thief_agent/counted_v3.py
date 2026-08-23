@@ -83,6 +83,18 @@ def _play(
     return result
 
 
+def _deliver(args: argparse.Namespace, path: object, private: dict[str, object]) -> int:
+    if args.rehearsal:
+        print("authenticated rehearsal complete: uncounted and email disabled")
+        return 0
+    if not args.send:
+        print("not sent: final counted launch must include --send")
+        return 0
+    from .cli_report import report as send_report
+
+    return send_report(argparse.Namespace(report=str(path), send=True), private)
+
+
 def main() -> int:
     load_dotenv()
     args, private, shared = parse_args(), private_config(), load_contract()
@@ -113,20 +125,21 @@ def main() -> int:
         print(f"counted report blocked: {exc}")
         return 8
     report_cfg = report_config(args, private)
+    counted = not args.rehearsal
     report = build_report(
-        result, report_cfg, args.role, (args.games_played, args.opponent_games_played)
+        result,
+        report_cfg,
+        args.role,
+        (args.games_played, args.opponent_games_played),
+        counted=counted,
     )
     require_complete(report)
-    promote_wire(args.out, report_cfg)
+    promote_wire(args.out, report_cfg, counted=counted)
     path = args.out / report.filename
     path.write_text(report.to_json(), encoding="utf-8")
-    print(f"counted result derived after authenticated consensus: {path}")
-    if not args.send:
-        print("not sent: final counted launch must include --send")
-        return 0
-    from .cli_report import report as send_report
-
-    return send_report(argparse.Namespace(report=str(path), send=True), private)
+    label = "counted result" if counted else "uncounted rehearsal result"
+    print(f"{label} derived after authenticated consensus: {path}")
+    return _deliver(args, path, private)
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ from . import reference_v3 as _reference_v3  # noqa: F401 - exposes vendored spa
 from sparring.rules.outcome import Outcome, Role, TIE_SCORE, score_for
 
 from .infra.report import Report, Repositories, SubGameResult
+from .infra.report_league import league_block
 from .shared.consensus import consensus_signature
 from .shared.consensus_scope import consensus_scope
 from .shared.config import canonical_bytes
@@ -49,7 +50,12 @@ def _standing(ledger: list[dict[str, Any]], ours: str, theirs: str) -> dict[str,
 
 
 def build_report(
-    result: SettledResult, cfg: dict[str, Any], role: str, counts: tuple[int, int]
+    result: SettledResult,
+    cfg: dict[str, Any],
+    role: str,
+    counts: tuple[int, int],
+    *,
+    counted: bool = True,
 ) -> Report:
     ours, theirs = cfg["ours"], cfg["theirs"]
     standing = _standing(result.ledger, ours, theirs)
@@ -82,6 +88,7 @@ def build_report(
         0,
         True,
         repositories=repos,
+        counted=counted,
         game_uid=result.game_uid,
         starting_role=role,
         series_result=standing,
@@ -94,14 +101,10 @@ def build_report(
     return replace(draft, result_claim_sha256=digest)
 
 
-def promote_wire(directory: Path, cfg: dict[str, Any]) -> list[Path]:
+def promote_wire(directory: Path, cfg: dict[str, Any], *, counted: bool = True) -> list[Path]:
     source = next((directory / ".wire").glob("sparring_*"))
     written: list[Path] = []
-    league = {
-        "authority": "book App. E rule 52 — the one counted series of this pairing",
-        "counted": True,
-        "reason": "counted",
-    }
+    league = league_block(counted)
     for path in source.glob("*.json"):
         if path.name.startswith("result_"):
             continue

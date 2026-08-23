@@ -29,6 +29,13 @@ MARS_COMMITS = {
     "thief": "0e330cc5b6bc36002d21c475699cbf954c68217d",
 }
 S82_COMMITS = {"police": "d" * 40, "thief": "6" * 40}
+TEST_HARDWARE = {
+    "os": "Linux",
+    "cpu_cores": 8,
+    "cpu_freq_ghz": "2.4",
+    "ram_gb": 16,
+    "gpu": False,
+}
 
 
 def _team(group: str, members: list[str], police: str, thief: str) -> dict[str, Any]:
@@ -81,17 +88,10 @@ def test_frozen_game_contract_hashes() -> None:
 
 
 def test_step_zero_v2_golden_vector() -> None:
-    hardware = {
-        "os": "Linux",
-        "cpu_cores": 8,
-        "cpu_freq_ghz": "2.4",
-        "ram_gb": 16,
-        "gpu": False,
-    }
     payload = build_payload(
         _spec("MaRs-777", 100000),
         started_at="2026-08-23T12:00:00Z",
-        hardware=hardware,
+        hardware=TEST_HARDWARE,
     )
     declaration = payload["declaration"]
     assert declaration["teams"]["group_a"]["hardware"]["cpu_freq_ghz"] == "2.4"
@@ -109,16 +109,16 @@ def test_step_zero_v2_golden_vector() -> None:
 
 
 def test_each_producer_uses_explicit_null_and_verifies() -> None:
-    mars_payload = build_payload(_spec("MaRs-777"))
+    mars_payload = build_payload(_spec("MaRs-777"), hardware=TEST_HARDWARE)
     assert mars_payload["declaration"]["teams"]["group_b"] is None
     assert verify_payload(mars_payload, _spec("s82kma9e")) == MARS_COMMITS
-    s82_payload = build_payload(_spec("s82kma9e"))
+    s82_payload = build_payload(_spec("s82kma9e"), hardware=TEST_HARDWARE)
     assert s82_payload["declaration"]["teams"]["group_a"] is None
     assert verify_payload(s82_payload, _spec("MaRs-777")) == S82_COMMITS
 
 
 def test_tampered_role_commit_is_refused() -> None:
-    payload = json.loads(json.dumps(build_payload(_spec("MaRs-777"))))
+    payload = json.loads(json.dumps(build_payload(_spec("MaRs-777"), hardware=TEST_HARDWARE)))
     payload["declaration"]["teams"]["group_a"]["github_commits"]["police"] = "f" * 40
     with pytest.raises(ValueError, match="commit|HMAC"):
         verify_payload(payload, _spec("s82kma9e"))

@@ -78,3 +78,34 @@ def test_exchange_refuses_a_different_digest() -> None:
     client = SimpleNamespace(submit_audit=lambda _payload: {"ok": True})
     with pytest.raises(ConsensusError, match="series hash mismatch"):
         exchange(result(), SimpleNamespace(group_id="s82kma9e"), client, inboxes)
+
+
+def test_exchange_waits_until_our_envelope_is_delivered(monkeypatch: pytest.MonkeyPatch) -> None:
+    played, cfg = result(), SimpleNamespace(group_id="s82kma9e")
+    digest = consensus_signature(settlement_scope(played, cfg))
+    inboxes = SimpleNamespace(
+        audits=deque(
+            [
+                {
+                    "sender": "police",
+                    "result_claim": CLAIM,
+                    "records": [],
+                    "consensus_sha": digest,
+                }
+            ]
+        )
+    )
+
+    class Client:
+        calls = 0
+
+        def submit_audit(self, _payload: dict[str, object]) -> dict[str, bool]:
+            self.calls += 1
+            if self.calls == 1:
+                raise OSError("receiver still closing")
+            return {"ok": True}
+
+    monkeypatch.setenv("SERIES_CONSENSUS_RETRY", "0")
+    client = Client()
+    assert exchange(played, cfg, client, inboxes) == digest
+    assert client.calls == 2

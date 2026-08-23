@@ -87,9 +87,13 @@ def exchange(result: Any, cfg: Any, client: Any, inboxes: Any) -> str:
     timeout = float(os.getenv(TIMEOUT, "400"))
     retry = float(os.getenv(RETRY, "2"))
     deadline, last_error = time.monotonic() + timeout, "peer sent no envelope"
+    delivered = peer_confirmed = False
     while time.monotonic() < deadline:
         try:
-            client.submit_audit(envelope)
+            response = client.submit_audit(envelope)
+            delivered = delivered or response.get("ok") is True
+            if not delivered:
+                last_error = "peer did not acknowledge our envelope"
         except Exception as exc:  # network retries are the contract of this exchange
             last_error = f"send failed: {exc}"
         while inboxes.audits:
@@ -106,6 +110,8 @@ def exchange(result: Any, cfg: Any, client: Any, inboxes: Any) -> str:
                 raise ConsensusError(
                     f"series hash mismatch: ours {digest}, theirs {peer.get('consensus_sha')}"
                 )
+            peer_confirmed = True
+        if delivered and peer_confirmed:
             print(f"  series consensus confirmed: {digest}")
             return digest
         time.sleep(retry)

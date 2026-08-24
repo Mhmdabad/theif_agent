@@ -106,3 +106,35 @@ def test_wire_digest_is_the_digest_stored_in_the_counted_report() -> None:
         "counted": False,
         "reason": "friendly",
     }
+
+
+def test_artifact_only_report_waits_for_peer_confirmation() -> None:
+    played = result()
+    for row in played.ledger:
+        row.update(
+            {
+                "github_commit": "a" * 40,
+                "opponent_commit": "b" * 40,
+                "steps": 35,
+                "audit_ok": True,
+                "started_at": "2026-08-24T00:00:00+03:00",
+                "ended_at": "2026-08-24T00:01:00+03:00",
+            }
+        )
+    cfg = {
+        "ours": "s82kma9e",
+        "theirs": "yamanagh",
+        "public": "https://ours/mcp",
+        "peer": "https://theirs/mcp",
+        "our_name": "s82kma9e",
+        "our_members": [],
+        "their_name": "yamanagh",
+        "their_members": [],
+        "cop_repo": "https://ours/cop",
+        "thief_repo": "https://ours/thief",
+        "opponent_cop_repo": "https://theirs/cop",
+        "opponent_thief_repo": "https://theirs/thief",
+    }
+    report = build_report(played, cfg, "police", (6, 1), agreed=False)
+    assert report.agreed is False
+    assert report.result_claim_sha256

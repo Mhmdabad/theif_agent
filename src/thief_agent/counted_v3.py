@@ -7,6 +7,7 @@ import argparse
 import threading
 import time
 from types import SimpleNamespace
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -22,10 +23,9 @@ from sparring.transport.loopback import Inboxes
 from .counted_v3_args import parse_args, private_config, report_config
 from .counted_v3_contract import TERMS_SHA, load_contract
 from .counted_v3_evidence import add_timings, capture, require_complete
+from .counted_v3_profiles import action, agreed, basis, deliver, negotiate, prepare
 from .counted_v3_report import build_report, promote_wire
 from .counted_v3_revisions import role_commits
-from .counted_v3_setup import arm_consensus, save_step_zero, step_zero_spec
-from .counted_v3_step0_exchange import exchange
 from .counted_v3_wire import build_server
 from .reference_v3_commits import annotate as annotate_commits
 from .reference_v3_commits import configure_local
@@ -41,7 +41,9 @@ def _await_peer(url: str, timeout: float) -> bool:
     return False
 
 
-def _config(args: argparse.Namespace) -> SparConfig:
+def _config(args: argparse.Namespace, shared: dict[str, Any] | None = None) -> SparConfig:
+    network = (shared or {}).get("network_and_league", {})
+    watchdog = float(network.get("watchdog_timeout_sec", 60.0))
     cfg = SparConfig(
         group_id=args.group_id,
         group_name=args.group_id,
@@ -49,7 +51,7 @@ def _config(args: argparse.Namespace) -> SparConfig:
         natural_role=args.role,
         policy="search",
         scent_model=args.scent_model,
-        budgets=Budgets(turn_timeout=args.turn_timeout, watchdog_timeout=60.0),
+        budgets=Budgets(turn_timeout=args.turn_timeout, watchdog_timeout=watchdog),
     )
     if kitref.canonical_hash(cfg.terms()) != TERMS_SHA:
         raise RuntimeError("runtime terms differ from the frozen counted terms")
@@ -83,41 +85,27 @@ def _play(
     return result
 
 
-def _deliver(args: argparse.Namespace, path: object, private: dict[str, object]) -> int:
-    if args.rehearsal:
-        print("authenticated rehearsal complete: uncounted and email disabled")
-        return 0
-    if not args.send:
-        print("not sent: final counted launch must include --send")
-        return 0
-    from .cli_report import report as send_report
-
-    return send_report(argparse.Namespace(report=str(path), send=True), private)
-
-
 def main() -> int:
     load_dotenv()
     args, private, shared = parse_args(), private_config(), load_contract()
     reset_commits()
     commits = role_commits()
     configure_local(commits)
-    cfg = _config(args)
-    arm_consensus(shared)
+    cfg = _config(args, shared)
+    prepare(args, shared)
     inboxes = Inboxes()
     _start_server(args, cfg, inboxes)
     if args.manual_start:
-        input("origin serving; press Enter to initiate authenticated Step-0: ")
+        input(f"origin serving; press Enter to initiate {action(args)}: ")
     if not _await_peer(args.peer, args.turn_timeout):
         print(f"opponent edge did not become reachable: {args.peer}")
         return 7
     client = McpClient(args.peer, timeout=cfg.budgets.connect_timeout)
-    spec = step_zero_spec(args, private, shared, cfg.terms(), commits)
     try:
-        ours, theirs, peer_commits = exchange(client, inboxes, spec, args.turn_timeout)
+        peer_commits = negotiate(args, private, shared, cfg, commits, client, inboxes)
     except (RuntimeError, ValueError) as exc:
-        print(f"counted Step-0 refused: {exc}")
+        print(f"counted pregame refused: {exc}")
         return 9
-    save_step_zero(args.out, spec.game_id, ours, theirs)
     result = _play(args, cfg, inboxes, client)
     if not result.settled or len(result.ledger) != 6:
         return 6
@@ -134,14 +122,15 @@ def main() -> int:
         args.role,
         (args.games_played, args.opponent_games_played),
         counted=counted,
+        agreed=agreed(args),
     )
     require_complete(report)
     promote_wire(args.out, report_cfg, counted=counted)
     path = args.out / report.filename
     path.write_text(report.to_json(), encoding="utf-8")
     label = "counted result" if counted else "uncounted rehearsal result"
-    print(f"{label} derived after authenticated consensus: {path}")
-    return _deliver(args, path, private)
+    print(f"{label} derived after {basis(args)}: {path}")
+    return deliver(args, path, private, report.result_claim_sha256)
 
 
 if __name__ == "__main__":

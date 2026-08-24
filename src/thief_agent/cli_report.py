@@ -25,6 +25,9 @@ result file is well formed before a match day.
 """
 
 import argparse
+import hmac
+import re
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +36,8 @@ from .infra.report_parts import ReportError
 from .infra.report_reload import load
 
 __all__ = ["report"]
+
+SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
 def _summarise(path: Path, body: Report, mode: str, sending: bool, to: str) -> list[str]:
@@ -65,6 +70,15 @@ def report(arguments: argparse.Namespace, private: dict[str, Any]) -> int:
     except (OSError, ReportError) as exc:
         print(f"cannot read the report: {exc}")
         return 1
+    claimed = str(getattr(arguments, "confirm_sha", ""))
+    if claimed:
+        if not SHA256.fullmatch(claimed) or not hmac.compare_digest(
+            claimed, body.result_claim_sha256
+        ):
+            print("cannot confirm: the peer settlement SHA differs from this report")
+            return 1
+        body = replace(body, agreed=True)
+        Path(arguments.report).write_text(body.to_json())
     try:
         to = recipient()
     except ReportError as exc:

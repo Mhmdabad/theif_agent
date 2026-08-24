@@ -4,11 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from thief_agent import cli_report, counted_v3
+from thief_agent import cli_report
+from thief_agent import counted_v3 as _counted_v3  # noqa: F401
 from thief_agent.counted_v3_args import parse_args
+from thief_agent.counted_v3_profiles import deliver
 from thief_agent.counted_v3_report import promote_wire
 
 BASE_ARGS = [
+    "--profile",
+    "authenticated-v3",
     "--peer",
     "https://peer/mcp",
     "--public",
@@ -27,6 +31,29 @@ BASE_ARGS = [
     "2026-08-23T18:30:00Z",
 ]
 
+STANDARD_ARGS = [
+    "--profile",
+    "standard-v3",
+    "--peer",
+    "https://peer/mcp",
+    "--public",
+    "https://ours/mcp",
+    "--role",
+    "thief",
+    "--opponent-group",
+    "khm-mn17",
+    "--port",
+    "8802",
+    "--games-played",
+    "6",
+    "--opponent-games-played",
+    "1",
+    "--opponent-cop-commit",
+    "4" * 40,
+    "--opponent-thief-commit",
+    "e" * 40,
+]
+
 
 def test_rehearsal_and_send_are_mutually_exclusive() -> None:
     with pytest.raises(SystemExit):
@@ -42,13 +69,30 @@ def test_game_start_requires_exact_utc_seconds() -> None:
         parse_args([*BASE_ARGS[:-1], "2026-08-23T18:30:00+00:00"])
 
 
+def test_standard_v3_needs_no_game_start_and_cannot_send_immediately() -> None:
+    args = parse_args(STANDARD_ARGS)
+    assert args.game_start is None
+    with pytest.raises(SystemExit):
+        parse_args([*STANDARD_ARGS, "--send"])
+
+
+def test_the_default_profile_preserves_authenticated_v3() -> None:
+    without_profile = BASE_ARGS[2:]
+    assert parse_args(without_profile).profile == "authenticated-v3"
+
+
+def test_standard_v3_requires_both_frozen_peer_commits() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(STANDARD_ARGS[:-2])
+
+
 def test_rehearsal_delivery_cannot_call_mail(monkeypatch: pytest.MonkeyPatch) -> None:
     def fail(*_args: object, **_kwargs: object) -> int:
         raise AssertionError("mail path was called")
 
     monkeypatch.setattr(cli_report, "report", fail)
     args = argparse.Namespace(rehearsal=True, send=False)
-    assert counted_v3._deliver(args, "result.json", {}) == 0
+    assert deliver(args, Path("result.json"), {}, "") == 0
 
 
 def test_rehearsal_promotes_wire_as_uncounted(tmp_path: Path) -> None:

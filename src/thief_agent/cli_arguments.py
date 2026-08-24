@@ -83,4 +83,10 @@ def parse(argv: Sequence[str] | None, description: str | None) -> argparse.Names
         help='actually mail the report. Also needs [email] mode = "send" in the private '
         "config: one flag between a rehearsal and a lecturer's inbox is one too few",
     )
+    parser.add_argument(
+        "--confirm-sha",
+        default="",
+        help="the peer's independently derived 64-character settlement SHA; when it matches "
+        "the report's own digest, mark mutual agreement before an optional send",
+    )
     return parser.parse_args(argv)

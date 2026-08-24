@@ -29,8 +29,8 @@ from test_report import report as a_report
 from thief_agent.cli_report import report
 
 
-def arguments(path: Path, send: bool = False) -> argparse.Namespace:
-    return argparse.Namespace(report=path, send=send)
+def arguments(path: Path, send: bool = False, confirm_sha: str = "") -> argparse.Namespace:
+    return argparse.Namespace(report=path, send=send, confirm_sha=confirm_sha)
 
 
 def written(tmp_path: Path, **overrides: object) -> Path:
@@ -100,6 +100,18 @@ class TestWhatItRefusesToSend:
 
 
 class TestTheAgreementIsVisibleToTheReader:
+    def test_matching_peer_sha_marks_the_written_report_agreed(self, tmp_path: Path) -> None:
+        path = written(tmp_path, agreed=False, result_claim_sha256="a" * 64)
+        digest = json.loads(path.read_text())["mutual_agreement"]["sha256"]
+        assert report(arguments(path, confirm_sha=digest), private()) == 0
+        assert json.loads(path.read_text())["mutual_agreement"]["confirmed"] is True
+
+    def test_different_peer_sha_is_refused_without_rewriting(self, tmp_path: Path) -> None:
+        path = written(tmp_path, agreed=False)
+        before = path.read_text()
+        assert report(arguments(path, confirm_sha="0" * 64), private()) == 1
+        assert path.read_text() == before
+
     def test_an_agreed_report_says_so(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:

@@ -10,6 +10,9 @@ from typing import Any
 
 from .counted_v3_contract import SCENT_MODEL
 
+AUTHENTICATED = "authenticated-v3"
+STANDARD = "standard-v3"
+
 
 def _utc_stamp(value: str) -> str:
     try:
@@ -22,7 +25,8 @@ def _utc_stamp(value: str) -> str:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Counted authenticated reference-v3 series")
+    parser = argparse.ArgumentParser(description="Counted reference-v3 series")
+    parser.add_argument("--profile", choices=(AUTHENTICATED, STANDARD), default=AUTHENTICATED)
     parser.add_argument("--peer", required=True)
     parser.add_argument("--public", required=True)
     parser.add_argument("--role", choices=("police", "thief"), required=True)
@@ -37,12 +41,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--opponent-thief-commit")
     parser.add_argument("--scent-model", default=SCENT_MODEL, choices=(SCENT_MODEL,))
     parser.add_argument("--turn-timeout", type=float, default=30.0)
-    parser.add_argument("--game-start", required=True, type=_utc_stamp)
+    parser.add_argument("--game-start", type=_utc_stamp)
     parser.add_argument("--manual-start", action="store_true")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--send", action="store_true")
     mode.add_argument("--rehearsal", action="store_true")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.profile == AUTHENTICATED and not args.game_start:
+        parser.error("--game-start is required for authenticated-v3")
+    if args.profile == STANDARD:
+        if args.send:
+            parser.error("standard-v3 writes first; send later after --confirm-sha")
+        if not args.opponent_cop_commit or not args.opponent_thief_commit:
+            parser.error("standard-v3 requires both opponent role commits")
+    return args
 
 
 def private_config() -> dict[str, Any]:

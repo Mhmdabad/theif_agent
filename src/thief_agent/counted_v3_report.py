@@ -56,6 +56,7 @@ def build_report(
     counts: tuple[int, int],
     *,
     counted: bool = True,
+    agreed: bool = True,
 ) -> Report:
     ours, theirs = cfg["ours"], cfg["theirs"]
     standing = _standing(result.ledger, ours, theirs)
@@ -86,7 +87,7 @@ def build_report(
         theirs,
         tuple(subs),
         0,
-        True,
+        agreed,
         repositories=repos,
         counted=counted,
         game_uid=result.game_uid,

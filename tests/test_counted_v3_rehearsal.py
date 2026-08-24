@@ -41,7 +41,7 @@ STANDARD_ARGS = [
     "--role",
     "thief",
     "--opponent-group",
-    "khm-mn17",
+    "amirmtan",
     "--port",
     "8802",
     "--games-played",
